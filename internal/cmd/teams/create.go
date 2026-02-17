@@ -87,5 +87,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if format == "json" || format == "yaml" {
+		return p.PrintRawJSON(team.RawBody, os.Stdout)
+	}
 	return p.PrintObj(team, os.Stdout)
 }

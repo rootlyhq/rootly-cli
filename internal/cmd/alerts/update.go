@@ -92,5 +92,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if format == "json" || format == "yaml" {
+		return p.PrintRawJSON(alert.RawBody, os.Stdout)
+	}
 	return p.PrintObj(alert, os.Stdout)
 }
