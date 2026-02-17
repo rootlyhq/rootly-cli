@@ -1,4 +1,4 @@
-.PHONY: build build-tui run clean test lint deps coverage coverage-html version bump-patch bump-minor bump-major push-tag release-patch release-minor release-major
+.PHONY: build build-tui build-all run clean test lint deps coverage coverage-html version bump-patch bump-minor bump-major push-tag release-patch release-minor release-major
 
 # Build variables
 BINARY_NAME := rootly
@@ -21,7 +21,12 @@ build: deps
 
 # Build the TUI binary
 build-tui: deps
-	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/rootly-tui ./cmd/rootly-tui
+	CGO_ENABLED=0 go build $(LDFLAGS) -o bin/rootly-tui ./cmd/rootly-tui
+
+# Build both CLI and TUI binaries
+build-all: deps
+	CGO_ENABLED=0 go build $(LDFLAGS) -o bin/$(BINARY_NAME) ./cmd/rootly
+	CGO_ENABLED=0 go build $(LDFLAGS) -o bin/rootly-tui ./cmd/rootly-tui
 
 # Build and run
 run: build
