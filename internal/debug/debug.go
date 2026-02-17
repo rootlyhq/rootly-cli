@@ -83,7 +83,7 @@ func init() {
 	// Create logger that writes to buffer (always) and optionally to stderr/file
 	Logger = log.NewWithOptions(LogBuffer, log.Options{
 		ReportTimestamp: true,
-		Prefix:          "rootly-tui",
+		Prefix:          "rootly-cli",
 		Level:           log.DebugLevel, // Always capture to buffer
 	})
 }

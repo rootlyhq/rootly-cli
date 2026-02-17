@@ -161,7 +161,7 @@ func TestEnableDisable(t *testing.T) {
 
 func TestSetLogFile(t *testing.T) {
 	// Create temp file for test
-	tmpFile, err := os.CreateTemp("", "rootly-tui-debug-test-*.log")
+	tmpFile, err := os.CreateTemp("", "rootly-cli-debug-test-*.log")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestSetLogFileInvalidPath(t *testing.T) {
 
 func TestEnableWithFileOutput(t *testing.T) {
 	// Create temp file
-	tmpFile, err := os.CreateTemp("", "rootly-tui-debug-test-*.log")
+	tmpFile, err := os.CreateTemp("", "rootly-cli-debug-test-*.log")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}

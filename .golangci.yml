@@ -9,7 +9,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/rootlyhq/rootly-tui
+        - github.com/rootlyhq/rootly-cli
 
 linters:
   enable:

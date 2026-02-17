@@ -4,8 +4,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/rootlyhq/rootly-tui/internal/i18n"
-	"github.com/rootlyhq/rootly-tui/internal/styles"
+	"github.com/rootlyhq/rootly-cli/internal/i18n"
+	"github.com/rootlyhq/rootly-cli/internal/styles"
 )
 
 type AboutModel struct {
@@ -39,7 +39,7 @@ func (m AboutModel) View() string {
 	b.WriteString("\n\n")
 
 	// App name and version
-	b.WriteString(styles.TextBold.Render("Rootly TUI"))
+	b.WriteString(styles.TextBold.Render("Rootly CLI"))
 	b.WriteString("\n")
 	b.WriteString(styles.Text.Render("v" + m.version))
 	b.WriteString("\n\n")
@@ -59,7 +59,7 @@ func (m AboutModel) View() string {
 	b.WriteString(styles.TextBold.Render(i18n.T("about.links")))
 	b.WriteString("\n")
 	b.WriteString(renderAboutLine(i18n.T("about.docs"), "https://docs.rootly.com/integrations/tui"))
-	b.WriteString(renderAboutLine("GitHub", "https://github.com/rootlyhq/rootly-tui"))
+	b.WriteString(renderAboutLine("GitHub", "https://github.com/rootlyhq/rootly-cli"))
 	b.WriteString("\n")
 
 	// Credits

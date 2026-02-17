@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/rootlyhq/rootly-tui/internal/i18n"
-	"github.com/rootlyhq/rootly-tui/internal/styles"
+	"github.com/rootlyhq/rootly-cli/internal/i18n"
+	"github.com/rootlyhq/rootly-cli/internal/styles"
 )
 
 type HelpModel struct {

@@ -6,14 +6,14 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/rootlyhq/rootly-tui/internal/api"
-	"github.com/rootlyhq/rootly-tui/internal/config"
-	"github.com/rootlyhq/rootly-tui/internal/i18n"
+	"github.com/rootlyhq/rootly-cli/internal/api"
+	"github.com/rootlyhq/rootly-cli/internal/config"
+	"github.com/rootlyhq/rootly-cli/internal/i18n"
 )
 
 func TestMain(m *testing.M) {
 	// Use a temp directory as HOME to isolate from real config
-	tempDir, err := os.MkdirTemp("", "rootly-tui-test-*")
+	tempDir, err := os.MkdirTemp("", "rootly-cli-test-*")
 	if err != nil {
 		os.Exit(1)
 	}

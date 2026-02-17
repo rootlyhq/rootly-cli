@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/rootlyhq/rootly-tui/internal/printer"
+	"github.com/rootlyhq/rootly-cli/internal/printer"
 )
 
 var listCmd = &cobra.Command{

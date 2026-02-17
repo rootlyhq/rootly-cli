@@ -7,9 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/rootlyhq/rootly-tui/internal/api"
-	"github.com/rootlyhq/rootly-tui/internal/app"
-	"github.com/rootlyhq/rootly-tui/internal/debug"
+	"github.com/rootlyhq/rootly-cli/internal/api"
+	"github.com/rootlyhq/rootly-cli/internal/app"
+	"github.com/rootlyhq/rootly-cli/internal/debug"
 )
 
 var (
@@ -29,12 +29,12 @@ func main() {
 
 	// Check for version flag
 	if *showVersion || *showVersionShort {
-		fmt.Printf("rootly-tui %s (commit: %s, built: %s)\n", version, commit, date)
+		fmt.Printf("rootly-cli %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
 	}
 
 	// Always log startup to buffer
-	debug.Logger.Info("Starting rootly-tui",
+	debug.Logger.Info("Starting rootly-cli",
 		"version", version,
 		"commit", commit,
 	)

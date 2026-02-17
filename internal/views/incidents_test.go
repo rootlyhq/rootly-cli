@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/rootlyhq/rootly-tui/internal/api"
+	"github.com/rootlyhq/rootly-cli/internal/api"
 )
 
 func TestNewIncidentsModel(t *testing.T) {

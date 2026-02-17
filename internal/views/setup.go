@@ -10,10 +10,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/rootlyhq/rootly-tui/internal/api"
-	"github.com/rootlyhq/rootly-tui/internal/config"
-	"github.com/rootlyhq/rootly-tui/internal/i18n"
-	"github.com/rootlyhq/rootly-tui/internal/styles"
+	"github.com/rootlyhq/rootly-cli/internal/api"
+	"github.com/rootlyhq/rootly-cli/internal/config"
+	"github.com/rootlyhq/rootly-cli/internal/i18n"
+	"github.com/rootlyhq/rootly-cli/internal/styles"
 )
 
 // Panel identifiers

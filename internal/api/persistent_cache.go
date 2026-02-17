@@ -11,7 +11,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 	berrors "go.etcd.io/bbolt/errors"
 
-	"github.com/rootlyhq/rootly-tui/internal/debug"
+	"github.com/rootlyhq/rootly-cli/internal/debug"
 )
 
 var (
@@ -30,7 +30,7 @@ type persistentCacheItem struct {
 	ExpiresAt time.Time       `json:"expires_at"`
 }
 
-// NewPersistentCache creates a new persistent cache at ~/.rootly-tui/cache.db
+// NewPersistentCache creates a new persistent cache at ~/.rootly-cli/cache.db
 func NewPersistentCache(ttl time.Duration) (*PersistentCache, error) {
 	// Get cache directory
 	homeDir, err := os.UserHomeDir()
@@ -39,7 +39,7 @@ func NewPersistentCache(ttl time.Duration) (*PersistentCache, error) {
 		return nil, fmt.Errorf("get home dir: %w", err)
 	}
 
-	cacheDir := filepath.Join(homeDir, ".rootly-tui")
+	cacheDir := filepath.Join(homeDir, ".rootly-cli")
 	debug.Logger.Debug("Cache directory", "path", cacheDir)
 
 	if err := os.MkdirAll(cacheDir, 0700); err != nil {
@@ -74,7 +74,7 @@ func NewPersistentCache(ttl time.Duration) (*PersistentCache, error) {
 		if errors.Is(err, berrors.ErrTimeout) {
 			debug.Logger.Warn("Database lock timeout - another process may have the file open",
 				"path", dbPath,
-				"suggestion", "Try closing other rootly-tui instances or delete the cache.db file",
+				"suggestion", "Try closing other rootly-cli instances or delete the cache.db file",
 			)
 		}
 		return nil, fmt.Errorf("open cache db: %w", err)

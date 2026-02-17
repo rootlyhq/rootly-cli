@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rootlyhq/rootly-tui/internal/i18n"
+	"github.com/rootlyhq/rootly-cli/internal/i18n"
 )
 
 func TestMain(m *testing.M) {

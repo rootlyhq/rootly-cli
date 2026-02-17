@@ -56,8 +56,8 @@ func TestAboutModelView(t *testing.T) {
 	}
 
 	// Should contain app name
-	if !strings.Contains(view, "Rootly TUI") {
-		t.Error("expected view to contain 'Rootly TUI'")
+	if !strings.Contains(view, "Rootly CLI") {
+		t.Error("expected view to contain 'Rootly CLI'")
 	}
 
 	// Should contain GitHub link

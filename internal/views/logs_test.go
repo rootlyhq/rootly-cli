@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/rootlyhq/rootly-tui/internal/debug"
+	"github.com/rootlyhq/rootly-cli/internal/debug"
 )
 
 func TestNewLogsModel(t *testing.T) {
@@ -359,11 +359,11 @@ func TestColorizeLogEntry(t *testing.T) {
 		name  string
 		entry string
 	}{
-		{"error entry", "ERRO rootly-tui Error message"},
+		{"error entry", "ERRO rootly-cli Error message"},
 		{"error entry alt", "ERROR: something went wrong"},
-		{"warning entry", "WARN rootly-tui Warning message"},
-		{"info entry", "INFO rootly-tui Info message"},
-		{"debug entry", "DEBU rootly-tui Debug message"},
+		{"warning entry", "WARN rootly-cli Warning message"},
+		{"info entry", "INFO rootly-cli Info message"},
+		{"debug entry", "DEBU rootly-cli Debug message"},
 		{"debug entry alt", "DEBUG: some debug info"},
 		{"plain entry", "Some plain text"},
 	}

@@ -1,196 +1,157 @@
-# Rootly TUI
+# Rootly CLI
 
-A terminal user interface for viewing Rootly incidents and alerts.
+A command-line interface for managing Rootly incidents, alerts, services, teams, and on-call schedules from the terminal.
 
-![Go Version](https://img.shields.io/github/go-mod/go-version/rootlyhq/rootly-tui)
-![License](https://img.shields.io/github/license/rootlyhq/rootly-tui)
-![Release](https://img.shields.io/github/v/release/rootlyhq/rootly-tui)
+![Go Version](https://img.shields.io/github/go-mod/go-version/rootlyhq/rootly-cli)
+![License](https://img.shields.io/github/license/rootlyhq/rootly-cli)
+![Release](https://img.shields.io/github/v/release/rootlyhq/rootly-cli)
 
 ## Features
 
-- View and navigate incidents with full details
-- View and navigate alerts with full details
-- Split-pane interface with list and detail views
-- Press Enter to load extended details (roles, causes, responders, etc.)
-- Keyboard-driven navigation
-- Configurable API endpoint (supports self-hosted Rootly)
-- Internationalization with 12 supported languages
-- Persistent caching for faster startup
-- In-app debug log viewer
-
-## Supported Languages
-
-- English (US/UK)
-- Spanish (Espanol)
-- French (Francais)
-- German (Deutsch)
-- Chinese Simplified (简体中文)
-- Hindi (हिन्दी)
-- Arabic (العربية)
-- Bengali (বাংলা)
-- Portuguese Brazilian (Portugues)
-- Russian (Русский)
-- Japanese (日本語)
+- Full CRUD for incidents, alerts, services, and teams
+- On-call schedule queries (list schedules, view shifts, who's on-call)
+- Alert action shortcuts (`rootly alerts ack`, `rootly alerts resolve`)
+- Multiple output formats: table, JSON, YAML, markdown
+- TTY-aware output (table in terminal, JSON when piped)
+- Shell completions for bash, zsh, fish, and PowerShell
+- Confirmation prompts for destructive operations
+- Pagination and server-side filtering
 
 ## Installation
 
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew tap rootlyhq/tap
-brew install rootly-tui
-```
-
-Or in a single command:
-
-```bash
-brew install rootlyhq/tap/rootly-tui
+brew install rootlyhq/tap/rootly
 ```
 
 ### Go Install
 
 ```bash
-go install github.com/rootlyhq/rootly-tui/cmd/rootly-tui@latest
+go install github.com/rootlyhq/rootly-cli/cmd/rootly@latest
 ```
 
 ### Download Binary
 
-Download the latest release from the [Releases](https://github.com/rootlyhq/rootly-tui/releases) page.
+Download the latest release from the [Releases](https://github.com/rootlyhq/rootly-cli/releases) page.
+
+Available for Linux (amd64/arm64), macOS (Intel/Apple Silicon), and Windows (amd64).
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/rootlyhq/rootly-tui.git
-cd rootly-tui
+git clone https://github.com/rootlyhq/rootly-cli.git
+cd rootly-cli
 make build
-./bin/rootly-tui
+./bin/rootly
 ```
 
 ## Configuration
 
-On first run, you'll be prompted to enter your Rootly API credentials, select your timezone, and choose your preferred language.
+Set your API token via environment variable or config file:
 
-Configuration is stored at `~/.rootly-tui/config.yaml`:
+```bash
+# Environment variable (recommended for CI/scripts)
+export ROOTLY_API_TOKEN="your-api-key"
+
+# Or config file at ~/.rootly-cli/config.yaml
+```
+
+Config file format (`~/.rootly-cli/config.yaml`):
 
 ```yaml
 api_key: "your-api-key"
-endpoint: "api.rootly.com"  # Optional: defaults to api.rootly.com
-timezone: "America/Los_Angeles"
-language: "en_US"
-layout: "horizontal"  # "horizontal" (side-by-side) or "vertical" (stacked)
+api_host: "api.rootly.com"  # Optional, defaults to api.rootly.com
 ```
-
-### Configuration Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `api_key` | Your Rootly API key (required) | - |
-| `endpoint` | Rootly API endpoint | `api.rootly.com` |
-| `timezone` | Timezone for displaying timestamps | `UTC` (auto-detected on setup) |
-| `language` | UI language code | `en_US` (auto-detected on setup) |
-| `layout` | Panel layout: `horizontal` or `vertical` | `horizontal` |
 
 ### Getting an API Key
 
 1. Log in to your Rootly account
 2. Navigate to **Settings** > **API Keys**
-3. Create a new API key with read permissions for incidents and alerts
+3. Create a new API key with appropriate permissions
 
 ## Usage
 
 ```bash
-# Run the TUI
-rootly-tui
+# Incidents
+rootly incidents list
+rootly incidents list --status=started --severity=critical
+rootly incidents get <id>
+rootly incidents create --title="Database outage" --severity=critical
+rootly incidents update <id> --status=mitigated
+rootly incidents delete <id>
 
-# Check version
-rootly-tui --version
+# Alerts
+rootly alerts list
+rootly alerts get <id>
+rootly alerts create --summary="High CPU usage" --source=datadog
+rootly alerts ack <id>
+rootly alerts resolve <id>
 
-# Enable debug logging (outputs to stderr)
-rootly-tui --debug
+# Services
+rootly services list
+rootly services get <id>
+rootly services create --name="api-gateway"
+rootly services update <id> --description="Main API gateway"
+rootly services delete <id>
 
-# Write debug logs to a file
-rootly-tui --log debug.log
+# Teams
+rootly teams list
+rootly teams get <id>
+rootly teams create --name="Platform"
+rootly teams update <id> --color="#FF5733"
+rootly teams delete <id>
+
+# On-Call
+rootly oncall list              # List schedules
+rootly oncall shifts            # View upcoming shifts
+rootly oncall shifts --days=14  # Next 14 days
+rootly oncall who               # Who's on-call right now
 ```
 
-### Debug Mode
-
-Debug mode logs API requests, responses, and parsing details. This is useful for troubleshooting connection issues or unexpected behavior.
+### Output Formats
 
 ```bash
-# Debug to stderr (visible after exiting TUI)
-rootly-tui --debug 2> debug.log
+# Table (default in terminal)
+rootly incidents list
 
-# Or write directly to a file
-rootly-tui --log debug.log
+# JSON (default when piped, or explicit)
+rootly incidents list --format=json
+rootly incidents list --format=json | jq '.[] | .title'
+
+# YAML
+rootly incidents get <id> --format=yaml
+
+# Markdown (for documentation or LLM consumption)
+rootly incidents list --format=markdown
 ```
 
-Debug logs include:
-- API endpoint configuration
-- HTTP request method and URL
-- Response status codes and body length
-- JSON parsing results and errors (with prettified JSON)
+### Pagination & Filtering
 
-### In-App Log Viewer
+```bash
+# Pagination
+rootly incidents list --limit=50 --page=2
 
-Press `l` at any time to open the in-app log viewer. Logs are always captured in memory (up to 1000 entries) even without `--debug` mode.
+# Filtering
+rootly incidents list --status=started --severity=critical
+rootly alerts list --source=datadog
+rootly services list --name=api
 
-Log viewer controls:
-- `j/k` - Scroll up/down
-- `g/G` - Jump to top/bottom
-- `f` - Toggle auto-follow (tail) mode
-- `a` - Select all logs
-- `y` - Copy selected logs to clipboard
-- `c` - Clear logs
-- `l` or `Esc` - Close viewer
-
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `j` / `↓` | Move cursor down |
-| `k` / `↑` | Move cursor up |
-| `g` | Go to first item |
-| `G` | Go to last item |
-| `[` | Previous page |
-| `]` | Next page |
-| `Tab` | Switch between Incidents and Alerts |
-| `Enter` | Load detailed view / focus detail pane for scrolling |
-| `o` | Open item URL in browser |
-| `c` | Copy detail panel to clipboard |
-| `r` | Refresh data (clears cache) |
-| `S` | Open sort menu |
-| `l` | View debug logs |
-| `s` | Open setup screen |
-| `A` | Show about dialog |
-| `?` | Toggle help overlay |
-| `q` / `Esc` | Quit (or return from overlay/setup) |
-
-## Screenshots
-
+# Sorting
+rootly incidents list --sort=created_at --order=desc
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Rootly                          [Incidents] Alerts   v0.1.0│
-├─────────────────────────────────────────────────────────────┤
-│  ┌──────────────────────┬──────────────────────────────────┐│
-│  │ INCIDENTS            │ [INC-123] Database Connection    ││
-│  │                      │                                  ││
-│  │ ▶████ INC-123 in_pro │ Status: in_progress              ││
-│  │  ███  INC-122 resolv │ Severity: ████ Critical          ││
-│  │  ██   INC-121 resolv │                                  ││
-│  │                      │ 🔗 Links                         ││
-│  │                      │   Rootly: https://rootly.com/... ││
-│  │                      │                                  ││
-│  │                      │ 📅 Timeline                      ││
-│  │                      │   Started: Jan 5, 10:30 AM       ││
-│  │                      │   Detected: Jan 5, 10:32 AM      ││
-│  │                      │                                  ││
-│  │  Page 1  (1-3)       │ 🛠  Services                     ││
-│  │                      │   • api                          ││
-│  │                      │   • database                     ││
-│  └──────────────────────┴──────────────────────────────────┘│
-├─────────────────────────────────────────────────────────────┤
-│  j/k nav  Tab switch  o open  c copy  r refresh  ? help    │
-└─────────────────────────────────────────────────────────────┘
+
+### Shell Completions
+
+```bash
+# Bash
+rootly completion bash > /etc/bash_completion.d/rootly
+
+# Zsh
+rootly completion zsh > "${fpath[1]}/_rootly"
+
+# Fish
+rootly completion fish > ~/.config/fish/completions/rootly.fish
 ```
 
 ## Development
@@ -200,21 +161,14 @@ Log viewer controls:
 - Go 1.24+
 - Make
 
-### Build
+### Build & Test
 
 ```bash
 make build      # Build binary
-make run        # Build and run
-make dev        # Run with go run
-```
-
-### Test
-
-```bash
 make test       # Run tests
 make lint       # Run linter
-make coverage   # Run tests with coverage report
 make check      # Format, lint, and test
+make coverage   # Tests with coverage report
 ```
 
 ### Release
@@ -222,19 +176,10 @@ make check      # Format, lint, and test
 Releases are automated via GoReleaser when a new tag is pushed:
 
 ```bash
-git tag -a v0.1.0 -m "Release v0.1.0"
-git push origin v0.1.0
+make release-patch   # v0.1.0 -> v0.1.1
+make release-minor   # v0.1.0 -> v0.2.0
+make release-major   # v0.1.0 -> v1.0.0
 ```
-
-## Tech Stack
-
-- [Bubble Tea](https://github.com/charmbracelet/bubbletea) - TUI framework
-- [Bubbles](https://github.com/charmbracelet/bubbles) - TUI components
-- [Lip Gloss](https://github.com/charmbracelet/lipgloss) - Style definitions
-- [Log](https://github.com/charmbracelet/log) - Structured logging
-- [go-i18n](https://github.com/nicksnyder/go-i18n) - Internationalization
-- [BoltDB](https://github.com/etcd-io/bbolt) - Persistent cache
-- [rootly-go](https://github.com/rootlyhq/rootly-go) - Rootly API client
 
 ## License
 

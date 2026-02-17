@@ -11,8 +11,8 @@ import (
 
 	rootly "github.com/rootlyhq/rootly-go"
 
-	"github.com/rootlyhq/rootly-tui/internal/config"
-	"github.com/rootlyhq/rootly-tui/internal/debug"
+	"github.com/rootlyhq/rootly-cli/internal/config"
+	"github.com/rootlyhq/rootly-cli/internal/debug"
 )
 
 // DefaultCacheTTL is the default cache duration
@@ -331,7 +331,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		rootly.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 			req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 			req.Header.Set("Content-Type", "application/vnd.api+json")
-			req.Header.Set("User-Agent", "rootly-tui/"+Version)
+			req.Header.Set("User-Agent", "rootly-cli/"+Version)
 			debug.Logger.Debug("API request",
 				"method", req.Method,
 				"url", req.URL.String(),

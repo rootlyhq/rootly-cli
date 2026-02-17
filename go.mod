@@ -1,4 +1,4 @@
-module github.com/rootlyhq/rootly-tui
+module github.com/rootlyhq/rootly-cli
 
 go 1.24.2
 

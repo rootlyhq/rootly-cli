@@ -10,11 +10,11 @@ import (
 	"github.com/charmbracelet/lipgloss/list"
 	"github.com/evertras/bubble-table/table"
 
-	"github.com/rootlyhq/rootly-tui/internal/api"
-	"github.com/rootlyhq/rootly-tui/internal/components"
-	"github.com/rootlyhq/rootly-tui/internal/config"
-	"github.com/rootlyhq/rootly-tui/internal/i18n"
-	"github.com/rootlyhq/rootly-tui/internal/styles"
+	"github.com/rootlyhq/rootly-cli/internal/api"
+	"github.com/rootlyhq/rootly-cli/internal/components"
+	"github.com/rootlyhq/rootly-cli/internal/config"
+	"github.com/rootlyhq/rootly-cli/internal/i18n"
+	"github.com/rootlyhq/rootly-cli/internal/styles"
 )
 
 // renderBulletList renders a section with a bold title and bullet list using lipgloss/list

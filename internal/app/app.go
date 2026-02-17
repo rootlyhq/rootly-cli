@@ -14,12 +14,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"golang.design/x/clipboard"
 
-	"github.com/rootlyhq/rootly-tui/internal/api"
-	"github.com/rootlyhq/rootly-tui/internal/config"
-	"github.com/rootlyhq/rootly-tui/internal/debug"
-	"github.com/rootlyhq/rootly-tui/internal/i18n"
-	"github.com/rootlyhq/rootly-tui/internal/styles"
-	"github.com/rootlyhq/rootly-tui/internal/views"
+	"github.com/rootlyhq/rootly-cli/internal/api"
+	"github.com/rootlyhq/rootly-cli/internal/config"
+	"github.com/rootlyhq/rootly-cli/internal/debug"
+	"github.com/rootlyhq/rootly-cli/internal/i18n"
+	"github.com/rootlyhq/rootly-cli/internal/styles"
+	"github.com/rootlyhq/rootly-cli/internal/views"
 )
 
 type Screen int

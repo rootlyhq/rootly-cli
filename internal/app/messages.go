@@ -1,6 +1,6 @@
 package app
 
-import "github.com/rootlyhq/rootly-tui/internal/api"
+import "github.com/rootlyhq/rootly-cli/internal/api"
 
 // IncidentsLoadedMsg is sent when incidents are loaded from the API
 type IncidentsLoadedMsg struct {

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rootlyhq/rootly-tui/internal/config"
+	"github.com/rootlyhq/rootly-cli/internal/config"
 )
 
 // setupTestEnv sets up a temporary home directory for test isolation.
@@ -125,7 +125,7 @@ func TestUserAgentHeader(t *testing.T) {
 	// Make a request to trigger the header
 	_ = client.ValidateAPIKey(context.Background())
 
-	expectedUserAgent := "rootly-tui/1.2.3"
+	expectedUserAgent := "rootly-cli/1.2.3"
 	if receivedUserAgent != expectedUserAgent {
 		t.Errorf("User-Agent = %q, want %q", receivedUserAgent, expectedUserAgent)
 	}

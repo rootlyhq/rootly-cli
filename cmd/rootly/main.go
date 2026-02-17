@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/rootlyhq/rootly-tui/internal/cmd"
+	"github.com/rootlyhq/rootly-cli/internal/cmd"
 )
 
 var (

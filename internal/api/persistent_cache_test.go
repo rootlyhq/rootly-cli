@@ -17,7 +17,7 @@ func TestNewPersistentCache(t *testing.T) {
 
 	// Check that the database file was created in the temp home dir
 	homeDir, _ := os.UserHomeDir()
-	dbPath := homeDir + "/.rootly-tui/cache.db"
+	dbPath := homeDir + "/.rootly-cli/cache.db"
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		t.Error("expected cache.db to exist")
 	}

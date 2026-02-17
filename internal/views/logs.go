@@ -9,9 +9,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"golang.design/x/clipboard"
 
-	"github.com/rootlyhq/rootly-tui/internal/debug"
-	"github.com/rootlyhq/rootly-tui/internal/i18n"
-	"github.com/rootlyhq/rootly-tui/internal/styles"
+	"github.com/rootlyhq/rootly-cli/internal/debug"
+	"github.com/rootlyhq/rootly-cli/internal/i18n"
+	"github.com/rootlyhq/rootly-cli/internal/styles"
 )
 
 // LogsRefreshMsg triggers a log refresh

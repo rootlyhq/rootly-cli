@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/rootlyhq/rootly-tui/internal/cmd/oncall"
+	"github.com/rootlyhq/rootly-cli/internal/cmd/oncall"
 )
 
 func init() {
