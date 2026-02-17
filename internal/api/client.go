@@ -169,6 +169,25 @@ type AlertsResult struct {
 	Pagination PaginationInfo
 }
 
+// Service represents a Rootly service
+type Service struct {
+	ID            string
+	Name          string
+	Slug          string
+	Description   string
+	Color         string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	OwnerTeamName string // Populated from included owner_group relationship
+	DetailLoaded  bool
+}
+
+// ServicesResult contains services and pagination info
+type ServicesResult struct {
+	Services   []Service
+	Pagination PaginationInfo
+}
+
 // incidentResponseData represents the structure of incident data from the API response
 type incidentResponseData struct {
 	ID         string `json:"id"`
@@ -706,6 +725,18 @@ func parseTimePtr(s *string) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+// parseTime parses a time string in RFC3339 format, returning zero time if parsing fails.
+func parseTime(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // GetIncident fetches detailed incident data by ID
@@ -2728,5 +2759,528 @@ func (c *Client) ResolveAlertCLI(ctx context.Context, id string, resolutionMessa
 	}
 
 	debug.Logger.Debug("Resolved alert", "id", id)
+	return nil
+}
+
+// ListServicesCLI fetches services for CLI operations (stateless, no cache).
+func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort string, filters map[string]string) (*ServicesResult, error) {
+	// Cap pageSize at 100 (API limit); if 0, default to 25
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	// Build URL with query parameters
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+
+	url := fmt.Sprintf("%s/v1/services?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
+	if sort != "" {
+		url += fmt.Sprintf("&sort=%s", sort)
+	}
+
+	// Add filters (e.g., filter[name]=foo, filter[slug]=bar)
+	for key, value := range filters {
+		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+	}
+
+	debug.Logger.Debug("Fetching services (CLI)", "page", page, "pageSize", pageSize, "sort", sort, "filters", filters)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to list services", "error", err)
+		return nil, fmt.Errorf("failed to list services: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Services response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Services response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'read services' permission")
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	// Parse JSON:API response
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Name        string  `json:"name"`
+				Slug        string  `json:"slug"`
+				Description *string `json:"description"`
+				Color       *string `json:"color"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+			} `json:"attributes"`
+		} `json:"data"`
+		Meta struct {
+			CurrentPage int `json:"current_page"`
+			TotalPages  int `json:"total_pages"`
+			TotalCount  int `json:"total_count"`
+		} `json:"meta"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		debug.Logger.Error("Failed to parse services response", "error", err, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("failed to parse services response: %w", err)
+	}
+
+	// Convert to Service structs
+	services := make([]Service, 0, len(response.Data))
+	for _, item := range response.Data {
+		service := Service{
+			ID:        item.ID,
+			Name:      item.Attributes.Name,
+			Slug:      item.Attributes.Slug,
+			CreatedAt: parseTime(item.Attributes.CreatedAt),
+			UpdatedAt: parseTime(item.Attributes.UpdatedAt),
+		}
+		if item.Attributes.Description != nil {
+			service.Description = *item.Attributes.Description
+		}
+		if item.Attributes.Color != nil {
+			service.Color = *item.Attributes.Color
+		}
+		services = append(services, service)
+	}
+
+	// Build pagination info
+	pagination := PaginationInfo{
+		CurrentPage: response.Meta.CurrentPage,
+		TotalPages:  response.Meta.TotalPages,
+		TotalCount:  response.Meta.TotalCount,
+		HasNext:     response.Meta.CurrentPage < response.Meta.TotalPages,
+		HasPrev:     response.Meta.CurrentPage > 1,
+	}
+
+	return &ServicesResult{
+		Services:   services,
+		Pagination: pagination,
+	}, nil
+}
+
+// GetServiceByID fetches a single service by ID with detailed information.
+func (c *Client) GetServiceByID(ctx context.Context, id string) (*Service, error) {
+	debug.Logger.Debug("Fetching service detail (CLI)", "id", id)
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/services/%s?include=owner_group", baseURL, id)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to fetch service", "error", err)
+		return nil, fmt.Errorf("failed to fetch service: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Service detail response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Service detail response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'read services' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("service not found: %s", id)
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	// Parse JSON:API response
+	var response struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Name        string  `json:"name"`
+				Slug        string  `json:"slug"`
+				Description *string `json:"description"`
+				Color       *string `json:"color"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+			} `json:"attributes"`
+			Relationships struct {
+				OwnerGroup struct {
+					Data *struct {
+						ID string `json:"id"`
+					} `json:"data"`
+				} `json:"owner_group"`
+			} `json:"relationships"`
+		} `json:"data"`
+		Included []struct {
+			ID         string `json:"id"`
+			Type       string `json:"type"`
+			Attributes struct {
+				Name string `json:"name"`
+			} `json:"attributes"`
+		} `json:"included"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		debug.Logger.Error("Failed to parse service response", "error", err, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("failed to parse service response: %w", err)
+	}
+
+	service := &Service{
+		ID:           response.Data.ID,
+		Name:         response.Data.Attributes.Name,
+		Slug:         response.Data.Attributes.Slug,
+		CreatedAt:    parseTime(response.Data.Attributes.CreatedAt),
+		UpdatedAt:    parseTime(response.Data.Attributes.UpdatedAt),
+		DetailLoaded: true,
+	}
+	if response.Data.Attributes.Description != nil {
+		service.Description = *response.Data.Attributes.Description
+	}
+	if response.Data.Attributes.Color != nil {
+		service.Color = *response.Data.Attributes.Color
+	}
+
+	// Parse owner_group from included relationships
+	if response.Data.Relationships.OwnerGroup.Data != nil {
+		ownerGroupID := response.Data.Relationships.OwnerGroup.Data.ID
+		for _, inc := range response.Included {
+			if inc.Type == "groups" && inc.ID == ownerGroupID {
+				service.OwnerTeamName = inc.Attributes.Name
+				break
+			}
+		}
+	}
+
+	return service, nil
+}
+
+// CreateService creates a new service with the given name and optional attributes.
+func (c *Client) CreateService(ctx context.Context, name string, opts map[string]string) (*Service, error) {
+	debug.Logger.Debug("Creating service", "name", name, "opts", opts)
+
+	// Build JSON:API request body
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type": "services",
+			"attributes": map[string]interface{}{
+				"name": name,
+			},
+		},
+	}
+
+	// Add optional attributes
+	attributes := requestBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+	if description, ok := opts["description"]; ok {
+		attributes["description"] = description
+	}
+	if color, ok := opts["color"]; ok {
+		attributes["color"] = color
+	}
+
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/services", baseURL)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to create service", "error", err)
+		return nil, fmt.Errorf("failed to create service: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Create service response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Create service response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'create services' permission")
+	}
+	if httpResp.StatusCode != 201 && httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	// Parse response
+	var response struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Name        string  `json:"name"`
+				Slug        string  `json:"slug"`
+				Description *string `json:"description"`
+				Color       *string `json:"color"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		debug.Logger.Error("Failed to parse create service response", "error", err, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("failed to parse create service response: %w", err)
+	}
+
+	service := &Service{
+		ID:        response.Data.ID,
+		Name:      response.Data.Attributes.Name,
+		Slug:      response.Data.Attributes.Slug,
+		CreatedAt: parseTime(response.Data.Attributes.CreatedAt),
+		UpdatedAt: parseTime(response.Data.Attributes.UpdatedAt),
+	}
+	if response.Data.Attributes.Description != nil {
+		service.Description = *response.Data.Attributes.Description
+	}
+	if response.Data.Attributes.Color != nil {
+		service.Color = *response.Data.Attributes.Color
+	}
+
+	debug.Logger.Debug("Created service", "id", service.ID, "slug", service.Slug)
+	return service, nil
+}
+
+// UpdateService updates an existing service with the given attributes.
+func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]string) (*Service, error) {
+	debug.Logger.Debug("Updating service", "id", id, "opts", opts)
+
+	// Build JSON:API request body with only changed attributes
+	attributes := make(map[string]interface{})
+	if name, ok := opts["name"]; ok {
+		attributes["name"] = name
+	}
+	if description, ok := opts["description"]; ok {
+		attributes["description"] = description
+	}
+	if color, ok := opts["color"]; ok {
+		attributes["color"] = color
+	}
+
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type":       "services",
+			"id":         id,
+			"attributes": attributes,
+		},
+	}
+
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/services/%s", baseURL, id)
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to update service", "error", err)
+		return nil, fmt.Errorf("failed to update service: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Update service response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Update service response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'update services' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("service not found: %s", id)
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	// Parse response
+	var response struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Name        string  `json:"name"`
+				Slug        string  `json:"slug"`
+				Description *string `json:"description"`
+				Color       *string `json:"color"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		debug.Logger.Error("Failed to parse update service response", "error", err, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("failed to parse update service response: %w", err)
+	}
+
+	service := &Service{
+		ID:        response.Data.ID,
+		Name:      response.Data.Attributes.Name,
+		Slug:      response.Data.Attributes.Slug,
+		CreatedAt: parseTime(response.Data.Attributes.CreatedAt),
+		UpdatedAt: parseTime(response.Data.Attributes.UpdatedAt),
+	}
+	if response.Data.Attributes.Description != nil {
+		service.Description = *response.Data.Attributes.Description
+	}
+	if response.Data.Attributes.Color != nil {
+		service.Color = *response.Data.Attributes.Color
+	}
+
+	debug.Logger.Debug("Updated service", "id", service.ID)
+	return service, nil
+}
+
+// DeleteService deletes a service by ID.
+func (c *Client) DeleteService(ctx context.Context, id string) error {
+	debug.Logger.Debug("Deleting service", "id", id)
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/services/%s", baseURL, id)
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to delete service", "error", err)
+		return fmt.Errorf("failed to delete service: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Delete service response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return fmt.Errorf("access denied: API key lacks 'delete services' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return fmt.Errorf("service not found: %s", id)
+	}
+	if httpResp.StatusCode != 204 && httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	debug.Logger.Debug("Deleted service", "id", id)
 	return nil
 }
