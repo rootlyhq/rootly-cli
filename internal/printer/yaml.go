@@ -1,6 +1,7 @@
 package printer
 
 import (
+	"encoding/json"
 	"io"
 
 	"gopkg.in/yaml.v3"
@@ -16,6 +17,20 @@ func NewYAMLPrinter() *YAMLPrinter {
 
 // PrintObj prints a single object as YAML.
 func (p *YAMLPrinter) PrintObj(obj interface{}, w io.Writer) error {
+	data, err := yaml.Marshal(obj)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(data)
+	return err
+}
+
+// PrintRawJSON converts a raw JSON API response body to YAML output.
+func (p *YAMLPrinter) PrintRawJSON(rawBody []byte, w io.Writer) error {
+	var obj interface{}
+	if err := json.Unmarshal(rawBody, &obj); err != nil {
+		return err
+	}
 	data, err := yaml.Marshal(obj)
 	if err != nil {
 		return err

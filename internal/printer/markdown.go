@@ -42,6 +42,11 @@ func (p *MarkdownPrinter) PrintList(headers []string, rows [][]string, w io.Writ
 	return nil
 }
 
+// PrintRawJSON is not supported for markdown format.
+func (p *MarkdownPrinter) PrintRawJSON(_ []byte, _ io.Writer) error {
+	return fmt.Errorf("raw JSON passthrough is not supported for markdown format")
+}
+
 // PrintObj renders a single object as a Markdown key-value table.
 func (p *MarkdownPrinter) PrintObj(obj interface{}, w io.Writer) error {
 	// Marshal to JSON and back to get a map

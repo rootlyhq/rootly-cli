@@ -9,6 +9,9 @@ type Printer interface {
 	PrintObj(obj interface{}, w io.Writer) error
 	// PrintList prints a list of objects with headers (for list commands).
 	PrintList(headers []string, rows [][]string, w io.Writer) error
+	// PrintRawJSON writes a raw JSON API response body to the writer,
+	// formatted appropriately for the output format (pretty JSON or YAML).
+	PrintRawJSON(rawBody []byte, w io.Writer) error
 }
 
 // Column defines a column for table output.

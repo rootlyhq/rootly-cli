@@ -59,6 +59,11 @@ func (p *TablePrinter) PrintList(headers []string, rows [][]string, w io.Writer)
 	return nil
 }
 
+// PrintRawJSON is not supported for table format.
+func (p *TablePrinter) PrintRawJSON(_ []byte, _ io.Writer) error {
+	return fmt.Errorf("raw JSON passthrough is not supported for table format")
+}
+
 // PrintObj renders a single object as a key-value table.
 // The object is marshaled to a map via JSON round-trip.
 func (p *TablePrinter) PrintObj(obj interface{}, w io.Writer) error {

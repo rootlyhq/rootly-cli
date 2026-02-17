@@ -24,6 +24,21 @@ func (p *JSONPrinter) PrintObj(obj interface{}, w io.Writer) error {
 	return err
 }
 
+// PrintRawJSON pretty-prints a raw JSON API response body.
+func (p *JSONPrinter) PrintRawJSON(rawBody []byte, w io.Writer) error {
+	var obj interface{}
+	if err := json.Unmarshal(rawBody, &obj); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	_, err = w.Write(data)
+	return err
+}
+
 // PrintList converts headers and rows into a JSON array of objects,
 // where each object uses headers as keys.
 func (p *JSONPrinter) PrintList(headers []string, rows [][]string, w io.Writer) error {
