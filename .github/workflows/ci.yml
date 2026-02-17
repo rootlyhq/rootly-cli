@@ -94,8 +94,5 @@ jobs:
       - name: Build
         run: make build-all
 
-      - name: Verify CLI binary
+      - name: Verify binary
         run: ./bin/rootly version
-
-      - name: Verify TUI binary
-        run: ./bin/rootly-tui --version

@@ -1,6 +1,6 @@
 version: 2
 
-project_name: rootly-tui
+project_name: rootly-cli
 
 before:
   hooks:
@@ -31,29 +31,6 @@ builds:
       - -trimpath
     mod_timestamp: "{{.CommitTimestamp}}"
 
-  - id: rootly-tui
-    main: ./cmd/rootly-tui
-    binary: rootly-tui
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - darwin
-      - windows
-    goarch:
-      - amd64
-      - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64
-    ldflags:
-      - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.CommitDate}}
-    flags:
-      - -trimpath
-    mod_timestamp: "{{.CommitTimestamp}}"
 
 archives:
   - id: default
@@ -110,24 +87,6 @@ brews:
     test: |
       system "#{bin}/rootly", "version"
 
-homebrew_casks:
-  - name: rootly-tui
-    ids: [rootly-tui]
-    repository:
-      owner: rootlyhq
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: Casks
-    homepage: "https://rootly.com"
-    description: "Terminal UI for Rootly incidents and alerts"
-    binaries:
-      - rootly-tui
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/rootly-tui"]
-          end
 
 release:
   github:
