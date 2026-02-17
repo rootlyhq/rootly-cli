@@ -325,6 +325,41 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	}, nil
 }
 
+// NewClientWithoutCache creates a stateless API client without BoltDB cache initialization.
+// Used by the CLI for predictable, stateless operations.
+func NewClientWithoutCache(cfg *config.Config) (*Client, error) {
+	endpoint := cfg.Endpoint
+	if endpoint != "" && !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		endpoint = "https://" + endpoint
+	}
+
+	debug.Logger.Debug("Creating stateless API client (no cache)", "endpoint", endpoint)
+
+	client, err := rootly.NewClientWithResponses(endpoint,
+		rootly.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+			req.Header.Set("Content-Type", "application/vnd.api+json")
+			req.Header.Set("User-Agent", "rootly-cli/"+Version)
+			debug.Logger.Debug("API request",
+				"method", req.Method,
+				"url", req.URL.String(),
+			)
+			return nil
+		}),
+	)
+	if err != nil {
+		debug.Logger.Error("Failed to create client", "error", err)
+		return nil, fmt.Errorf("failed to create rootly client: %w", err)
+	}
+
+	return &Client{
+		client:   client,
+		endpoint: cfg.Endpoint,
+		apiKey:   cfg.APIKey,
+		cache:    nil, // No cache for CLI
+	}, nil
+}
+
 // ClearCache clears all cached data
 func (c *Client) ClearCache() {
 	if c.cache != nil {
@@ -1480,4 +1515,451 @@ func (i *Incident) InTriageDuration() int64 {
 
 func truncateToTwoDecimals(f float64) float64 {
 	return float64(int(f*100)) / 100
+}
+
+// ListIncidentsCLI lists incidents with configurable page size and filters for CLI usage.
+// Does not use cache (stateless).
+func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort string, filters map[string]string) (*IncidentsResult, error) {
+	// Cap pageSize at 100 (API limit); if 0, default to 25
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	// Build URL with query parameters
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+
+	url := fmt.Sprintf("%s/v1/incidents?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
+	if sort != "" {
+		url += fmt.Sprintf("&sort=%s", sort)
+	}
+
+	// Add filters (e.g., filter[status]=started, filter[severity]=critical)
+	for key, value := range filters {
+		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+	}
+
+	debug.Logger.Debug("Fetching incidents (CLI)", "page", page, "pageSize", pageSize, "sort", sort, "filters", filters)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to list incidents", "error", err)
+		return nil, fmt.Errorf("failed to list incidents: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Incidents response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Incidents response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'read incidents' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("resource not found")
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	var result struct {
+		Data  []incidentResponseData `json:"data"`
+		Links struct {
+			Next *string `json:"next"`
+			Prev *string `json:"prev"`
+		} `json:"links"`
+		Meta struct {
+			CurrentPage int  `json:"current_page"`
+			NextPage    *int `json:"next_page"`
+			PrevPage    *int `json:"prev_page"`
+			TotalCount  int  `json:"total_count"`
+			TotalPages  int  `json:"total_pages"`
+		} `json:"meta"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		debug.Logger.Error("Failed to parse incidents response",
+			"error", err,
+			"body", debug.PrettyJSON(body),
+		)
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	debug.Logger.Debug("Parsed incidents", "count", len(result.Data))
+
+	incidents := make([]Incident, 0, len(result.Data))
+	for _, d := range result.Data {
+		incidents = append(incidents, parseIncidentData(d))
+	}
+
+	// Build result with pagination info from Meta
+	hasNext := result.Meta.NextPage != nil && *result.Meta.NextPage > 0
+	if !hasNext && result.Links.Next != nil && *result.Links.Next != "" {
+		hasNext = true
+	}
+	hasPrev := result.Meta.PrevPage != nil && *result.Meta.PrevPage > 0
+	if !hasPrev && result.Links.Prev != nil && *result.Links.Prev != "" {
+		hasPrev = true
+	}
+
+	currentPage := result.Meta.CurrentPage
+	if currentPage == 0 {
+		currentPage = page
+	}
+
+	return &IncidentsResult{
+		Incidents: incidents,
+		Pagination: PaginationInfo{
+			CurrentPage: currentPage,
+			TotalPages:  result.Meta.TotalPages,
+			TotalCount:  result.Meta.TotalCount,
+			HasNext:     hasNext,
+			HasPrev:     hasPrev,
+		},
+	}, nil
+}
+
+// GetIncidentByID fetches incident detail by ID without requiring updatedAt parameter.
+// Does not use cache (stateless).
+func (c *Client) GetIncidentByID(ctx context.Context, id string) (*Incident, error) {
+	debug.Logger.Debug("Fetching incident detail (CLI)", "id", id)
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/incidents/%s?include=roles,causes,incident_types,functionalities,services,environments,groups,user", baseURL, id)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to fetch incident", "error", err)
+		return nil, fmt.Errorf("failed to fetch incident: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Incident detail response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Incident detail response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'read incidents' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("incident not found: %s", id)
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	var result struct {
+		Data incidentResponseData `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		debug.Logger.Error("Failed to parse incident detail response",
+			"error", err,
+			"body", debug.PrettyJSON(body),
+		)
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	incident := parseIncidentData(result.Data)
+	incident.DetailLoaded = true
+
+	debug.Logger.Debug("Parsed incident detail", "id", incident.ID, "title", incident.Title)
+	return &incident, nil
+}
+
+// CreateIncident creates a new incident using raw HTTP POST.
+func (c *Client) CreateIncident(ctx context.Context, title string, opts map[string]string) (*Incident, error) {
+	debug.Logger.Debug("Creating incident", "title", title, "opts", opts)
+
+	// Build JSON:API request body
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type": "incidents",
+			"attributes": map[string]interface{}{
+				"title": title,
+			},
+		},
+	}
+
+	// Add optional attributes
+	attributes := requestBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+	if summary, ok := opts["summary"]; ok {
+		attributes["summary"] = summary
+	}
+	if severityID, ok := opts["severity_id"]; ok {
+		attributes["severity_id"] = severityID
+	}
+	if status, ok := opts["status"]; ok {
+		attributes["status"] = status
+	}
+
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/incidents", baseURL)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to create incident", "error", err)
+		return nil, fmt.Errorf("failed to create incident: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Create incident response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Create incident response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'create incidents' permission")
+	}
+	if httpResp.StatusCode != 201 && httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	var result struct {
+		Data incidentResponseData `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		debug.Logger.Error("Failed to parse create incident response",
+			"error", err,
+			"body", debug.PrettyJSON(body),
+		)
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	incident := parseIncidentData(result.Data)
+	debug.Logger.Debug("Created incident", "id", incident.ID, "title", incident.Title)
+	return &incident, nil
+}
+
+// UpdateIncident updates an incident using raw HTTP PUT.
+func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]string) (*Incident, error) {
+	debug.Logger.Debug("Updating incident", "id", id, "opts", opts)
+
+	// Build JSON:API request body with only changed attributes
+	attributes := make(map[string]interface{})
+	if title, ok := opts["title"]; ok {
+		attributes["title"] = title
+	}
+	if summary, ok := opts["summary"]; ok {
+		attributes["summary"] = summary
+	}
+	if severityID, ok := opts["severity_id"]; ok {
+		attributes["severity_id"] = severityID
+	}
+	if status, ok := opts["status"]; ok {
+		attributes["status"] = status
+	}
+
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type":       "incidents",
+			"id":         id,
+			"attributes": attributes,
+		},
+	}
+
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/incidents/%s", baseURL, id)
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to update incident", "error", err)
+		return nil, fmt.Errorf("failed to update incident: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Update incident response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Update incident response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'update incidents' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("incident not found: %s", id)
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	var result struct {
+		Data incidentResponseData `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		debug.Logger.Error("Failed to parse update incident response",
+			"error", err,
+			"body", debug.PrettyJSON(body),
+		)
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	incident := parseIncidentData(result.Data)
+	debug.Logger.Debug("Updated incident", "id", incident.ID, "title", incident.Title)
+	return &incident, nil
+}
+
+// DeleteIncident deletes an incident using raw HTTP DELETE.
+func (c *Client) DeleteIncident(ctx context.Context, id string) error {
+	debug.Logger.Debug("Deleting incident", "id", id)
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/incidents/%s", baseURL, id)
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to delete incident", "error", err)
+		return fmt.Errorf("failed to delete incident: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Delete incident response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return fmt.Errorf("access denied: API key lacks 'delete incidents' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return fmt.Errorf("incident not found: %s", id)
+	}
+	if httpResp.StatusCode != 204 && httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	debug.Logger.Debug("Deleted incident", "id", id)
+	return nil
 }
