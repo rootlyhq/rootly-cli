@@ -1963,3 +1963,770 @@ func (c *Client) DeleteIncident(ctx context.Context, id string) error {
 	debug.Logger.Debug("Deleted incident", "id", id)
 	return nil
 }
+
+// alertResponseData represents the structure of alert data from the API response
+type alertResponseData struct {
+	ID         string `json:"id"`
+	Attributes struct {
+		ShortID      string  `json:"short_id"`
+		Summary      string  `json:"summary"`
+		Description  *string `json:"description"`
+		Status       *string `json:"status"`
+		Source       string  `json:"source"`
+		ExternalURL  *string `json:"external_url"`
+		CreatedAt    string  `json:"created_at"`
+		UpdatedAt    string  `json:"updated_at"`
+		StartedAt    *string `json:"started_at"`
+		EndedAt      *string `json:"ended_at"`
+		Services     []struct {
+			Name string `json:"name"`
+		} `json:"services"`
+		Environments []struct {
+			Name string `json:"name"`
+		} `json:"environments"`
+		Groups []struct {
+			Name string `json:"name"`
+		} `json:"groups"`
+		Labels []struct {
+			Key   string      `json:"key"`
+			Value interface{} `json:"value"`
+		} `json:"labels"`
+	} `json:"attributes"`
+}
+
+// parseAlertData converts API response data to an Alert struct
+func parseAlertData(d alertResponseData) Alert {
+	alert := Alert{
+		ID:      d.ID,
+		ShortID: strings.TrimSpace(d.Attributes.ShortID),
+		Summary: strings.TrimSpace(d.Attributes.Summary),
+		Source:  strings.TrimSpace(d.Attributes.Source),
+		Labels:  make(map[string]string),
+	}
+
+	if d.Attributes.Description != nil {
+		alert.Description = strings.TrimSpace(*d.Attributes.Description)
+	}
+	if d.Attributes.Status != nil {
+		alert.Status = strings.TrimSpace(*d.Attributes.Status)
+	}
+	if d.Attributes.ExternalURL != nil {
+		alert.ExternalURL = *d.Attributes.ExternalURL
+	}
+
+	if t, err := time.Parse(time.RFC3339, d.Attributes.CreatedAt); err == nil {
+		alert.CreatedAt = t
+	}
+	if t, err := time.Parse(time.RFC3339, d.Attributes.UpdatedAt); err == nil {
+		alert.UpdatedAt = t
+	}
+	alert.StartedAt = parseTimePtr(d.Attributes.StartedAt)
+	alert.EndedAt = parseTimePtr(d.Attributes.EndedAt)
+
+	for _, s := range d.Attributes.Services {
+		alert.Services = append(alert.Services, s.Name)
+	}
+	for _, e := range d.Attributes.Environments {
+		alert.Environments = append(alert.Environments, e.Name)
+	}
+	for _, g := range d.Attributes.Groups {
+		alert.Groups = append(alert.Groups, g.Name)
+	}
+	for _, l := range d.Attributes.Labels {
+		alert.Labels[l.Key] = fmt.Sprintf("%v", l.Value)
+	}
+
+	return alert
+}
+
+// ListAlertsCLI lists alerts with configurable page size and filters for CLI usage.
+// Does not use cache (stateless).
+func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort string, filters map[string]string) (*AlertsResult, error) {
+	// Cap pageSize at 100 (API limit); if 0, default to 25
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	// Build URL with query parameters
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+
+	url := fmt.Sprintf("%s/v1/alerts?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
+	if sort != "" {
+		url += fmt.Sprintf("&sort=%s", sort)
+	}
+
+	// Add filters (e.g., filter[status]=triggered, filter[source]=sentry)
+	for key, value := range filters {
+		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+	}
+
+	debug.Logger.Debug("Fetching alerts (CLI)", "page", page, "pageSize", pageSize, "sort", sort, "filters", filters)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to list alerts", "error", err)
+		return nil, fmt.Errorf("failed to list alerts: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Alerts response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Alerts response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'read alerts' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("resource not found")
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	var result struct {
+		Data  []alertResponseData `json:"data"`
+		Links struct {
+			Next *string `json:"next"`
+			Prev *string `json:"prev"`
+		} `json:"links"`
+		Meta struct {
+			CurrentPage int  `json:"current_page"`
+			NextPage    *int `json:"next_page"`
+			PrevPage    *int `json:"prev_page"`
+			TotalCount  int  `json:"total_count"`
+			TotalPages  int  `json:"total_pages"`
+		} `json:"meta"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		debug.Logger.Error("Failed to parse alerts response",
+			"error", err,
+			"body", debug.PrettyJSON(body),
+		)
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	debug.Logger.Debug("Parsed alerts", "count", len(result.Data))
+
+	alerts := make([]Alert, 0, len(result.Data))
+	for _, d := range result.Data {
+		alerts = append(alerts, parseAlertData(d))
+	}
+
+	// Build result with pagination info from Meta
+	hasNext := result.Meta.NextPage != nil && *result.Meta.NextPage > 0
+	if !hasNext && result.Links.Next != nil && *result.Links.Next != "" {
+		hasNext = true
+	}
+	hasPrev := result.Meta.PrevPage != nil && *result.Meta.PrevPage > 0
+	if !hasPrev && result.Links.Prev != nil && *result.Links.Prev != "" {
+		hasPrev = true
+	}
+
+	currentPage := result.Meta.CurrentPage
+	if currentPage == 0 {
+		currentPage = page
+	}
+
+	return &AlertsResult{
+		Alerts: alerts,
+		Pagination: PaginationInfo{
+			CurrentPage: currentPage,
+			TotalPages:  result.Meta.TotalPages,
+			TotalCount:  result.Meta.TotalCount,
+			HasNext:     hasNext,
+			HasPrev:     hasPrev,
+		},
+	}, nil
+}
+
+// GetAlertByID fetches alert detail by ID without requiring updatedAt parameter.
+// Does not use cache (stateless).
+func (c *Client) GetAlertByID(ctx context.Context, id string) (*Alert, error) {
+	debug.Logger.Debug("Fetching alert detail (CLI)", "id", id)
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/alerts/%s?include=services,environments,groups,responders,alert_urgency", baseURL, id)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to fetch alert", "error", err)
+		return nil, fmt.Errorf("failed to fetch alert: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Alert detail response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Alert detail response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'read alerts' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("alert not found: %s", id)
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	var result struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				ShortID     *string `json:"short_id"`
+				Summary     string  `json:"summary"`
+				Description *string `json:"description"`
+				Status      string  `json:"status"`
+				Source      *string `json:"source"`
+				ExternalURL *string `json:"external_url"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+				StartedAt   *string `json:"started_at"`
+				EndedAt     *string `json:"ended_at"`
+				Labels      []struct {
+					Key   string      `json:"key"`
+					Value interface{} `json:"value"`
+				} `json:"labels"`
+				Services []struct {
+					Name string `json:"name"`
+				} `json:"services"`
+				Environments []struct {
+					Name string `json:"name"`
+				} `json:"environments"`
+				Groups []struct {
+					Name string `json:"name"`
+				} `json:"groups"`
+				Responders []struct {
+					ID         interface{} `json:"id"`
+					Attributes struct {
+						User *struct {
+							Data *struct {
+								Attributes struct {
+									Name string `json:"name"`
+								} `json:"attributes"`
+							} `json:"data"`
+						} `json:"user"`
+					} `json:"attributes"`
+				} `json:"responders"`
+				AlertUrgency *struct {
+					Data *struct {
+						Attributes struct {
+							Name string `json:"name"`
+						} `json:"attributes"`
+					} `json:"data"`
+				} `json:"alert_urgency"`
+				URL                *string `json:"url"`
+				ExternalID         *string `json:"external_id"`
+				Noise              *string `json:"noise"`
+				IsGroupLeaderAlert bool    `json:"is_group_leader_alert"`
+				GroupLeaderAlertID *string `json:"group_leader_alert_id"`
+				DeduplicationKey   *string `json:"deduplication_key"`
+				NotifiedUsers      []struct {
+					Name  string `json:"name"`
+					Email string `json:"email"`
+				} `json:"notified_users"`
+				Incidents []struct {
+					ID         string `json:"id"`
+					Attributes struct {
+						SequentialID *int   `json:"sequential_id"`
+						Title        string `json:"title"`
+						Status       string `json:"status"`
+					} `json:"attributes"`
+				} `json:"incidents"`
+				Data map[string]interface{} `json:"data"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		debug.Logger.Error("Failed to parse alert detail response",
+			"error", err,
+			"body", debug.PrettyJSON(body),
+		)
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	d := result.Data
+	alert := &Alert{
+		ID:           d.ID,
+		Summary:      strings.TrimSpace(d.Attributes.Summary),
+		Status:       strings.TrimSpace(d.Attributes.Status),
+		Labels:       make(map[string]string),
+		DetailLoaded: true,
+	}
+
+	if d.Attributes.ShortID != nil {
+		alert.ShortID = strings.TrimSpace(*d.Attributes.ShortID)
+	}
+	if d.Attributes.Source != nil {
+		alert.Source = *d.Attributes.Source
+	}
+	if d.Attributes.Description != nil {
+		alert.Description = strings.TrimSpace(*d.Attributes.Description)
+	}
+	if d.Attributes.ExternalURL != nil {
+		alert.ExternalURL = *d.Attributes.ExternalURL
+	}
+
+	if t, err := time.Parse(time.RFC3339, d.Attributes.CreatedAt); err == nil {
+		alert.CreatedAt = t
+	}
+	if t, err := time.Parse(time.RFC3339, d.Attributes.UpdatedAt); err == nil {
+		alert.UpdatedAt = t
+	}
+	alert.StartedAt = parseTimePtr(d.Attributes.StartedAt)
+	alert.EndedAt = parseTimePtr(d.Attributes.EndedAt)
+
+	for _, l := range d.Attributes.Labels {
+		alert.Labels[l.Key] = fmt.Sprintf("%v", l.Value)
+	}
+
+	for _, s := range d.Attributes.Services {
+		alert.Services = append(alert.Services, s.Name)
+	}
+	for _, e := range d.Attributes.Environments {
+		alert.Environments = append(alert.Environments, e.Name)
+	}
+	for _, g := range d.Attributes.Groups {
+		alert.Groups = append(alert.Groups, g.Name)
+	}
+
+	for _, r := range d.Attributes.Responders {
+		if r.Attributes.User != nil && r.Attributes.User.Data != nil {
+			alert.Responders = append(alert.Responders, r.Attributes.User.Data.Attributes.Name)
+		}
+	}
+
+	if d.Attributes.AlertUrgency != nil && d.Attributes.AlertUrgency.Data != nil {
+		alert.Urgency = d.Attributes.AlertUrgency.Data.Attributes.Name
+	}
+
+	if d.Attributes.URL != nil {
+		alert.URL = *d.Attributes.URL
+	}
+	if d.Attributes.ExternalID != nil {
+		alert.ExternalID = *d.Attributes.ExternalID
+	}
+	if d.Attributes.Noise != nil {
+		alert.Noise = *d.Attributes.Noise
+	}
+	alert.IsGroupLeaderAlert = d.Attributes.IsGroupLeaderAlert
+	if d.Attributes.GroupLeaderAlertID != nil {
+		alert.GroupLeaderAlertID = *d.Attributes.GroupLeaderAlertID
+	}
+	if d.Attributes.DeduplicationKey != nil {
+		alert.DeduplicationKey = *d.Attributes.DeduplicationKey
+	}
+	if d.Attributes.Data != nil {
+		alert.Data = d.Attributes.Data
+	}
+
+	for _, u := range d.Attributes.NotifiedUsers {
+		alert.NotifiedUsers = append(alert.NotifiedUsers, AlertUser{
+			Name:  u.Name,
+			Email: u.Email,
+		})
+	}
+
+	for _, inc := range d.Attributes.Incidents {
+		seqID := ""
+		if inc.Attributes.SequentialID != nil {
+			seqID = fmt.Sprintf("INC-%d", *inc.Attributes.SequentialID)
+		}
+		alert.RelatedIncidents = append(alert.RelatedIncidents, AlertIncident{
+			ID:           inc.ID,
+			SequentialID: seqID,
+			Title:        inc.Attributes.Title,
+			Status:       inc.Attributes.Status,
+		})
+	}
+
+	debug.Logger.Debug("Parsed alert detail", "id", alert.ID, "summary", alert.Summary)
+	return alert, nil
+}
+
+// CreateAlertCLI creates a new alert using raw HTTP POST.
+func (c *Client) CreateAlertCLI(ctx context.Context, summary string, opts map[string]string) (*Alert, error) {
+	debug.Logger.Debug("Creating alert", "summary", summary, "opts", opts)
+
+	// Build JSON:API request body
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type": "alerts",
+			"attributes": map[string]interface{}{
+				"summary": summary,
+			},
+		},
+	}
+
+	// Add optional attributes
+	attributes := requestBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+	if description, ok := opts["description"]; ok {
+		attributes["description"] = description
+	}
+	if source, ok := opts["source"]; ok {
+		attributes["source"] = source
+	}
+	if status, ok := opts["status"]; ok {
+		attributes["status"] = status
+	}
+	if externalURL, ok := opts["external_url"]; ok {
+		attributes["external_url"] = externalURL
+	}
+
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/alerts", baseURL)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to create alert", "error", err)
+		return nil, fmt.Errorf("failed to create alert: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Create alert response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Create alert response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'create alerts' permission")
+	}
+	if httpResp.StatusCode != 201 && httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	var result struct {
+		Data alertResponseData `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		debug.Logger.Error("Failed to parse create alert response",
+			"error", err,
+			"body", debug.PrettyJSON(body),
+		)
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	alert := parseAlertData(result.Data)
+	debug.Logger.Debug("Created alert", "id", alert.ID, "summary", alert.Summary)
+	return &alert, nil
+}
+
+// UpdateAlertCLI updates an alert using raw HTTP PUT.
+func (c *Client) UpdateAlertCLI(ctx context.Context, id string, opts map[string]string) (*Alert, error) {
+	debug.Logger.Debug("Updating alert", "id", id, "opts", opts)
+
+	// Build JSON:API request body with only changed attributes
+	attributes := make(map[string]interface{})
+	if summary, ok := opts["summary"]; ok {
+		attributes["summary"] = summary
+	}
+	if description, ok := opts["description"]; ok {
+		attributes["description"] = description
+	}
+	if source, ok := opts["source"]; ok {
+		attributes["source"] = source
+	}
+	if status, ok := opts["status"]; ok {
+		attributes["status"] = status
+	}
+	if externalURL, ok := opts["external_url"]; ok {
+		attributes["external_url"] = externalURL
+	}
+
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type":       "alerts",
+			"id":         id,
+			"attributes": attributes,
+		},
+	}
+
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/alerts/%s", baseURL, id)
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to update alert", "error", err)
+		return nil, fmt.Errorf("failed to update alert: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Update alert response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Update alert response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'update alerts' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("alert not found: %s", id)
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	var result struct {
+		Data alertResponseData `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		debug.Logger.Error("Failed to parse update alert response",
+			"error", err,
+			"body", debug.PrettyJSON(body),
+		)
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	alert := parseAlertData(result.Data)
+	debug.Logger.Debug("Updated alert", "id", alert.ID, "summary", alert.Summary)
+	return &alert, nil
+}
+
+// AcknowledgeAlertCLI acknowledges an alert using raw HTTP POST.
+func (c *Client) AcknowledgeAlertCLI(ctx context.Context, id string) error {
+	debug.Logger.Debug("Acknowledging alert", "id", id)
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/alerts/%s/acknowledge", baseURL, id)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to acknowledge alert", "error", err)
+		return fmt.Errorf("failed to acknowledge alert: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Acknowledge alert response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return fmt.Errorf("access denied: API key lacks 'acknowledge alerts' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return fmt.Errorf("alert not found: %s", id)
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	debug.Logger.Debug("Acknowledged alert", "id", id)
+	return nil
+}
+
+// ResolveAlertCLI resolves an alert using raw HTTP POST.
+func (c *Client) ResolveAlertCLI(ctx context.Context, id string, resolutionMessage string, resolveIncidents bool) error {
+	debug.Logger.Debug("Resolving alert", "id", id, "resolutionMessage", resolutionMessage, "resolveIncidents", resolveIncidents)
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/alerts/%s/resolve", baseURL, id)
+
+	var reqBody io.Reader = http.NoBody
+
+	// Build body only if resolutionMessage != "" or resolveIncidents is true
+	if resolutionMessage != "" || resolveIncidents {
+		attributes := make(map[string]interface{})
+		if resolutionMessage != "" {
+			attributes["resolution_message"] = resolutionMessage
+		}
+		if resolveIncidents {
+			attributes["resolve_related_incidents"] = true
+		}
+
+		requestBody := map[string]interface{}{
+			"data": map[string]interface{}{
+				"type":       "resolve_alert",
+				"attributes": attributes,
+			},
+		}
+
+		bodyBytes, err := json.Marshal(requestBody)
+		if err != nil {
+			return fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		reqBody = strings.NewReader(string(bodyBytes))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to resolve alert", "error", err)
+		return fmt.Errorf("failed to resolve alert: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Resolve alert response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return fmt.Errorf("access denied: API key lacks 'resolve alerts' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return fmt.Errorf("alert not found: %s", id)
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	debug.Logger.Debug("Resolved alert", "id", id)
+	return nil
+}
