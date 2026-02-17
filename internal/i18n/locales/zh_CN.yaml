@@ -1,0 +1,375 @@
+about:
+    description:
+        other: 用于查看 Rootly 事件和警报的终端界面。
+    docs:
+        other: 文档
+    go_version:
+        other: Go
+    links:
+        other: Links
+    platform:
+        other: 平台
+    press_to_close:
+        other: 按 A 或 Esc 关闭
+    system:
+        other: 系统
+    title:
+        other: 关于
+alerts:
+    detail:
+        data:
+            other: 数据
+        dedup_key:
+            other: Dedup Key
+        ended:
+            other: 结束时间
+        external_id:
+            other: External ID
+        group_leader:
+            other: Group Leader
+        labels:
+            other: 标签
+        links:
+            other: Links
+        metadata:
+            other: Metadata
+        noise:
+            other: Noise Classification
+        notified_users:
+            other: Notified Users
+        related_incidents:
+            other: Related Incidents
+        responders:
+            other: 响应者
+        source:
+            other: 来源
+        urgency:
+            other: 紧急程度
+        "yes":
+            other: "Yes"
+    noise:
+        noise:
+            other: Noise
+        not_noise:
+            other: Not Noise
+        possible_noise:
+            other: Possible Noise
+    none_found:
+        other: 未找到告警
+    select_prompt:
+        other: 选择一个告警查看详情
+    title:
+        other: 告警
+app:
+    title:
+        other: Rootly
+common:
+    error:
+        other: 错误
+    loading:
+        other: 加载中...
+    page:
+        other: 页
+    refreshing:
+        other: 刷新中...
+    saving:
+        other: 保存中...
+help:
+    action:
+        about:
+            other: 关于
+        copy:
+            other: 复制详情到剪贴板
+        details:
+            other: 查看详情 / 选择
+        help:
+            other: 显示/隐藏帮助
+        logs:
+            other: 查看调试日志
+        open_url:
+            other: 在浏览器中打开链接
+        quit:
+            other: 退出
+        refresh:
+            other: 刷新数据
+        setup:
+            other: 打开设置
+    nav:
+        first:
+            other: 跳转到第一项
+        last:
+            other: 跳转到最后一项
+        move_down:
+            other: 向下移动光标
+        move_up:
+            other: 向上移动光标
+        next_page:
+            other: 下一页
+        prev_page:
+            other: 上一页
+        switch_tabs:
+            other: 切换标签页
+    press_to_close:
+        other: 按 ? 或 Esc 关闭
+    section:
+        actions:
+            other: 操作
+        general:
+            other: 通用
+        navigation:
+            other: 导航
+    title:
+        other: 键盘快捷键
+helpbar:
+    about:
+        other: 关于
+    copy:
+        other: 复制
+    help:
+        other: 帮助
+    logs:
+        other: 日志
+    navigate:
+        other: 导航
+    open:
+        other: 打开
+    page:
+        other: 翻页
+    quit:
+        other: 退出
+    refresh:
+        other: 刷新
+    setup:
+        other: 设置
+    switch:
+        other: 切换
+incidents:
+    col:
+        id:
+            other: ID
+        severity:
+            other: 级别
+        title:
+            other: 标题
+    detail:
+        causes:
+            other: 原因
+        created_by:
+            other: 创建者
+        description:
+            other: 描述
+        environments:
+            other: 环境
+        functionalities:
+            other: 功能
+        integrations:
+            other: Integrations
+        kind:
+            other: Type
+        labels:
+            other: Labels
+        links:
+            other: 链接
+        metadata:
+            other: Metadata
+        mitigated_by:
+            other: Mitigated by
+        mitigation_message:
+            other: Mitigation
+        private:
+            other: Private
+        resolution_message:
+            other: Resolution
+        resolved_by:
+            other: Resolved by
+        responders:
+            other: Responders
+        retrospective:
+            other: Retrospective
+        roles:
+            other: 角色
+        services:
+            other: 服务
+        severity:
+            other: 严重程度
+        source:
+            other: Source
+        started_by:
+            other: Started by
+        status:
+            other: 状态
+        teams:
+            other: 团队
+        types:
+            other: 类型
+    integrations:
+        asana:
+            other: Asana
+        confluence:
+            other: Confluence
+        datadog:
+            other: Datadog
+        freshservice:
+            other: Freshservice
+        github:
+            other: GitHub
+        gitlab:
+            other: GitLab
+        google_meet:
+            other: Google Meet
+        linear:
+            other: Linear
+        opsgenie:
+            other: OpsGenie
+        pagerduty:
+            other: PagerDuty
+        servicenow:
+            other: ServiceNow
+        trello:
+            other: Trello
+        zoom:
+            other: Zoom
+    links:
+        jira:
+            other: Jira
+        rootly:
+            other: Rootly
+        slack:
+            other: Slack
+    loading_details:
+        other: 正在加载详情...
+    loading_page:
+        other: 正在加载第 {{.Page}} 页...
+    metrics:
+        duration:
+            other: Total Duration
+        maintenance:
+            other: Maintenance Window
+        title:
+            other: Duration Metrics
+        triage:
+            other: In Triage
+        tta:
+            other: Time to Acknowledge
+        ttc:
+            other: Time to Close
+        ttd:
+            other: Time to Detect
+        ttm:
+            other: Time to Mitigate
+        ttr:
+            other: Time to Resolve
+    none_found:
+        other: 未找到事件
+    press_enter:
+        other: 按 Enter 查看更多详情
+    retro:
+        completed:
+            other: Completed
+        in_progress:
+            other: In Progress
+        not_started:
+            other: Not Started
+    select_prompt:
+        other: 选择一个事件查看详情
+    timeline:
+        acknowledged:
+            other: 确认时间
+        cancelled:
+            other: Cancelled
+        closed:
+            other: Closed
+        created:
+            other: 创建时间
+        detected:
+            other: 检测时间
+        mitigated:
+            other: 缓解时间
+        resolved:
+            other: 解决时间
+        scheduled_for:
+            other: Scheduled For
+        scheduled_until:
+            other: Scheduled Until
+        started:
+            other: 开始时间
+        title:
+            other: 时间线
+    title:
+        other: 事件
+logs:
+    clipboard_unavailable:
+        other: 剪贴板不可用 (查看日志)
+    copied:
+        other: 已复制!
+    empty:
+        other: 暂无日志。日志会自动捕获。
+    following:
+        other: following
+    line_count:
+        other: '{{.Count}} lines'
+    memory:
+        other: memory
+    scroll_percent:
+        other: '{{.Percent}}%'
+    title:
+        other: 调试日志
+setup:
+    api_endpoint:
+        other: API 端点
+    api_key:
+        other: API 密钥
+    connection_saved:
+        other: 连接已保存!
+    connection_success:
+        other: 连接成功!
+    connection_title:
+        other: 连接
+    help_panels:
+        other: 'Tab: 切换面板 | ↑↓: 导航 | ←→: 更改值 | Enter: 选择 | q/Esc: 退出'
+    language:
+        other: 语言
+    layout:
+        other: 布局
+    layout_horizontal:
+        other: 水平（并排）
+    layout_vertical:
+        other: 垂直（堆叠）
+    preferences_saved:
+        other: 偏好设置已保存!
+    preferences_title:
+        other: 偏好设置
+    save:
+        other: 保存
+    save_preferences:
+        other: 保存偏好设置
+    test:
+        other: 测试
+    testing_connection:
+        other: 正在测试连接...
+    timezone:
+        other: 时区
+sort_by:
+    other: Sort By
+sort_menu_help:
+    other: ↑/↓ navigate • Enter select • Esc close
+sorting:
+    created:
+        other: Created
+    desc:
+        created:
+            other: Sort by creation date (press again to toggle)
+        updated:
+            other: Sort by last updated date (press again to toggle)
+    newest_first:
+        other: Newest First
+    oldest_first:
+        other: Oldest First
+    open_sort_menu:
+        other: Open sort menu (press again to toggle)
+    sort_by_date:
+        other: sort by date
+    title:
+        other: Sorting
+    updated:
+        other: Updated

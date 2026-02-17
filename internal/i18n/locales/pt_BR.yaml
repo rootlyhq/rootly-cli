@@ -1,0 +1,375 @@
+about:
+    description:
+        other: Uma interface de terminal para visualizar incidentes e alertas do Rootly.
+    docs:
+        other: Documentacao
+    go_version:
+        other: Go
+    links:
+        other: Links
+    platform:
+        other: Plataforma
+    press_to_close:
+        other: Pressione A ou Esc para fechar
+    system:
+        other: Sistema
+    title:
+        other: Sobre
+alerts:
+    detail:
+        data:
+            other: Dados
+        dedup_key:
+            other: Dedup Key
+        ended:
+            other: Encerrado
+        external_id:
+            other: External ID
+        group_leader:
+            other: Group Leader
+        labels:
+            other: Rotulos
+        links:
+            other: Links
+        metadata:
+            other: Metadata
+        noise:
+            other: Noise Classification
+        notified_users:
+            other: Notified Users
+        related_incidents:
+            other: Related Incidents
+        responders:
+            other: Responsaveis
+        source:
+            other: Fonte
+        urgency:
+            other: Urgencia
+        "yes":
+            other: "Yes"
+    noise:
+        noise:
+            other: Noise
+        not_noise:
+            other: Not Noise
+        possible_noise:
+            other: Possible Noise
+    none_found:
+        other: Nenhum alerta encontrado
+    select_prompt:
+        other: Selecione um alerta para ver detalhes
+    title:
+        other: ALERTAS
+app:
+    title:
+        other: Rootly
+common:
+    error:
+        other: Erro
+    loading:
+        other: Carregando...
+    page:
+        other: Pagina
+    refreshing:
+        other: Atualizando...
+    saving:
+        other: Salvando...
+help:
+    action:
+        about:
+            other: Sobre
+        copy:
+            other: Copiar detalhes para a área de transferência
+        details:
+            other: Ver detalhes / Selecionar
+        help:
+            other: Alternar ajuda
+        logs:
+            other: Ver logs de depuracao
+        open_url:
+            other: Abrir URL no navegador
+        quit:
+            other: Sair
+        refresh:
+            other: Atualizar dados
+        setup:
+            other: Abrir configuracao
+    nav:
+        first:
+            other: Ir para o primeiro item
+        last:
+            other: Ir para o ultimo item
+        move_down:
+            other: Mover cursor para baixo
+        move_up:
+            other: Mover cursor para cima
+        next_page:
+            other: Proxima pagina
+        prev_page:
+            other: Pagina anterior
+        switch_tabs:
+            other: Alternar entre abas
+    press_to_close:
+        other: Pressione ? ou Esc para fechar
+    section:
+        actions:
+            other: Acoes
+        general:
+            other: Geral
+        navigation:
+            other: Navegacao
+    title:
+        other: Atalhos de teclado
+helpbar:
+    about:
+        other: sobre
+    copy:
+        other: copiar
+    help:
+        other: ajuda
+    logs:
+        other: logs
+    navigate:
+        other: navegar
+    open:
+        other: abrir
+    page:
+        other: pagina
+    quit:
+        other: sair
+    refresh:
+        other: atualizar
+    setup:
+        other: config
+    switch:
+        other: alternar
+incidents:
+    col:
+        id:
+            other: ID
+        severity:
+            other: Sev
+        title:
+            other: Título
+    detail:
+        causes:
+            other: Causas
+        created_by:
+            other: Criado por
+        description:
+            other: Descricao
+        environments:
+            other: Ambientes
+        functionalities:
+            other: Funcionalidades
+        integrations:
+            other: Integrations
+        kind:
+            other: Type
+        labels:
+            other: Labels
+        links:
+            other: Links
+        metadata:
+            other: Metadata
+        mitigated_by:
+            other: Mitigated by
+        mitigation_message:
+            other: Mitigation
+        private:
+            other: Private
+        resolution_message:
+            other: Resolution
+        resolved_by:
+            other: Resolved by
+        responders:
+            other: Responders
+        retrospective:
+            other: Retrospective
+        roles:
+            other: Funcoes
+        services:
+            other: Servicos
+        severity:
+            other: Severidade
+        source:
+            other: Source
+        started_by:
+            other: Started by
+        status:
+            other: Status
+        teams:
+            other: Equipes
+        types:
+            other: Tipos
+    integrations:
+        asana:
+            other: Asana
+        confluence:
+            other: Confluence
+        datadog:
+            other: Datadog
+        freshservice:
+            other: Freshservice
+        github:
+            other: GitHub
+        gitlab:
+            other: GitLab
+        google_meet:
+            other: Google Meet
+        linear:
+            other: Linear
+        opsgenie:
+            other: OpsGenie
+        pagerduty:
+            other: PagerDuty
+        servicenow:
+            other: ServiceNow
+        trello:
+            other: Trello
+        zoom:
+            other: Zoom
+    links:
+        jira:
+            other: Jira
+        rootly:
+            other: Rootly
+        slack:
+            other: Slack
+    loading_details:
+        other: Carregando detalhes...
+    loading_page:
+        other: Carregando pagina {{.Page}}...
+    metrics:
+        duration:
+            other: Total Duration
+        maintenance:
+            other: Maintenance Window
+        title:
+            other: Duration Metrics
+        triage:
+            other: In Triage
+        tta:
+            other: Time to Acknowledge
+        ttc:
+            other: Time to Close
+        ttd:
+            other: Time to Detect
+        ttm:
+            other: Time to Mitigate
+        ttr:
+            other: Time to Resolve
+    none_found:
+        other: Nenhum incidente encontrado
+    press_enter:
+        other: Pressione Enter para mais detalhes
+    retro:
+        completed:
+            other: Completed
+        in_progress:
+            other: In Progress
+        not_started:
+            other: Not Started
+    select_prompt:
+        other: Selecione um incidente para ver detalhes
+    timeline:
+        acknowledged:
+            other: Reconhecido
+        cancelled:
+            other: Cancelled
+        closed:
+            other: Closed
+        created:
+            other: Criado
+        detected:
+            other: Detectado
+        mitigated:
+            other: Mitigado
+        resolved:
+            other: Resolvido
+        scheduled_for:
+            other: Scheduled For
+        scheduled_until:
+            other: Scheduled Until
+        started:
+            other: Iniciado
+        title:
+            other: Linha do tempo
+    title:
+        other: INCIDENTES
+logs:
+    clipboard_unavailable:
+        other: Area de transferencia indisponivel (ver logs)
+    copied:
+        other: Copiado!
+    empty:
+        other: Sem logs ainda. Os logs sao capturados automaticamente.
+    following:
+        other: following
+    line_count:
+        other: '{{.Count}} lines'
+    memory:
+        other: memory
+    scroll_percent:
+        other: '{{.Percent}}%'
+    title:
+        other: Logs de depuracao
+setup:
+    api_endpoint:
+        other: Endpoint da API
+    api_key:
+        other: Chave da API
+    connection_saved:
+        other: Conexão salva!
+    connection_success:
+        other: Conexao bem-sucedida!
+    connection_title:
+        other: Conexão
+    help_panels:
+        other: 'Tab: trocar painel | ↑↓: navegar | ←→: alterar valor | Enter: selecionar | q/Esc: sair'
+    language:
+        other: Idioma
+    layout:
+        other: Layout
+    layout_horizontal:
+        other: Horizontal (lado a lado)
+    layout_vertical:
+        other: Vertical (empilhado)
+    preferences_saved:
+        other: Preferências salvas!
+    preferences_title:
+        other: Preferências
+    save:
+        other: Salvar
+    save_preferences:
+        other: Salvar preferências
+    test:
+        other: Testar
+    testing_connection:
+        other: Testando conexao...
+    timezone:
+        other: Fuso horario
+sort_by:
+    other: Sort By
+sort_menu_help:
+    other: ↑/↓ navigate • Enter select • Esc close
+sorting:
+    created:
+        other: Created
+    desc:
+        created:
+            other: Sort by creation date (press again to toggle)
+        updated:
+            other: Sort by last updated date (press again to toggle)
+    newest_first:
+        other: Newest First
+    oldest_first:
+        other: Oldest First
+    open_sort_menu:
+        other: Open sort menu (press again to toggle)
+    sort_by_date:
+        other: sort by date
+    title:
+        other: Sorting
+    updated:
+        other: Updated

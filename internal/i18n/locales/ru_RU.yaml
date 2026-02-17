@@ -1,0 +1,375 @@
+about:
+    description:
+        other: Терминальный интерфейс для просмотра инцидентов и оповещений Rootly.
+    docs:
+        other: Документация
+    go_version:
+        other: Go
+    links:
+        other: Links
+    platform:
+        other: Платформа
+    press_to_close:
+        other: Нажмите A или Esc для закрытия
+    system:
+        other: Система
+    title:
+        other: О программе
+alerts:
+    detail:
+        data:
+            other: Данные
+        dedup_key:
+            other: Dedup Key
+        ended:
+            other: Завершен
+        external_id:
+            other: External ID
+        group_leader:
+            other: Group Leader
+        labels:
+            other: Метки
+        links:
+            other: Links
+        metadata:
+            other: Metadata
+        noise:
+            other: Noise Classification
+        notified_users:
+            other: Notified Users
+        related_incidents:
+            other: Related Incidents
+        responders:
+            other: Ответственные
+        source:
+            other: Источник
+        urgency:
+            other: Срочность
+        "yes":
+            other: "Yes"
+    noise:
+        noise:
+            other: Noise
+        not_noise:
+            other: Not Noise
+        possible_noise:
+            other: Possible Noise
+    none_found:
+        other: Оповещения не найдены
+    select_prompt:
+        other: Выберите оповещение для просмотра деталей
+    title:
+        other: ОПОВЕЩЕНИЯ
+app:
+    title:
+        other: Rootly
+common:
+    error:
+        other: Ошибка
+    loading:
+        other: Загрузка...
+    page:
+        other: Страница
+    refreshing:
+        other: Обновление...
+    saving:
+        other: Сохранение...
+help:
+    action:
+        about:
+            other: О программе
+        copy:
+            other: Копировать детали в буфер обмена
+        details:
+            other: Просмотр деталей / Выбор
+        help:
+            other: Показать/скрыть справку
+        logs:
+            other: Просмотр логов отладки
+        open_url:
+            other: Открыть URL в браузере
+        quit:
+            other: Выход
+        refresh:
+            other: Обновить данные
+        setup:
+            other: Открыть настройки
+    nav:
+        first:
+            other: Перейти к первому элементу
+        last:
+            other: Перейти к последнему элементу
+        move_down:
+            other: Переместить курсор вниз
+        move_up:
+            other: Переместить курсор вверх
+        next_page:
+            other: Следующая страница
+        prev_page:
+            other: Предыдущая страница
+        switch_tabs:
+            other: Переключить вкладки
+    press_to_close:
+        other: Нажмите ? или Esc для закрытия
+    section:
+        actions:
+            other: Действия
+        general:
+            other: Общие
+        navigation:
+            other: Навигация
+    title:
+        other: Горячие клавиши
+helpbar:
+    about:
+        other: о прог.
+    copy:
+        other: копировать
+    help:
+        other: справка
+    logs:
+        other: логи
+    navigate:
+        other: навигация
+    open:
+        other: открыть
+    page:
+        other: страница
+    quit:
+        other: выход
+    refresh:
+        other: обновить
+    setup:
+        other: настройки
+    switch:
+        other: переключить
+incidents:
+    col:
+        id:
+            other: ID
+        severity:
+            other: Сер
+        title:
+            other: Заголовок
+    detail:
+        causes:
+            other: Причины
+        created_by:
+            other: Создал
+        description:
+            other: Описание
+        environments:
+            other: Среды
+        functionalities:
+            other: Функции
+        integrations:
+            other: Integrations
+        kind:
+            other: Type
+        labels:
+            other: Labels
+        links:
+            other: Ссылки
+        metadata:
+            other: Metadata
+        mitigated_by:
+            other: Mitigated by
+        mitigation_message:
+            other: Mitigation
+        private:
+            other: Private
+        resolution_message:
+            other: Resolution
+        resolved_by:
+            other: Resolved by
+        responders:
+            other: Responders
+        retrospective:
+            other: Retrospective
+        roles:
+            other: Роли
+        services:
+            other: Сервисы
+        severity:
+            other: Серьезность
+        source:
+            other: Source
+        started_by:
+            other: Started by
+        status:
+            other: Статус
+        teams:
+            other: Команды
+        types:
+            other: Типы
+    integrations:
+        asana:
+            other: Asana
+        confluence:
+            other: Confluence
+        datadog:
+            other: Datadog
+        freshservice:
+            other: Freshservice
+        github:
+            other: GitHub
+        gitlab:
+            other: GitLab
+        google_meet:
+            other: Google Meet
+        linear:
+            other: Linear
+        opsgenie:
+            other: OpsGenie
+        pagerduty:
+            other: PagerDuty
+        servicenow:
+            other: ServiceNow
+        trello:
+            other: Trello
+        zoom:
+            other: Zoom
+    links:
+        jira:
+            other: Jira
+        rootly:
+            other: Rootly
+        slack:
+            other: Slack
+    loading_details:
+        other: Загрузка деталей...
+    loading_page:
+        other: Загрузка страницы {{.Page}}...
+    metrics:
+        duration:
+            other: Total Duration
+        maintenance:
+            other: Maintenance Window
+        title:
+            other: Duration Metrics
+        triage:
+            other: In Triage
+        tta:
+            other: Time to Acknowledge
+        ttc:
+            other: Time to Close
+        ttd:
+            other: Time to Detect
+        ttm:
+            other: Time to Mitigate
+        ttr:
+            other: Time to Resolve
+    none_found:
+        other: Инциденты не найдены
+    press_enter:
+        other: Нажмите Enter для подробностей
+    retro:
+        completed:
+            other: Completed
+        in_progress:
+            other: In Progress
+        not_started:
+            other: Not Started
+    select_prompt:
+        other: Выберите инцидент для просмотра деталей
+    timeline:
+        acknowledged:
+            other: Подтвержден
+        cancelled:
+            other: Cancelled
+        closed:
+            other: Closed
+        created:
+            other: Создан
+        detected:
+            other: Обнаружен
+        mitigated:
+            other: Смягчен
+        resolved:
+            other: Решен
+        scheduled_for:
+            other: Scheduled For
+        scheduled_until:
+            other: Scheduled Until
+        started:
+            other: Начат
+        title:
+            other: Хронология
+    title:
+        other: ИНЦИДЕНТЫ
+logs:
+    clipboard_unavailable:
+        other: Буфер обмена недоступен (см. логи)
+    copied:
+        other: Скопировано!
+    empty:
+        other: Логов пока нет. Логи захватываются автоматически.
+    following:
+        other: following
+    line_count:
+        other: '{{.Count}} lines'
+    memory:
+        other: memory
+    scroll_percent:
+        other: '{{.Percent}}%'
+    title:
+        other: Логи отладки
+setup:
+    api_endpoint:
+        other: Конечная точка API
+    api_key:
+        other: Ключ API
+    connection_saved:
+        other: Соединение сохранено!
+    connection_success:
+        other: Соединение успешно!
+    connection_title:
+        other: Соединение
+    help_panels:
+        other: 'Tab: переключить панель | ↑↓: навигация | ←→: изменить | Enter: выбор | q/Esc: выход'
+    language:
+        other: Язык
+    layout:
+        other: Макет
+    layout_horizontal:
+        other: Горизонтальный (бок о бок)
+    layout_vertical:
+        other: Вертикальный (стопкой)
+    preferences_saved:
+        other: Настройки сохранены!
+    preferences_title:
+        other: Настройки
+    save:
+        other: Сохранить
+    save_preferences:
+        other: Сохранить настройки
+    test:
+        other: Тест
+    testing_connection:
+        other: Проверка соединения...
+    timezone:
+        other: Часовой пояс
+sort_by:
+    other: Sort By
+sort_menu_help:
+    other: ↑/↓ navigate • Enter select • Esc close
+sorting:
+    created:
+        other: Created
+    desc:
+        created:
+            other: Sort by creation date (press again to toggle)
+        updated:
+            other: Sort by last updated date (press again to toggle)
+    newest_first:
+        other: Newest First
+    oldest_first:
+        other: Oldest First
+    open_sort_menu:
+        other: Open sort menu (press again to toggle)
+    sort_by_date:
+        other: sort by date
+    title:
+        other: Sorting
+    updated:
+        other: Updated

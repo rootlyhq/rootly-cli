@@ -1,0 +1,375 @@
+about:
+    description:
+        other: Rootlyのインシデントとアラートを表示するターミナルUI。
+    docs:
+        other: ドキュメント
+    go_version:
+        other: Go
+    links:
+        other: Links
+    platform:
+        other: プラットフォーム
+    press_to_close:
+        other: A または Esc で閉じる
+    system:
+        other: システム
+    title:
+        other: 情報
+alerts:
+    detail:
+        data:
+            other: データ
+        dedup_key:
+            other: Dedup Key
+        ended:
+            other: 終了
+        external_id:
+            other: External ID
+        group_leader:
+            other: Group Leader
+        labels:
+            other: ラベル
+        links:
+            other: Links
+        metadata:
+            other: Metadata
+        noise:
+            other: Noise Classification
+        notified_users:
+            other: Notified Users
+        related_incidents:
+            other: Related Incidents
+        responders:
+            other: 対応者
+        source:
+            other: ソース
+        urgency:
+            other: 緊急度
+        "yes":
+            other: "Yes"
+    noise:
+        noise:
+            other: Noise
+        not_noise:
+            other: Not Noise
+        possible_noise:
+            other: Possible Noise
+    none_found:
+        other: アラートが見つかりません
+    select_prompt:
+        other: アラートを選択して詳細を表示
+    title:
+        other: アラート
+app:
+    title:
+        other: Rootly
+common:
+    error:
+        other: エラー
+    loading:
+        other: 読み込み中...
+    page:
+        other: ページ
+    refreshing:
+        other: 更新中...
+    saving:
+        other: 保存中...
+help:
+    action:
+        about:
+            other: 情報
+        copy:
+            other: 詳細をクリップボードにコピー
+        details:
+            other: 詳細を表示 / 選択
+        help:
+            other: ヘルプの表示/非表示
+        logs:
+            other: デバッグログを表示
+        open_url:
+            other: ブラウザでURLを開く
+        quit:
+            other: 終了
+        refresh:
+            other: データを更新
+        setup:
+            other: 設定を開く
+    nav:
+        first:
+            other: 最初のアイテムへ
+        last:
+            other: 最後のアイテムへ
+        move_down:
+            other: カーソルを下に移動
+        move_up:
+            other: カーソルを上に移動
+        next_page:
+            other: 次のページ
+        prev_page:
+            other: 前のページ
+        switch_tabs:
+            other: タブを切り替え
+    press_to_close:
+        other: ?またはEscで閉じる
+    section:
+        actions:
+            other: アクション
+        general:
+            other: 一般
+        navigation:
+            other: ナビゲーション
+    title:
+        other: キーボードショートカット
+helpbar:
+    about:
+        other: 情報
+    copy:
+        other: コピー
+    help:
+        other: ヘルプ
+    logs:
+        other: ログ
+    navigate:
+        other: 移動
+    open:
+        other: 開く
+    page:
+        other: ページ
+    quit:
+        other: 終了
+    refresh:
+        other: 更新
+    setup:
+        other: 設定
+    switch:
+        other: 切替
+incidents:
+    col:
+        id:
+            other: ID
+        severity:
+            other: 重大
+        title:
+            other: タイトル
+    detail:
+        causes:
+            other: 原因
+        created_by:
+            other: 作成者
+        description:
+            other: 説明
+        environments:
+            other: 環境
+        functionalities:
+            other: 機能
+        integrations:
+            other: Integrations
+        kind:
+            other: Type
+        labels:
+            other: Labels
+        links:
+            other: リンク
+        metadata:
+            other: Metadata
+        mitigated_by:
+            other: Mitigated by
+        mitigation_message:
+            other: Mitigation
+        private:
+            other: Private
+        resolution_message:
+            other: Resolution
+        resolved_by:
+            other: Resolved by
+        responders:
+            other: Responders
+        retrospective:
+            other: Retrospective
+        roles:
+            other: 役割
+        services:
+            other: サービス
+        severity:
+            other: 重大度
+        source:
+            other: Source
+        started_by:
+            other: Started by
+        status:
+            other: ステータス
+        teams:
+            other: チーム
+        types:
+            other: タイプ
+    integrations:
+        asana:
+            other: Asana
+        confluence:
+            other: Confluence
+        datadog:
+            other: Datadog
+        freshservice:
+            other: Freshservice
+        github:
+            other: GitHub
+        gitlab:
+            other: GitLab
+        google_meet:
+            other: Google Meet
+        linear:
+            other: Linear
+        opsgenie:
+            other: OpsGenie
+        pagerduty:
+            other: PagerDuty
+        servicenow:
+            other: ServiceNow
+        trello:
+            other: Trello
+        zoom:
+            other: Zoom
+    links:
+        jira:
+            other: Jira
+        rootly:
+            other: Rootly
+        slack:
+            other: Slack
+    loading_details:
+        other: 詳細を読み込み中...
+    loading_page:
+        other: ページ {{.Page}} を読み込み中...
+    metrics:
+        duration:
+            other: Total Duration
+        maintenance:
+            other: Maintenance Window
+        title:
+            other: Duration Metrics
+        triage:
+            other: In Triage
+        tta:
+            other: Time to Acknowledge
+        ttc:
+            other: Time to Close
+        ttd:
+            other: Time to Detect
+        ttm:
+            other: Time to Mitigate
+        ttr:
+            other: Time to Resolve
+    none_found:
+        other: インシデントが見つかりません
+    press_enter:
+        other: Enterキーで詳細を表示
+    retro:
+        completed:
+            other: Completed
+        in_progress:
+            other: In Progress
+        not_started:
+            other: Not Started
+    select_prompt:
+        other: インシデントを選択して詳細を表示
+    timeline:
+        acknowledged:
+            other: 確認日時
+        cancelled:
+            other: Cancelled
+        closed:
+            other: Closed
+        created:
+            other: 作成日時
+        detected:
+            other: 検出日時
+        mitigated:
+            other: 緩和日時
+        resolved:
+            other: 解決日時
+        scheduled_for:
+            other: Scheduled For
+        scheduled_until:
+            other: Scheduled Until
+        started:
+            other: 開始日時
+        title:
+            other: タイムライン
+    title:
+        other: インシデント
+logs:
+    clipboard_unavailable:
+        other: クリップボードが利用できません (ログを確認)
+    copied:
+        other: コピーしました!
+    empty:
+        other: ログはまだありません。ログは自動的に記録されます。
+    following:
+        other: following
+    line_count:
+        other: '{{.Count}} lines'
+    memory:
+        other: memory
+    scroll_percent:
+        other: '{{.Percent}}%'
+    title:
+        other: デバッグログ
+setup:
+    api_endpoint:
+        other: APIエンドポイント
+    api_key:
+        other: APIキー
+    connection_saved:
+        other: 接続を保存しました!
+    connection_success:
+        other: 接続成功!
+    connection_title:
+        other: 接続
+    help_panels:
+        other: 'Tab: パネル切替 | ↑↓: 移動 | ←→: 値変更 | Enter: 選択 | q/Esc: 終了'
+    language:
+        other: 言語
+    layout:
+        other: レイアウト
+    layout_horizontal:
+        other: 水平（横並び）
+    layout_vertical:
+        other: 垂直（縦積み）
+    preferences_saved:
+        other: 設定を保存しました!
+    preferences_title:
+        other: 設定
+    save:
+        other: 保存
+    save_preferences:
+        other: 設定を保存
+    test:
+        other: テスト
+    testing_connection:
+        other: 接続をテスト中...
+    timezone:
+        other: タイムゾーン
+sort_by:
+    other: Sort By
+sort_menu_help:
+    other: ↑/↓ navigate • Enter select • Esc close
+sorting:
+    created:
+        other: Created
+    desc:
+        created:
+            other: Sort by creation date (press again to toggle)
+        updated:
+            other: Sort by last updated date (press again to toggle)
+    newest_first:
+        other: Newest First
+    oldest_first:
+        other: Oldest First
+    open_sort_menu:
+        other: Open sort menu (press again to toggle)
+    sort_by_date:
+        other: sort by date
+    title:
+        other: Sorting
+    updated:
+        other: Updated

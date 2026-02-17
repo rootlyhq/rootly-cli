@@ -1,0 +1,375 @@
+about:
+    description:
+        other: Rootly ইনসিডেন্ট এবং অ্যালার্ট দেখার জন্য টার্মিনাল ইন্টারফেস।
+    docs:
+        other: ডকুমেন্টেশন
+    go_version:
+        other: Go
+    links:
+        other: Links
+    platform:
+        other: প্ল্যাটফর্ম
+    press_to_close:
+        other: বন্ধ করতে A বা Esc চাপুন
+    system:
+        other: সিস্টেম
+    title:
+        other: সম্পর্কে
+alerts:
+    detail:
+        data:
+            other: ডেটা
+        dedup_key:
+            other: Dedup Key
+        ended:
+            other: শেষ হয়েছে
+        external_id:
+            other: External ID
+        group_leader:
+            other: Group Leader
+        labels:
+            other: লেবেলসমূহ
+        links:
+            other: Links
+        metadata:
+            other: Metadata
+        noise:
+            other: Noise Classification
+        notified_users:
+            other: Notified Users
+        related_incidents:
+            other: Related Incidents
+        responders:
+            other: প্রতিক্রিয়াকারীরা
+        source:
+            other: উৎস
+        urgency:
+            other: জরুরিতা
+        "yes":
+            other: "Yes"
+    noise:
+        noise:
+            other: Noise
+        not_noise:
+            other: Not Noise
+        possible_noise:
+            other: Possible Noise
+    none_found:
+        other: কোন সতর্কতা পাওয়া যায়নি
+    select_prompt:
+        other: বিস্তারিত দেখতে একটি সতর্কতা নির্বাচন করুন
+    title:
+        other: সতর্কতাসমূহ
+app:
+    title:
+        other: Rootly
+common:
+    error:
+        other: ত্রুটি
+    loading:
+        other: লোড হচ্ছে...
+    page:
+        other: পৃষ্ঠা
+    refreshing:
+        other: রিফ্রেশ হচ্ছে...
+    saving:
+        other: সংরক্ষণ হচ্ছে...
+help:
+    action:
+        about:
+            other: সম্পর্কে
+        copy:
+            other: ক্লিপবোর্ডে বিস্তারিত কপি করুন
+        details:
+            other: বিস্তারিত দেখুন / নির্বাচন
+        help:
+            other: সাহায্য টগল করুন
+        logs:
+            other: ডিবাগ লগ দেখুন
+        open_url:
+            other: ব্রাউজারে URL খুলুন
+        quit:
+            other: প্রস্থান
+        refresh:
+            other: ডেটা রিফ্রেশ করুন
+        setup:
+            other: সেটআপ খুলুন
+    nav:
+        first:
+            other: প্রথম আইটেমে যান
+        last:
+            other: শেষ আইটেমে যান
+        move_down:
+            other: কার্সার নিচে নামান
+        move_up:
+            other: কার্সার উপরে তুলুন
+        next_page:
+            other: পরের পৃষ্ঠা
+        prev_page:
+            other: আগের পৃষ্ঠা
+        switch_tabs:
+            other: ট্যাবের মধ্যে পরিবর্তন
+    press_to_close:
+        other: বন্ধ করতে ? বা Esc চাপুন
+    section:
+        actions:
+            other: ক্রিয়াকলাপ
+        general:
+            other: সাধারণ
+        navigation:
+            other: নেভিগেশন
+    title:
+        other: কীবোর্ড শর্টকাট
+helpbar:
+    about:
+        other: সম্পর্কে
+    copy:
+        other: কপি
+    help:
+        other: সাহায্য
+    logs:
+        other: লগ
+    navigate:
+        other: নেভিগেট
+    open:
+        other: খুলুন
+    page:
+        other: পৃষ্ঠা
+    quit:
+        other: প্রস্থান
+    refresh:
+        other: রিফ্রেশ
+    setup:
+        other: সেটআপ
+    switch:
+        other: পরিবর্তন
+incidents:
+    col:
+        id:
+            other: ID
+        severity:
+            other: তীব্র
+        title:
+            other: শিরোনাম
+    detail:
+        causes:
+            other: কারণসমূহ
+        created_by:
+            other: তৈরি করেছেন
+        description:
+            other: বিবরণ
+        environments:
+            other: পরিবেশসমূহ
+        functionalities:
+            other: কার্যকারিতাসমূহ
+        integrations:
+            other: Integrations
+        kind:
+            other: Type
+        labels:
+            other: Labels
+        links:
+            other: লিংকসমূহ
+        metadata:
+            other: Metadata
+        mitigated_by:
+            other: Mitigated by
+        mitigation_message:
+            other: Mitigation
+        private:
+            other: Private
+        resolution_message:
+            other: Resolution
+        resolved_by:
+            other: Resolved by
+        responders:
+            other: Responders
+        retrospective:
+            other: Retrospective
+        roles:
+            other: ভূমিকাসমূহ
+        services:
+            other: সেবাসমূহ
+        severity:
+            other: তীব্রতা
+        source:
+            other: Source
+        started_by:
+            other: Started by
+        status:
+            other: অবস্থা
+        teams:
+            other: দলসমূহ
+        types:
+            other: প্রকারসমূহ
+    integrations:
+        asana:
+            other: Asana
+        confluence:
+            other: Confluence
+        datadog:
+            other: Datadog
+        freshservice:
+            other: Freshservice
+        github:
+            other: GitHub
+        gitlab:
+            other: GitLab
+        google_meet:
+            other: Google Meet
+        linear:
+            other: Linear
+        opsgenie:
+            other: OpsGenie
+        pagerduty:
+            other: PagerDuty
+        servicenow:
+            other: ServiceNow
+        trello:
+            other: Trello
+        zoom:
+            other: Zoom
+    links:
+        jira:
+            other: Jira
+        rootly:
+            other: Rootly
+        slack:
+            other: Slack
+    loading_details:
+        other: বিস্তারিত লোড হচ্ছে...
+    loading_page:
+        other: পৃষ্ঠা {{.Page}} লোড হচ্ছে...
+    metrics:
+        duration:
+            other: Total Duration
+        maintenance:
+            other: Maintenance Window
+        title:
+            other: Duration Metrics
+        triage:
+            other: In Triage
+        tta:
+            other: Time to Acknowledge
+        ttc:
+            other: Time to Close
+        ttd:
+            other: Time to Detect
+        ttm:
+            other: Time to Mitigate
+        ttr:
+            other: Time to Resolve
+    none_found:
+        other: কোন ঘটনা পাওয়া যায়নি
+    press_enter:
+        other: আরও বিস্তারিত জানতে Enter চাপুন
+    retro:
+        completed:
+            other: Completed
+        in_progress:
+            other: In Progress
+        not_started:
+            other: Not Started
+    select_prompt:
+        other: বিস্তারিত দেখতে একটি ঘটনা নির্বাচন করুন
+    timeline:
+        acknowledged:
+            other: স্বীকৃত
+        cancelled:
+            other: Cancelled
+        closed:
+            other: Closed
+        created:
+            other: তৈরি হয়েছে
+        detected:
+            other: সনাক্ত হয়েছে
+        mitigated:
+            other: প্রশমিত
+        resolved:
+            other: সমাধান হয়েছে
+        scheduled_for:
+            other: Scheduled For
+        scheduled_until:
+            other: Scheduled Until
+        started:
+            other: শুরু হয়েছে
+        title:
+            other: সময়রেখা
+    title:
+        other: ঘটনাসমূহ
+logs:
+    clipboard_unavailable:
+        other: ক্লিপবোর্ড উপলব্ধ নয় (লগ দেখুন)
+    copied:
+        other: কপি হয়েছে!
+    empty:
+        other: এখনো কোন লগ নেই। লগ স্বয়ংক্রিয়ভাবে ক্যাপচার হয়।
+    following:
+        other: following
+    line_count:
+        other: '{{.Count}} lines'
+    memory:
+        other: memory
+    scroll_percent:
+        other: '{{.Percent}}%'
+    title:
+        other: ডিবাগ লগ
+setup:
+    api_endpoint:
+        other: API এন্ডপয়েন্ট
+    api_key:
+        other: API কী
+    connection_saved:
+        other: সংযোগ সংরক্ষিত!
+    connection_success:
+        other: সংযোগ সফল!
+    connection_title:
+        other: সংযোগ
+    help_panels:
+        other: 'Tab: প্যানেল বদল | ↑↓: নেভিগেট | ←→: মান পরিবর্তন | Enter: নির্বাচন | q/Esc: প্রস্থান'
+    language:
+        other: ভাষা
+    layout:
+        other: লেআউট
+    layout_horizontal:
+        other: অনুভূমিক (পাশাপাশি)
+    layout_vertical:
+        other: উল্লম্ব (স্ট্যাকড)
+    preferences_saved:
+        other: পছন্দসমূহ সংরক্ষিত!
+    preferences_title:
+        other: পছন্দসমূহ
+    save:
+        other: সংরক্ষণ
+    save_preferences:
+        other: পছন্দসমূহ সংরক্ষণ
+    test:
+        other: পরীক্ষা
+    testing_connection:
+        other: সংযোগ পরীক্ষা করা হচ্ছে...
+    timezone:
+        other: সময় অঞ্চল
+sort_by:
+    other: Sort By
+sort_menu_help:
+    other: ↑/↓ navigate • Enter select • Esc close
+sorting:
+    created:
+        other: Created
+    desc:
+        created:
+            other: Sort by creation date (press again to toggle)
+        updated:
+            other: Sort by last updated date (press again to toggle)
+    newest_first:
+        other: Newest First
+    oldest_first:
+        other: Oldest First
+    open_sort_menu:
+        other: Open sort menu (press again to toggle)
+    sort_by_date:
+        other: sort by date
+    title:
+        other: Sorting
+    updated:
+        other: Updated

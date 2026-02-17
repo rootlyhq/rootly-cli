@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install X11 dependencies
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, macos-latest, windows-latest]
+        go: ['1.24']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install X11 dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v5
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests (Unix)
+        if: runner.os != 'Windows'
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        run: go test -v -race ./...
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-24.04'
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.out
+          flags: unittests
+          fail_ci_if_error: false
+
+  # Summary job for matrix test runs. GitHub requires a single check for branch protection,
+  # but matrix jobs create multiple checks. This job provides a single "Check Tests Passed"
+  # status that succeeds only if all matrix test jobs succeed.
+  validate-tests-passed:
+    name: Check Tests Passed
+    runs-on: ubuntu-slim
+    needs: test
+    if: always()
+    steps:
+      - name: Check test matrix status
+        if: needs.test.result != 'success'
+        run: exit 1
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install X11 dependencies
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: make build
+
+      - name: Verify binary
+        run: ./bin/rootly-tui --version
