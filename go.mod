@@ -11,13 +11,13 @@ require (
 	github.com/evertras/bubble-table v0.19.2
 	github.com/jedib0t/go-pretty/v6 v6.7.8
 	github.com/mattn/go-isatty v0.0.20
-	github.com/nicksnyder/go-i18n/v2 v2.6.0
-	github.com/rootlyhq/rootly-go v0.4.0
+	github.com/nicksnyder/go-i18n/v2 v2.6.1
+	github.com/rootlyhq/rootly-go v0.6.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	go.etcd.io/bbolt v1.4.3
 	golang.design/x/clipboard v0.7.1
-	golang.org/x/text v0.32.0
+	golang.org/x/text v0.34.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
