@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/rootlyhq/rootly-cli/internal/printer"
+	"github.com/rootlyhq/rootly-cli/internal/timeformat"
 )
 
 var shiftsCmd = &cobra.Command{
@@ -83,6 +84,11 @@ func runShifts(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// For json/yaml: pass through raw API response (includes meta/pagination)
+	if format == "json" || format == "yaml" {
+		return p.PrintRawJSON(result.RawBody, os.Stdout)
+	}
+
 	// Build headers and rows
 	headers := []string{"User", "Schedule", "Starts", "Ends", "Active"}
 	rows := make([][]string, 0, len(result.Shifts))
@@ -96,8 +102,8 @@ func runShifts(cmd *cobra.Command, args []string) error {
 		row := []string{
 			shift.UserName,
 			truncateString(shift.ScheduleName, 30),
-			formatTime(shift.StartsAt),
-			formatTime(shift.EndsAt),
+			timeformat.FormatTime(shift.StartsAt),
+			timeformat.FormatTime(shift.EndsAt),
 			active,
 		}
 		rows = append(rows, row)

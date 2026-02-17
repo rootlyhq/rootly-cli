@@ -3,12 +3,12 @@ package services
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/rootlyhq/rootly-cli/internal/printer"
+	"github.com/rootlyhq/rootly-cli/internal/timeformat"
 )
 
 var listCmd = &cobra.Command{
@@ -86,6 +86,11 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// For json/yaml: pass through raw API response (includes meta/pagination)
+	if format == "json" || format == "yaml" {
+		return p.PrintRawJSON(result.RawBody, os.Stdout)
+	}
+
 	// Build headers and rows
 	headers := []string{"ID", "Name", "Slug", "Description", "Created"}
 	rows := make([][]string, 0, len(result.Services))
@@ -101,7 +106,7 @@ func runList(cmd *cobra.Command, args []string) error {
 			truncateString(svc.Name, 40),
 			svc.Slug,
 			truncateString(svc.Description, 50),
-			formatTime(nil, svc.CreatedAt),
+			timeformat.FormatTime(svc.CreatedAt),
 		}
 		rows = append(rows, row)
 	}
@@ -131,14 +136,4 @@ func truncateString(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
-}
-
-// formatTime formats a time pointer or falls back to a default time.
-// Returns formatted time string in "2006-01-02 15:04" format.
-func formatTime(primary *time.Time, fallback time.Time) string {
-	t := fallback
-	if primary != nil {
-		t = *primary
-	}
-	return t.Format("2006-01-02 15:04")
 }

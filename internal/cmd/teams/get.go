@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/printer"
+	"github.com/rootlyhq/rootly-cli/internal/timeformat"
 )
 
 var getCmd = &cobra.Command{
@@ -61,10 +61,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// For json/yaml: convert to map for clean output
+	// For json/yaml: pass through raw API response
 	if format == "json" || format == "yaml" {
-		data := teamToMap(team)
-		return p.PrintObj(data, os.Stdout)
+		return p.PrintRawJSON(team.RawBody, os.Stdout)
 	}
 
 	// For table/markdown: build key-value rows
@@ -72,33 +71,6 @@ func runGet(cmd *cobra.Command, args []string) error {
 	rows := teamDetailRows(team)
 
 	return p.PrintList(headers, rows, os.Stdout)
-}
-
-// teamToMap converts a Team to a map for JSON/YAML output.
-func teamToMap(team *api.Team) map[string]interface{} {
-	data := map[string]interface{}{
-		"id":   team.ID,
-		"name": team.Name,
-		"slug": team.Slug,
-	}
-
-	if team.Description != "" {
-		data["description"] = team.Description
-	}
-	if team.Color != "" {
-		data["color"] = team.Color
-	}
-	if len(team.Users) > 0 {
-		data["users"] = team.Users
-	}
-	if !team.CreatedAt.IsZero() {
-		data["created_at"] = team.CreatedAt.Format(time.RFC3339)
-	}
-	if !team.UpdatedAt.IsZero() {
-		data["updated_at"] = team.UpdatedAt.Format(time.RFC3339)
-	}
-
-	return data
 }
 
 // teamDetailRows converts a Team to table rows for display.
@@ -119,10 +91,10 @@ func teamDetailRows(team *api.Team) [][]string {
 		rows = append(rows, []string{"Users", strings.Join(team.Users, ", ")})
 	}
 	if !team.CreatedAt.IsZero() {
-		rows = append(rows, []string{"Created", team.CreatedAt.Format("2006-01-02 15:04:05 MST")})
+		rows = append(rows, []string{"Created", timeformat.FormatTime(team.CreatedAt)})
 	}
 	if !team.UpdatedAt.IsZero() {
-		rows = append(rows, []string{"Updated", team.UpdatedAt.Format("2006-01-02 15:04:05 MST")})
+		rows = append(rows, []string{"Updated", timeformat.FormatTime(team.UpdatedAt)})
 	}
 
 	return rows

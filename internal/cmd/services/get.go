@@ -3,13 +3,13 @@ package services
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/printer"
+	"github.com/rootlyhq/rootly-cli/internal/timeformat"
 )
 
 var getCmd = &cobra.Command{
@@ -60,10 +60,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// For json/yaml: convert to map for clean output
+	// For json/yaml: pass through raw API response
 	if format == "json" || format == "yaml" {
-		data := serviceToMap(service)
-		return p.PrintObj(data, os.Stdout)
+		return p.PrintRawJSON(service.RawBody, os.Stdout)
 	}
 
 	// For table/markdown: build key-value rows
@@ -71,33 +70,6 @@ func runGet(cmd *cobra.Command, args []string) error {
 	rows := serviceDetailRows(service)
 
 	return p.PrintList(headers, rows, os.Stdout)
-}
-
-// serviceToMap converts a Service to a map for JSON/YAML output.
-func serviceToMap(svc *api.Service) map[string]interface{} {
-	data := map[string]interface{}{
-		"id":   svc.ID,
-		"name": svc.Name,
-		"slug": svc.Slug,
-	}
-
-	if svc.Description != "" {
-		data["description"] = svc.Description
-	}
-	if svc.Color != "" {
-		data["color"] = svc.Color
-	}
-	if svc.OwnerTeamName != "" {
-		data["owner_team"] = svc.OwnerTeamName
-	}
-	if !svc.CreatedAt.IsZero() {
-		data["created_at"] = svc.CreatedAt.Format(time.RFC3339)
-	}
-	if !svc.UpdatedAt.IsZero() {
-		data["updated_at"] = svc.UpdatedAt.Format(time.RFC3339)
-	}
-
-	return data
 }
 
 // serviceDetailRows converts a Service to table rows for display.
@@ -118,10 +90,10 @@ func serviceDetailRows(svc *api.Service) [][]string {
 		rows = append(rows, []string{"Owner Team", svc.OwnerTeamName})
 	}
 	if !svc.CreatedAt.IsZero() {
-		rows = append(rows, []string{"Created", svc.CreatedAt.Format("2006-01-02 15:04:05 MST")})
+		rows = append(rows, []string{"Created", timeformat.FormatTime(svc.CreatedAt)})
 	}
 	if !svc.UpdatedAt.IsZero() {
-		rows = append(rows, []string{"Updated", svc.UpdatedAt.Format("2006-01-02 15:04:05 MST")})
+		rows = append(rows, []string{"Updated", timeformat.FormatTime(svc.UpdatedAt)})
 	}
 
 	return rows

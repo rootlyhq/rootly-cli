@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/rootlyhq/rootly-cli/internal/printer"
+	"github.com/rootlyhq/rootly-cli/internal/timeformat"
 )
 
 var whoCmd = &cobra.Command{
@@ -63,6 +64,16 @@ func runWho(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to list shifts: %w", err)
 	}
 
+	// For json/yaml: pass through raw API response (unfiltered)
+	format := viper.GetString("format")
+	if format == "json" || format == "yaml" {
+		p, err := printer.NewPrinter(format)
+		if err != nil {
+			return err
+		}
+		return p.PrintRawJSON(result.RawBody, os.Stdout)
+	}
+
 	// Filter to only active shifts (client-side verification)
 	activeShifts := make([]struct {
 		UserName     string
@@ -93,10 +104,7 @@ func runWho(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Get format from viper
-	format := viper.GetString("format")
-
-	// Create printer
+	// Create printer for table/markdown output
 	p, err := printer.NewPrinter(format)
 	if err != nil {
 		return err
@@ -110,8 +118,8 @@ func runWho(cmd *cobra.Command, args []string) error {
 		row := []string{
 			shift.UserName,
 			truncateString(shift.ScheduleName, 30),
-			formatTime(shift.StartsAt),
-			formatTime(shift.EndsAt),
+			timeformat.FormatTime(shift.StartsAt),
+			timeformat.FormatTime(shift.EndsAt),
 		}
 		rows = append(rows, row)
 	}

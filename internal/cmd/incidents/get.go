@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/printer"
+	"github.com/rootlyhq/rootly-cli/internal/timeformat"
 )
 
 var getCmd = &cobra.Command{
@@ -98,16 +98,14 @@ func incidentDetailRows(inc *api.Incident) [][]string {
 	addRow("URL", inc.URL)
 
 	// Timestamps
-	addRow("Created", inc.CreatedAt.Format(time.RFC3339))
-	if !inc.UpdatedAt.IsZero() {
-		addRow("Updated", inc.UpdatedAt.Format(time.RFC3339))
-	}
-	addRow("Started", formatTimePtr(inc.StartedAt))
-	addRow("Detected", formatTimePtr(inc.DetectedAt))
-	addRow("Acknowledged", formatTimePtr(inc.AcknowledgedAt))
-	addRow("Mitigated", formatTimePtr(inc.MitigatedAt))
-	addRow("Resolved", formatTimePtr(inc.ResolvedAt))
-	addRow("Closed", formatTimePtr(inc.ClosedAt))
+	addRow("Created", timeformat.FormatTime(inc.CreatedAt))
+	addRow("Updated", timeformat.FormatTime(inc.UpdatedAt))
+	addRow("Started", timeformat.FormatTimePtr(inc.StartedAt))
+	addRow("Detected", timeformat.FormatTimePtr(inc.DetectedAt))
+	addRow("Acknowledged", timeformat.FormatTimePtr(inc.AcknowledgedAt))
+	addRow("Mitigated", timeformat.FormatTimePtr(inc.MitigatedAt))
+	addRow("Resolved", timeformat.FormatTimePtr(inc.ResolvedAt))
+	addRow("Closed", timeformat.FormatTimePtr(inc.ClosedAt))
 	addRow("Duration", formatDuration(inc.Duration()))
 
 	// People
@@ -175,12 +173,4 @@ func incidentDetailRows(inc *api.Incident) [][]string {
 	addRow("Retrospective", inc.RetrospectiveProgressStatus)
 
 	return rows
-}
-
-// formatTimePtr formats a time pointer, returning "-" if nil.
-func formatTimePtr(t *time.Time) string {
-	if t == nil {
-		return "-"
-	}
-	return t.Format(time.RFC3339)
 }

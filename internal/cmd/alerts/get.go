@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/printer"
+	"github.com/rootlyhq/rootly-cli/internal/timeformat"
 )
 
 var getCmd = &cobra.Command{
@@ -61,10 +61,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// For json/yaml: convert to map for clean output
+	// For json/yaml: pass through raw API response
 	if format == "json" || format == "yaml" {
-		data := alertToMap(alert)
-		return p.PrintObj(data, os.Stdout)
+		return p.PrintRawJSON(alert.RawBody, os.Stdout)
 	}
 
 	// For table/markdown: build key-value rows
@@ -72,115 +71,6 @@ func runGet(cmd *cobra.Command, args []string) error {
 	rows := alertDetailRows(alert)
 
 	return p.PrintList(headers, rows, os.Stdout)
-}
-
-// alertToMap converts an Alert to a map for JSON/YAML output.
-func alertToMap(alert *api.Alert) map[string]interface{} {
-	data := map[string]interface{}{
-		"id":      alert.ID,
-		"summary": alert.Summary,
-		"status":  alert.Status,
-	}
-
-	if alert.ShortID != "" {
-		data["short_id"] = alert.ShortID
-	}
-	if alert.Description != "" {
-		data["description"] = alert.Description
-	}
-	if alert.Source != "" {
-		data["source"] = alert.Source
-	}
-	if alert.URL != "" {
-		data["url"] = alert.URL
-	}
-	if alert.ExternalURL != "" {
-		data["external_url"] = alert.ExternalURL
-	}
-	if alert.ExternalID != "" {
-		data["external_id"] = alert.ExternalID
-	}
-
-	// Timestamps
-	data["created_at"] = alert.CreatedAt.Format(time.RFC3339)
-	if !alert.UpdatedAt.IsZero() {
-		data["updated_at"] = alert.UpdatedAt.Format(time.RFC3339)
-	}
-	if alert.StartedAt != nil {
-		data["started_at"] = alert.StartedAt.Format(time.RFC3339)
-	}
-	if alert.EndedAt != nil {
-		data["ended_at"] = alert.EndedAt.Format(time.RFC3339)
-	}
-
-	// Additional fields
-	if alert.Urgency != "" {
-		data["urgency"] = alert.Urgency
-	}
-	if alert.Noise != "" {
-		data["noise"] = alert.Noise
-	}
-	if alert.DeduplicationKey != "" {
-		data["deduplication_key"] = alert.DeduplicationKey
-	}
-	if alert.IsGroupLeaderAlert {
-		data["is_group_leader_alert"] = alert.IsGroupLeaderAlert
-	}
-	if alert.GroupLeaderAlertID != "" {
-		data["group_leader_alert_id"] = alert.GroupLeaderAlertID
-	}
-
-	// Arrays (if len > 0)
-	if len(alert.Services) > 0 {
-		data["services"] = alert.Services
-	}
-	if len(alert.Environments) > 0 {
-		data["environments"] = alert.Environments
-	}
-	if len(alert.Groups) > 0 {
-		data["groups"] = alert.Groups
-	}
-	if len(alert.Responders) > 0 {
-		data["responders"] = alert.Responders
-	}
-
-	// Labels (if len > 0)
-	if len(alert.Labels) > 0 {
-		data["labels"] = alert.Labels
-	}
-
-	// Notified Users (if len > 0)
-	if len(alert.NotifiedUsers) > 0 {
-		users := make([]map[string]string, len(alert.NotifiedUsers))
-		for i, u := range alert.NotifiedUsers {
-			users[i] = map[string]string{
-				"name":  u.Name,
-				"email": u.Email,
-			}
-		}
-		data["notified_users"] = users
-	}
-
-	// Related Incidents (if len > 0)
-	if len(alert.RelatedIncidents) > 0 {
-		incidents := make([]map[string]string, len(alert.RelatedIncidents))
-		for i, inc := range alert.RelatedIncidents {
-			incidents[i] = map[string]string{
-				"id":            inc.ID,
-				"sequential_id": inc.SequentialID,
-				"title":         inc.Title,
-				"status":        inc.Status,
-			}
-		}
-		data["related_incidents"] = incidents
-	}
-
-	// Raw data (if len > 0)
-	if len(alert.Data) > 0 {
-		data["data"] = alert.Data
-	}
-
-	return data
 }
 
 // alertDetailRows builds key-value rows for table/markdown output.
@@ -210,9 +100,9 @@ func alertDetailRows(alert *api.Alert) [][]string {
 	addRow("External ID", alert.ExternalID)
 
 	// Timestamps
-	addRow("Created", alert.CreatedAt.Format(time.RFC3339))
-	addRow("Started", formatTimePtr(alert.StartedAt))
-	addRow("Ended", formatTimePtr(alert.EndedAt))
+	addRow("Created", timeformat.FormatTime(alert.CreatedAt))
+	addRow("Started", timeformat.FormatTimePtr(alert.StartedAt))
+	addRow("Ended", timeformat.FormatTimePtr(alert.EndedAt))
 
 	// Resources
 	addRow("Services", strings.Join(alert.Services, ", "))
@@ -247,12 +137,4 @@ func alertDetailRows(alert *api.Alert) [][]string {
 	addRow("Deduplication Key", alert.DeduplicationKey)
 
 	return rows
-}
-
-// formatTimePtr formats a time pointer, returning "-" if nil.
-func formatTimePtr(t *time.Time) string {
-	if t == nil {
-		return "-"
-	}
-	return t.Format(time.RFC3339)
 }

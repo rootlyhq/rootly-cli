@@ -3,12 +3,12 @@ package oncall
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/rootlyhq/rootly-cli/internal/printer"
+	"github.com/rootlyhq/rootly-cli/internal/timeformat"
 )
 
 var listCmd = &cobra.Command{
@@ -65,6 +65,11 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// For json/yaml: pass through raw API response (includes meta/pagination)
+	if format == "json" || format == "yaml" {
+		return p.PrintRawJSON(result.RawBody, os.Stdout)
+	}
+
 	// Build headers and rows
 	headers := []string{"ID", "Name", "Description", "Created"}
 	rows := make([][]string, 0, len(result.Schedules))
@@ -74,7 +79,7 @@ func runList(cmd *cobra.Command, args []string) error {
 			schedule.ID,
 			truncateString(schedule.Name, 40),
 			truncateString(schedule.Description, 50),
-			formatTime(schedule.CreatedAt),
+			timeformat.FormatTime(schedule.CreatedAt),
 		}
 		rows = append(rows, row)
 	}
@@ -104,9 +109,4 @@ func truncateString(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
-}
-
-// formatTime formats a time in "2006-01-02 15:04" format.
-func formatTime(t time.Time) string {
-	return t.Format("2006-01-02 15:04")
 }
