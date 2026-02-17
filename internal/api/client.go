@@ -89,6 +89,8 @@ type Incident struct {
 	DatadogNotebookURL    string
 	ServiceNowIncidentURL string
 	FreshserviceTicketURL string
+	// Raw API response body for JSON/YAML passthrough
+	RawBody []byte
 }
 
 type IncidentRole struct {
@@ -127,6 +129,8 @@ type Alert struct {
 	RelatedIncidents   []AlertIncident // Related incidents
 	DeduplicationKey   string
 	Data               map[string]interface{} // Raw alert payload from source
+	// Raw API response body for JSON/YAML passthrough
+	RawBody []byte
 }
 
 // AlertUser represents a user who was notified about an alert
@@ -156,12 +160,14 @@ type PaginationInfo struct {
 type IncidentsResult struct {
 	Incidents  []Incident
 	Pagination PaginationInfo
+	RawBody    []byte
 }
 
 // AlertsResult contains alerts and pagination info
 type AlertsResult struct {
 	Alerts     []Alert
 	Pagination PaginationInfo
+	RawBody    []byte
 }
 
 // Service represents a Rootly service
@@ -175,12 +181,15 @@ type Service struct {
 	UpdatedAt     time.Time
 	OwnerTeamName string // Populated from included owner_group relationship
 	DetailLoaded  bool
+	// Raw API response body for JSON/YAML passthrough
+	RawBody []byte
 }
 
 // ServicesResult contains services and pagination info
 type ServicesResult struct {
 	Services   []Service
 	Pagination PaginationInfo
+	RawBody    []byte
 }
 
 // Team represents a Rootly team
@@ -195,12 +204,15 @@ type Team struct {
 	UserCount    int      // Populated from included users relationship count
 	Users        []string // User names from included users relationship, for detail view
 	DetailLoaded bool
+	// Raw API response body for JSON/YAML passthrough
+	RawBody []byte
 }
 
 // TeamsResult contains teams and pagination info
 type TeamsResult struct {
 	Teams      []Team
 	Pagination PaginationInfo
+	RawBody    []byte
 }
 
 // incidentResponseData represents the structure of incident data from the API response
@@ -312,6 +324,327 @@ func parseIncidentData(d incidentResponseData) Incident {
 	}
 
 	return incident
+}
+
+// incidentDetailResponse is the full JSON:API response for a single incident with includes.
+type incidentDetailResponse struct {
+	Data struct {
+		ID         string                   `json:"id"`
+		Attributes incidentDetailAttributes `json:"attributes"`
+	} `json:"data"`
+}
+
+type incidentDetailAttributes struct {
+	SequentialID *int   `json:"sequential_id"`
+	Title        string `json:"title"`
+	Summary      string `json:"summary"`
+	Status       string `json:"status"`
+	Kind         string `json:"kind"`
+	Private      bool   `json:"private"`
+	Severity     *struct {
+		Data *struct {
+			Attributes *struct {
+				Name string `json:"name"`
+			} `json:"attributes"`
+		} `json:"data"`
+	} `json:"severity"`
+	// Timestamps
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+	StartedAt      *string `json:"started_at"`
+	DetectedAt     *string `json:"detected_at"`
+	AcknowledgedAt *string `json:"acknowledged_at"`
+	MitigatedAt    *string `json:"mitigated_at"`
+	ResolvedAt     *string `json:"resolved_at"`
+	InTriageAt     *string `json:"in_triage_at"`
+	ClosedAt       *string `json:"closed_at"`
+	CancelledAt    *string `json:"cancelled_at"`
+	ScheduledFor   *string `json:"scheduled_for"`
+	ScheduledUntil *string `json:"scheduled_until"`
+	// URLs
+	URL      *string `json:"url"`
+	ShortURL *string `json:"short_url"`
+	// Detail fields
+	Source                      *string `json:"source"`
+	MitigationMessage           *string `json:"mitigation_message"`
+	ResolutionMessage           *string `json:"resolution_message"`
+	RetrospectiveProgressStatus *string `json:"retrospective_progress_status"`
+	SlackChannelName            *string `json:"slack_channel_name"`
+	// Labels
+	Labels []struct {
+		Key   string      `json:"key"`
+		Value interface{} `json:"value"`
+	} `json:"labels"`
+	// Integration links
+	SlackChannelURL       *string `json:"slack_channel_url"`
+	JiraIssueURL          *string `json:"jira_issue_url"`
+	GoogleMeetingURL      *string `json:"google_meeting_url"`
+	LinearIssueURL        *string `json:"linear_issue_url"`
+	ZoomMeetingJoinURL    *string `json:"zoom_meeting_join_url"`
+	GithubIssueURL        *string `json:"github_issue_url"`
+	GitlabIssueURL        *string `json:"gitlab_issue_url"`
+	PagerdutyIncidentURL  *string `json:"pagerduty_incident_url"`
+	OpsgenieIncidentURL   *string `json:"opsgenie_incident_url"`
+	AsanaTaskURL          *string `json:"asana_task_url"`
+	TrelloCardURL         *string `json:"trello_card_url"`
+	ConfluencePageURL     *string `json:"confluence_page_url"`
+	DatadogNotebookURL    *string `json:"datadog_notebook_url"`
+	ServiceNowIncidentURL *string `json:"service_now_incident_url"`
+	FreshserviceTicketURL *string `json:"freshservice_ticket_url"`
+	// Nested relationships (embedded in attributes)
+	Commander *struct {
+		Data *struct {
+			Attributes struct {
+				Name string `json:"name"`
+			} `json:"attributes"`
+		} `json:"data"`
+	} `json:"commander"`
+	Communicator *struct {
+		Data *struct {
+			Attributes struct {
+				Name string `json:"name"`
+			} `json:"attributes"`
+		} `json:"data"`
+	} `json:"communicator"`
+	User *struct {
+		Data *struct {
+			Attributes struct {
+				FullName string `json:"full_name"`
+				Email    string `json:"email"`
+			} `json:"attributes"`
+		} `json:"data"`
+	} `json:"user"`
+	StartedBy *struct {
+		Data *struct {
+			Attributes struct {
+				FullName string `json:"full_name"`
+				Email    string `json:"email"`
+			} `json:"attributes"`
+		} `json:"data"`
+	} `json:"started_by"`
+	MitigatedBy *struct {
+		Data *struct {
+			Attributes struct {
+				FullName string `json:"full_name"`
+				Email    string `json:"email"`
+			} `json:"attributes"`
+		} `json:"data"`
+	} `json:"mitigated_by"`
+	ResolvedBy *struct {
+		Data *struct {
+			Attributes struct {
+				FullName string `json:"full_name"`
+				Email    string `json:"email"`
+			} `json:"attributes"`
+		} `json:"data"`
+	} `json:"resolved_by"`
+	// Collection relationships
+	Roles []struct {
+		Attributes struct {
+			Name string `json:"name"`
+			User *struct {
+				Data *struct {
+					Attributes struct {
+						FullName string `json:"full_name"`
+						Email    string `json:"email"`
+					} `json:"attributes"`
+				} `json:"data"`
+			} `json:"user"`
+		} `json:"attributes"`
+	} `json:"roles"`
+	Causes []struct {
+		Attributes struct {
+			Name string `json:"name"`
+		} `json:"attributes"`
+	} `json:"causes"`
+	IncidentTypes []struct {
+		Attributes struct {
+			Name string `json:"name"`
+		} `json:"attributes"`
+	} `json:"incident_types"`
+	Functionalities []struct {
+		Attributes struct {
+			Name string `json:"name"`
+		} `json:"attributes"`
+	} `json:"functionalities"`
+	Services *struct {
+		Data []struct {
+			Attributes struct {
+				Name string `json:"name"`
+			} `json:"attributes"`
+		} `json:"data"`
+	} `json:"services"`
+	Environments *struct {
+		Data []struct {
+			Attributes struct {
+				Name string `json:"name"`
+			} `json:"attributes"`
+		} `json:"data"`
+	} `json:"environments"`
+	Groups *struct {
+		Data []struct {
+			Attributes struct {
+				Name string `json:"name"`
+			} `json:"attributes"`
+		} `json:"data"`
+	} `json:"groups"`
+}
+
+// parseIncidentDetailResponse converts the full detail API response into an Incident.
+func parseIncidentDetailResponse(result incidentDetailResponse, rawBody []byte) *Incident {
+	d := result.Data
+	a := d.Attributes
+
+	incident := &Incident{
+		ID:           d.ID,
+		Title:        strings.TrimSpace(a.Title),
+		Summary:      strings.TrimSpace(a.Summary),
+		Status:       strings.TrimSpace(a.Status),
+		Kind:         a.Kind,
+		Private:      a.Private,
+		DetailLoaded: true,
+		RawBody:      rawBody,
+		Labels:       make(map[string]string),
+	}
+
+	if a.SequentialID != nil {
+		incident.SequentialID = fmt.Sprintf("INC-%d", *a.SequentialID)
+	}
+	if a.Severity != nil && a.Severity.Data != nil && a.Severity.Data.Attributes != nil {
+		incident.Severity = a.Severity.Data.Attributes.Name
+	}
+
+	// Timestamps
+	if t, err := time.Parse(time.RFC3339, a.CreatedAt); err == nil {
+		incident.CreatedAt = t
+	}
+	if t, err := time.Parse(time.RFC3339, a.UpdatedAt); err == nil {
+		incident.UpdatedAt = t
+	}
+	incident.StartedAt = parseTimePtr(a.StartedAt)
+	incident.DetectedAt = parseTimePtr(a.DetectedAt)
+	incident.AcknowledgedAt = parseTimePtr(a.AcknowledgedAt)
+	incident.MitigatedAt = parseTimePtr(a.MitigatedAt)
+	incident.ResolvedAt = parseTimePtr(a.ResolvedAt)
+	incident.InTriageAt = parseTimePtr(a.InTriageAt)
+	incident.ClosedAt = parseTimePtr(a.ClosedAt)
+	incident.CancelledAt = parseTimePtr(a.CancelledAt)
+	incident.ScheduledFor = parseTimePtr(a.ScheduledFor)
+	incident.ScheduledUntil = parseTimePtr(a.ScheduledUntil)
+
+	// Scalar detail fields
+	setStringFromPtr(&incident.URL, a.URL)
+	setStringFromPtr(&incident.ShortURL, a.ShortURL)
+	setStringFromPtr(&incident.Source, a.Source)
+	setStringFromPtr(&incident.MitigationMessage, a.MitigationMessage)
+	setStringFromPtr(&incident.ResolutionMessage, a.ResolutionMessage)
+	setStringFromPtr(&incident.RetrospectiveProgressStatus, a.RetrospectiveProgressStatus)
+	setStringFromPtr(&incident.SlackChannelName, a.SlackChannelName)
+
+	// Labels
+	for _, l := range a.Labels {
+		incident.Labels[l.Key] = fmt.Sprintf("%v", l.Value)
+	}
+
+	parseIncidentDetailLinks(incident, &a)
+	parseIncidentDetailRelationships(incident, &a)
+
+	return incident
+}
+
+// setStringFromPtr sets dst to *src if src is non-nil.
+func setStringFromPtr(dst, src *string) {
+	if src != nil {
+		*dst = *src
+	}
+}
+
+// parseIncidentDetailLinks populates integration link fields from the response.
+func parseIncidentDetailLinks(incident *Incident, a *incidentDetailAttributes) {
+	setStringFromPtr(&incident.SlackChannelURL, a.SlackChannelURL)
+	setStringFromPtr(&incident.JiraIssueURL, a.JiraIssueURL)
+	setStringFromPtr(&incident.GoogleMeetingURL, a.GoogleMeetingURL)
+	setStringFromPtr(&incident.LinearIssueURL, a.LinearIssueURL)
+	setStringFromPtr(&incident.ZoomMeetingJoinURL, a.ZoomMeetingJoinURL)
+	setStringFromPtr(&incident.GithubIssueURL, a.GithubIssueURL)
+	setStringFromPtr(&incident.GitlabIssueURL, a.GitlabIssueURL)
+	setStringFromPtr(&incident.PagerdutyIncidentURL, a.PagerdutyIncidentURL)
+	setStringFromPtr(&incident.OpsgenieIncidentURL, a.OpsgenieIncidentURL)
+	setStringFromPtr(&incident.AsanaTaskURL, a.AsanaTaskURL)
+	setStringFromPtr(&incident.TrelloCardURL, a.TrelloCardURL)
+	setStringFromPtr(&incident.ConfluencePageURL, a.ConfluencePageURL)
+	setStringFromPtr(&incident.DatadogNotebookURL, a.DatadogNotebookURL)
+	setStringFromPtr(&incident.ServiceNowIncidentURL, a.ServiceNowIncidentURL)
+	setStringFromPtr(&incident.FreshserviceTicketURL, a.FreshserviceTicketURL)
+}
+
+// parseIncidentDetailRelationships populates relationship fields from the response.
+func parseIncidentDetailRelationships(incident *Incident, a *incidentDetailAttributes) {
+	// Commander / Communicator
+	if a.Commander != nil && a.Commander.Data != nil {
+		incident.CommanderName = a.Commander.Data.Attributes.Name
+	}
+	if a.Communicator != nil && a.Communicator.Data != nil {
+		incident.CommunicatorName = a.Communicator.Data.Attributes.Name
+	}
+
+	// User (creator)
+	if a.User != nil && a.User.Data != nil {
+		incident.CreatedByName = a.User.Data.Attributes.FullName
+		incident.CreatedByEmail = a.User.Data.Attributes.Email
+	}
+
+	// Started/Mitigated/Resolved by
+	if a.StartedBy != nil && a.StartedBy.Data != nil {
+		incident.StartedByName = a.StartedBy.Data.Attributes.FullName
+		incident.StartedByEmail = a.StartedBy.Data.Attributes.Email
+	}
+	if a.MitigatedBy != nil && a.MitigatedBy.Data != nil {
+		incident.MitigatedByName = a.MitigatedBy.Data.Attributes.FullName
+		incident.MitigatedByEmail = a.MitigatedBy.Data.Attributes.Email
+	}
+	if a.ResolvedBy != nil && a.ResolvedBy.Data != nil {
+		incident.ResolvedByName = a.ResolvedBy.Data.Attributes.FullName
+		incident.ResolvedByEmail = a.ResolvedBy.Data.Attributes.Email
+	}
+
+	// Roles
+	for _, r := range a.Roles {
+		role := IncidentRole{Name: r.Attributes.Name}
+		if r.Attributes.User != nil && r.Attributes.User.Data != nil {
+			role.UserName = r.Attributes.User.Data.Attributes.FullName
+			role.UserEmail = r.Attributes.User.Data.Attributes.Email
+		}
+		incident.Roles = append(incident.Roles, role)
+	}
+
+	// Causes, incident types, functionalities
+	for _, c := range a.Causes {
+		incident.Causes = append(incident.Causes, c.Attributes.Name)
+	}
+	for _, it := range a.IncidentTypes {
+		incident.IncidentTypes = append(incident.IncidentTypes, it.Attributes.Name)
+	}
+	for _, f := range a.Functionalities {
+		incident.Functionalities = append(incident.Functionalities, f.Attributes.Name)
+	}
+
+	// Services, environments, teams
+	if a.Services != nil {
+		for _, s := range a.Services.Data {
+			incident.Services = append(incident.Services, s.Attributes.Name)
+		}
+	}
+	if a.Environments != nil {
+		for _, e := range a.Environments.Data {
+			incident.Environments = append(incident.Environments, e.Attributes.Name)
+		}
+	}
+	if a.Groups != nil {
+		for _, g := range a.Groups.Data {
+			incident.Teams = append(incident.Teams, g.Attributes.Name)
+		}
+	}
 }
 
 // NewClient creates a stateless API client for CLI usage.
@@ -520,6 +853,7 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 			HasNext:     hasNext,
 			HasPrev:     hasPrev,
 		},
+		RawBody: body,
 	}, nil
 }
 
@@ -563,18 +897,13 @@ func (c *Client) GetIncidentByID(ctx context.Context, id string) (*Incident, err
 		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
 	}
 
-	var result struct {
-		Data incidentResponseData `json:"data"`
-	}
-
+	var result incidentDetailResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	incident := parseIncidentData(result.Data)
-	incident.DetailLoaded = true
-
-	return &incident, nil
+	incident := parseIncidentDetailResponse(result, body)
+	return incident, nil
 }
 
 // CreateIncident creates a new incident using raw HTTP POST.
@@ -650,6 +979,7 @@ func (c *Client) CreateIncident(ctx context.Context, title string, opts map[stri
 	}
 
 	incident := parseIncidentData(result.Data)
+	incident.RawBody = body
 	return &incident, nil
 }
 
@@ -730,6 +1060,7 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 	}
 
 	incident := parseIncidentData(result.Data)
+	incident.RawBody = body
 	return &incident, nil
 }
 
@@ -952,6 +1283,7 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 			HasNext:     hasNext,
 			HasPrev:     hasPrev,
 		},
+		RawBody: body,
 	}, nil
 }
 
@@ -1163,6 +1495,7 @@ func (c *Client) GetAlertByID(ctx context.Context, id string) (*Alert, error) {
 		})
 	}
 
+	alert.RawBody = body
 	return alert, nil
 }
 
@@ -1242,6 +1575,7 @@ func (c *Client) CreateAlertCLI(ctx context.Context, summary string, opts map[st
 	}
 
 	alert := parseAlertData(result.Data)
+	alert.RawBody = body
 	return &alert, nil
 }
 
@@ -1325,6 +1659,7 @@ func (c *Client) UpdateAlertCLI(ctx context.Context, id string, opts map[string]
 	}
 
 	alert := parseAlertData(result.Data)
+	alert.RawBody = body
 	return &alert, nil
 }
 
@@ -1539,6 +1874,7 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 	return &ServicesResult{
 		Services:   services,
 		Pagination: pagination,
+		RawBody:    body,
 	}, nil
 }
 
@@ -1640,6 +1976,7 @@ func (c *Client) GetServiceByID(ctx context.Context, id string) (*Service, error
 		}
 	}
 
+	service.RawBody = body
 	return service, nil
 }
 
@@ -1737,6 +2074,7 @@ func (c *Client) CreateService(ctx context.Context, name string, opts map[string
 		service.Color = *response.Data.Attributes.Color
 	}
 
+	service.RawBody = body
 	return service, nil
 }
 
@@ -1838,6 +2176,7 @@ func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]s
 		service.Color = *response.Data.Attributes.Color
 	}
 
+	service.RawBody = body
 	return service, nil
 }
 
@@ -1988,6 +2327,7 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 			TotalPages:  response.Meta.TotalPages,
 			TotalCount:  response.Meta.TotalCount,
 		},
+		RawBody: body,
 	}
 
 	return result, nil
@@ -2091,6 +2431,7 @@ func (c *Client) GetTeamByID(ctx context.Context, id string) (*Team, error) {
 		}
 	}
 	team.Users = users
+	team.RawBody = body
 
 	return team, nil
 }
@@ -2193,6 +2534,7 @@ func (c *Client) CreateTeam(ctx context.Context, name string, opts map[string]st
 		team.UpdatedAt = parseTime(response.Data.Attributes.UpdatedAt)
 	}
 
+	team.RawBody = respBody
 	return team, nil
 }
 
@@ -2287,6 +2629,7 @@ func (c *Client) UpdateTeam(ctx context.Context, id string, opts map[string]stri
 		team.UpdatedAt = parseTime(response.Data.Attributes.UpdatedAt)
 	}
 
+	team.RawBody = respBody
 	return team, nil
 }
 
@@ -2346,6 +2689,7 @@ type Schedule struct {
 type SchedulesResult struct {
 	Schedules  []Schedule
 	Pagination PaginationInfo
+	RawBody    []byte
 }
 
 // Shift represents an on-call shift
@@ -2364,6 +2708,7 @@ type Shift struct {
 type ShiftsResult struct {
 	Shifts     []Shift
 	Pagination PaginationInfo
+	RawBody    []byte
 }
 
 // ListSchedulesCLI lists on-call schedules (read-only).
@@ -2461,6 +2806,7 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 			TotalPages:  response.Meta.TotalPages,
 			TotalCount:  response.Meta.TotalCount,
 		},
+		RawBody: body,
 	}
 
 	return result, nil
@@ -2623,6 +2969,7 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 			TotalPages:  response.Meta.TotalPages,
 			TotalCount:  response.Meta.TotalCount,
 		},
+		RawBody: body,
 	}
 
 	return result, nil

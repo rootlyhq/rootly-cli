@@ -61,10 +61,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// For json/yaml: convert to map for clean output
+	// For json/yaml: pass through raw API response
 	if format == "json" || format == "yaml" {
-		data := incidentToMap(incident)
-		return p.PrintObj(data, os.Stdout)
+		return p.PrintRawJSON(incident.RawBody, os.Stdout)
 	}
 
 	// For table/markdown: build key-value rows
@@ -72,215 +71,6 @@ func runGet(cmd *cobra.Command, args []string) error {
 	rows := incidentDetailRows(incident)
 
 	return p.PrintList(headers, rows, os.Stdout)
-}
-
-// incidentToMap converts an Incident to a map for JSON/YAML output.
-//
-//nolint:gocyclo
-func incidentToMap(inc *api.Incident) map[string]interface{} {
-	data := map[string]interface{}{
-		"id":     inc.ID,
-		"title":  inc.Title,
-		"status": inc.Status,
-	}
-
-	if inc.SequentialID != "" {
-		data["sequential_id"] = inc.SequentialID
-	}
-	if inc.Severity != "" {
-		data["severity"] = inc.Severity
-	}
-	if inc.Summary != "" {
-		data["summary"] = inc.Summary
-	}
-	if inc.Kind != "" {
-		data["kind"] = inc.Kind
-	}
-	if inc.URL != "" {
-		data["url"] = inc.URL
-	}
-	if inc.ShortURL != "" {
-		data["short_url"] = inc.ShortURL
-	}
-
-	// Timestamps
-	data["created_at"] = inc.CreatedAt.Format(time.RFC3339)
-	if !inc.UpdatedAt.IsZero() {
-		data["updated_at"] = inc.UpdatedAt.Format(time.RFC3339)
-	}
-	if inc.StartedAt != nil {
-		data["started_at"] = inc.StartedAt.Format(time.RFC3339)
-	}
-	if inc.DetectedAt != nil {
-		data["detected_at"] = inc.DetectedAt.Format(time.RFC3339)
-	}
-	if inc.AcknowledgedAt != nil {
-		data["acknowledged_at"] = inc.AcknowledgedAt.Format(time.RFC3339)
-	}
-	if inc.MitigatedAt != nil {
-		data["mitigated_at"] = inc.MitigatedAt.Format(time.RFC3339)
-	}
-	if inc.ResolvedAt != nil {
-		data["resolved_at"] = inc.ResolvedAt.Format(time.RFC3339)
-	}
-	if inc.ClosedAt != nil {
-		data["closed_at"] = inc.ClosedAt.Format(time.RFC3339)
-	}
-	if inc.InTriageAt != nil {
-		data["in_triage_at"] = inc.InTriageAt.Format(time.RFC3339)
-	}
-	if inc.CancelledAt != nil {
-		data["cancelled_at"] = inc.CancelledAt.Format(time.RFC3339)
-	}
-	if inc.ScheduledFor != nil {
-		data["scheduled_for"] = inc.ScheduledFor.Format(time.RFC3339)
-	}
-	if inc.ScheduledUntil != nil {
-		data["scheduled_until"] = inc.ScheduledUntil.Format(time.RFC3339)
-	}
-
-	// Duration
-	if duration := inc.Duration(); duration > 0 {
-		data["duration_seconds"] = duration
-	}
-
-	// People
-	if inc.CommanderName != "" {
-		data["commander"] = inc.CommanderName
-	}
-	if inc.CommunicatorName != "" {
-		data["communicator"] = inc.CommunicatorName
-	}
-	if inc.CreatedByName != "" {
-		data["created_by"] = map[string]string{
-			"name":  inc.CreatedByName,
-			"email": inc.CreatedByEmail,
-		}
-	}
-	if inc.StartedByName != "" {
-		data["started_by"] = map[string]string{
-			"name":  inc.StartedByName,
-			"email": inc.StartedByEmail,
-		}
-	}
-	if inc.MitigatedByName != "" {
-		data["mitigated_by"] = map[string]string{
-			"name":  inc.MitigatedByName,
-			"email": inc.MitigatedByEmail,
-		}
-	}
-	if inc.ResolvedByName != "" {
-		data["resolved_by"] = map[string]string{
-			"name":  inc.ResolvedByName,
-			"email": inc.ResolvedByEmail,
-		}
-	}
-
-	// Resources
-	if len(inc.Services) > 0 {
-		data["services"] = inc.Services
-	}
-	if len(inc.Teams) > 0 {
-		data["teams"] = inc.Teams
-	}
-	if len(inc.Environments) > 0 {
-		data["environments"] = inc.Environments
-	}
-	if len(inc.Causes) > 0 {
-		data["causes"] = inc.Causes
-	}
-	if len(inc.IncidentTypes) > 0 {
-		data["incident_types"] = inc.IncidentTypes
-	}
-	if len(inc.Functionalities) > 0 {
-		data["functionalities"] = inc.Functionalities
-	}
-	if len(inc.Roles) > 0 {
-		roles := make([]map[string]string, len(inc.Roles))
-		for i, r := range inc.Roles {
-			roles[i] = map[string]string{
-				"name":       r.Name,
-				"user_name":  r.UserName,
-				"user_email": r.UserEmail,
-			}
-		}
-		data["roles"] = roles
-	}
-
-	// Links
-	if inc.SlackChannelURL != "" {
-		data["slack_channel_url"] = inc.SlackChannelURL
-	}
-	if inc.JiraIssueURL != "" {
-		data["jira_issue_url"] = inc.JiraIssueURL
-	}
-	if inc.GoogleMeetingURL != "" {
-		data["google_meeting_url"] = inc.GoogleMeetingURL
-	}
-	if inc.LinearIssueURL != "" {
-		data["linear_issue_url"] = inc.LinearIssueURL
-	}
-	if inc.ZoomMeetingJoinURL != "" {
-		data["zoom_meeting_url"] = inc.ZoomMeetingJoinURL
-	}
-	if inc.GithubIssueURL != "" {
-		data["github_issue_url"] = inc.GithubIssueURL
-	}
-	if inc.GitlabIssueURL != "" {
-		data["gitlab_issue_url"] = inc.GitlabIssueURL
-	}
-	if inc.PagerdutyIncidentURL != "" {
-		data["pagerduty_incident_url"] = inc.PagerdutyIncidentURL
-	}
-	if inc.OpsgenieIncidentURL != "" {
-		data["opsgenie_incident_url"] = inc.OpsgenieIncidentURL
-	}
-	if inc.AsanaTaskURL != "" {
-		data["asana_task_url"] = inc.AsanaTaskURL
-	}
-	if inc.TrelloCardURL != "" {
-		data["trello_card_url"] = inc.TrelloCardURL
-	}
-	if inc.ConfluencePageURL != "" {
-		data["confluence_page_url"] = inc.ConfluencePageURL
-	}
-	if inc.DatadogNotebookURL != "" {
-		data["datadog_notebook_url"] = inc.DatadogNotebookURL
-	}
-	if inc.ServiceNowIncidentURL != "" {
-		data["servicenow_incident_url"] = inc.ServiceNowIncidentURL
-	}
-	if inc.FreshserviceTicketURL != "" {
-		data["freshservice_ticket_url"] = inc.FreshserviceTicketURL
-	}
-
-	// Additional fields
-	if inc.Source != "" {
-		data["source"] = inc.Source
-	}
-	if inc.Private {
-		data["private"] = inc.Private
-	}
-	if inc.MitigationMessage != "" {
-		data["mitigation_message"] = inc.MitigationMessage
-	}
-	if inc.ResolutionMessage != "" {
-		data["resolution_message"] = inc.ResolutionMessage
-	}
-	if inc.RetrospectiveProgressStatus != "" {
-		data["retrospective_progress_status"] = inc.RetrospectiveProgressStatus
-	}
-	if inc.SlackChannelName != "" {
-		data["slack_channel_name"] = inc.SlackChannelName
-	}
-	if inc.SlackChannelArchived {
-		data["slack_channel_archived"] = inc.SlackChannelArchived
-	}
-	if len(inc.Labels) > 0 {
-		data["labels"] = inc.Labels
-	}
-
-	return data
 }
 
 // incidentDetailRows builds key-value rows for table/markdown output.
@@ -309,6 +99,9 @@ func incidentDetailRows(inc *api.Incident) [][]string {
 
 	// Timestamps
 	addRow("Created", inc.CreatedAt.Format(time.RFC3339))
+	if !inc.UpdatedAt.IsZero() {
+		addRow("Updated", inc.UpdatedAt.Format(time.RFC3339))
+	}
 	addRow("Started", formatTimePtr(inc.StartedAt))
 	addRow("Detected", formatTimePtr(inc.DetectedAt))
 	addRow("Acknowledged", formatTimePtr(inc.AcknowledgedAt))
@@ -339,8 +132,20 @@ func incidentDetailRows(inc *api.Incident) [][]string {
 	addRow("Incident Types", strings.Join(inc.IncidentTypes, ", "))
 	addRow("Functionalities", strings.Join(inc.Functionalities, ", "))
 
+	// Labels
+	if len(inc.Labels) > 0 {
+		labelParts := make([]string, 0, len(inc.Labels))
+		for k, v := range inc.Labels {
+			labelParts = append(labelParts, k+"="+v)
+		}
+		addRow("Labels", strings.Join(labelParts, ", "))
+	}
+
 	// Links
 	addRow("Slack Channel", inc.SlackChannelURL)
+	if inc.SlackChannelName != "" {
+		addRow("Slack Channel Name", inc.SlackChannelName)
+	}
 	addRow("Jira Issue", inc.JiraIssueURL)
 	addRow("Google Meet", inc.GoogleMeetingURL)
 	addRow("Linear Issue", inc.LinearIssueURL)
@@ -349,9 +154,18 @@ func incidentDetailRows(inc *api.Incident) [][]string {
 	addRow("GitLab Issue", inc.GitlabIssueURL)
 	addRow("PagerDuty", inc.PagerdutyIncidentURL)
 	addRow("Opsgenie", inc.OpsgenieIncidentURL)
+	addRow("Asana Task", inc.AsanaTaskURL)
+	addRow("Trello Card", inc.TrelloCardURL)
+	addRow("Confluence Page", inc.ConfluencePageURL)
+	addRow("Datadog Notebook", inc.DatadogNotebookURL)
+	addRow("ServiceNow", inc.ServiceNowIncidentURL)
+	addRow("Freshservice", inc.FreshserviceTicketURL)
 
 	// Additional fields
 	addRow("Source", inc.Source)
+	if inc.Private {
+		addRow("Private", "true")
+	}
 	if inc.MitigationMessage != "" {
 		addRow("Mitigation Message", inc.MitigationMessage)
 	}
