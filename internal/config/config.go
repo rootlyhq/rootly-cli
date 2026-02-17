@@ -13,16 +13,16 @@ import (
 
 const (
 	DefaultEndpoint = "api.rootly.com"
-	configDir       = ".rootly-tui"
+	configDir       = ".rootly-cli"
 	configFile      = "config.yaml"
 )
 
 type Config struct {
-	APIKey   string `yaml:"api_key"`
+	APIKey   string `yaml:"api_token"`
 	Endpoint string `yaml:"endpoint"`
-	Timezone string `yaml:"timezone"`
-	Language string `yaml:"language"`
-	Layout   string `yaml:"layout"`
+	Timezone string `yaml:"timezone"` // TUI-specific
+	Language string `yaml:"language"` // TUI-specific
+	Layout   string `yaml:"layout"`   // TUI-specific
 }
 
 const DefaultTimezone = "UTC"
@@ -64,6 +64,11 @@ func Load() (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
+	}
+
+	// Check env var fallback for API token (for non-Viper usage like tests)
+	if cfg.APIKey == "" {
+		cfg.APIKey = os.Getenv("ROOTLY_API_TOKEN")
 	}
 
 	if cfg.Endpoint == "" {
