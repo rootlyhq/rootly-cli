@@ -47,5 +47,5 @@ func getAPIClient() (*api.Client, error) {
 		APIKey:   token,
 		Endpoint: endpoint,
 	}
-	return api.NewClientWithoutCache(cfg)
+	return api.NewClient(cfg)
 }
