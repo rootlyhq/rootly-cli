@@ -91,7 +91,7 @@ brews:
 release:
   github:
     owner: rootlyhq
-    name: rootly-tui
+    name: rootly-cli
   draft: false
   prerelease: auto
   mode: replace
