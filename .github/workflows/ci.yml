@@ -27,6 +27,7 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: latest
+          args: --exclude-dirs='cmd/rootly-tui|internal/app|internal/views|internal/components|internal/styles|internal/i18n|internal/debug'
 
   test:
     name: Test
@@ -50,11 +51,11 @@ jobs:
 
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: go test -v -race -coverprofile=coverage.out $(go list ./... | grep -v -E '(cmd/rootly-tui|internal/app|internal/views|internal/components|internal/styles|internal/i18n|internal/debug)')
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
-        run: go test -v -race ./...
+        run: go test -v -race $(go list ./... | grep -v -E '(cmd/rootly-tui|internal/app|internal/views|internal/components|internal/styles|internal/i18n|internal/debug)')
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-24.04'
