@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/text"
 )
 
 // TablePrinter renders output as formatted ASCII/Unicode tables.
@@ -26,6 +27,7 @@ func (p *TablePrinter) PrintList(headers []string, rows [][]string, w io.Writer)
 	} else {
 		tw.SetStyle(table.StyleDefault)
 	}
+	tw.Style().Format.Header = text.FormatDefault
 
 	// Convert headers to table.Row
 	headerRow := make(table.Row, len(headers))
@@ -81,6 +83,7 @@ func (p *TablePrinter) PrintObj(obj interface{}, w io.Writer) error {
 	} else {
 		tw.SetStyle(table.StyleDefault)
 	}
+	tw.Style().Format.Header = text.FormatDefault
 
 	tw.AppendHeader(table.Row{"Field", "Value"})
 

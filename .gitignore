@@ -1,5 +1,7 @@
 # Binaries
 bin/
+rootly
+rootly-tui
 *.exe
 *.exe~
 *.dll
