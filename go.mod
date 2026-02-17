@@ -5,7 +5,7 @@ go 1.24.2
 require (
 	github.com/jedib0t/go-pretty/v6 v6.7.8
 	github.com/mattn/go-isatty v0.0.20
-	github.com/rootlyhq/rootly-go v0.4.0
+	github.com/rootlyhq/rootly-go v0.6.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -42,5 +42,5 @@ require (
 	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/sys v0.39.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 )
