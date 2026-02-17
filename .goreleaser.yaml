@@ -7,6 +7,30 @@ before:
     - go mod tidy
 
 builds:
+  - id: rootly
+    main: ./cmd/rootly
+    binary: rootly
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.CommitDate}}
+    flags:
+      - -trimpath
+    mod_timestamp: "{{.CommitTimestamp}}"
+
   - id: rootly-tui
     main: ./cmd/rootly-tui
     binary: rootly-tui
@@ -26,7 +50,10 @@ builds:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
+      - -X main.date={{.CommitDate}}
+    flags:
+      - -trimpath
+    mod_timestamp: "{{.CommitTimestamp}}"
 
 archives:
   - id: default
@@ -68,8 +95,25 @@ changelog:
     - title: Other
       order: 999
 
+brews:
+  - name: rootly
+    ids: [rootly]
+    repository:
+      owner: rootlyhq
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://rootly.com"
+    description: "Rootly CLI for managing incidents, alerts, and workflows"
+    install: |
+      bin.install "rootly"
+    test: |
+      system "#{bin}/rootly", "version"
+
 homebrew_casks:
-  - repository:
+  - name: rootly-tui
+    ids: [rootly-tui]
+    repository:
       owner: rootlyhq
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
