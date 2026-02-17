@@ -1,7 +1,7 @@
-.PHONY: build run clean test lint deps coverage coverage-html version bump-patch bump-minor bump-major push-tag release-patch release-minor release-major i18n-check
+.PHONY: build build-tui run clean test lint deps coverage coverage-html version bump-patch bump-minor bump-major push-tag release-patch release-minor release-major
 
 # Build variables
-BINARY_NAME := rootly-tui
+BINARY_NAME := rootly
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -17,7 +17,11 @@ deps:
 
 # Build the binary
 build: deps
-	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/$(BINARY_NAME) ./cmd/rootly-tui
+	go build $(LDFLAGS) -o bin/$(BINARY_NAME) ./cmd/rootly
+
+# Build the TUI binary
+build-tui: deps
+	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/rootly-tui ./cmd/rootly-tui
 
 # Build and run
 run: build
@@ -25,7 +29,7 @@ run: build
 
 # Run without building
 dev:
-	go run $(LDFLAGS) ./cmd/rootly-tui
+	go run $(LDFLAGS) ./cmd/rootly
 
 # Clean build artifacts
 clean:
@@ -50,12 +54,8 @@ coverage-html: coverage
 	@echo "Coverage report generated: coverage.html"
 
 # Run linter
-lint: i18n-check
+lint:
 	@which golangci-lint > /dev/null 2>&1 && golangci-lint run ./... || ~/go/bin/golangci-lint run ./...
-
-# Check i18n translations for missing keys
-i18n-check:
-	@go run scripts/i18n-check.go
 
 # Format code
 fmt:

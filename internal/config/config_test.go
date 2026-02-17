@@ -47,10 +47,10 @@ func TestPath(t *testing.T) {
 		t.Errorf("expected config path to end with 'config.yaml', got '%s'", filepath.Base(path))
 	}
 
-	// Should contain .rootly-tui directory
+	// Should contain .rootly-cli directory
 	dir := filepath.Dir(path)
-	if filepath.Base(dir) != ".rootly-tui" {
-		t.Errorf("expected config dir to be '.rootly-tui', got '%s'", filepath.Base(dir))
+	if filepath.Base(dir) != ".rootly-cli" {
+		t.Errorf("expected config dir to be '.rootly-cli', got '%s'", filepath.Base(dir))
 	}
 }
 
@@ -60,8 +60,8 @@ func TestDir(t *testing.T) {
 		t.Error("expected config dir to be non-empty")
 	}
 
-	if filepath.Base(dir) != ".rootly-tui" {
-		t.Errorf("expected config dir to end with '.rootly-tui', got '%s'", filepath.Base(dir))
+	if filepath.Base(dir) != ".rootly-cli" {
+		t.Errorf("expected config dir to end with '.rootly-cli', got '%s'", filepath.Base(dir))
 	}
 }
 
@@ -363,7 +363,7 @@ func TestLoadInvalidYAML(t *testing.T) {
 	defer cleanup()
 
 	// Create config directory
-	configDir := filepath.Join(tmpDir, ".rootly-tui")
+	configDir := filepath.Join(tmpDir, ".rootly-cli")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
 		t.Fatalf("failed to create config dir: %v", err)
 	}
