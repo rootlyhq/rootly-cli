@@ -3818,3 +3818,330 @@ func (c *Client) DeleteTeam(ctx context.Context, id string) error {
 	debug.Logger.Debug("Deleted team", "id", id)
 	return nil
 }
+
+// ============================================================================
+// On-Call Schedules & Shifts (Read-Only)
+// ============================================================================
+
+// Schedule represents an on-call schedule
+type Schedule struct {
+	ID            string
+	Name          string
+	Description   string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	OwnerUserName string // Populated from included owner_user relationship
+}
+
+// SchedulesResult contains schedules and pagination info
+type SchedulesResult struct {
+	Schedules  []Schedule
+	Pagination PaginationInfo
+}
+
+// Shift represents an on-call shift
+type Shift struct {
+	ID           string
+	UserName     string
+	UserEmail    string
+	ScheduleID   string
+	ScheduleName string
+	StartsAt     time.Time
+	EndsAt       time.Time
+	IsActive     bool // Computed: StartsAt <= now <= EndsAt
+}
+
+// ShiftsResult contains shifts and pagination info
+type ShiftsResult struct {
+	Shifts     []Shift
+	Pagination PaginationInfo
+}
+
+// ListSchedulesCLI lists on-call schedules (read-only).
+// Follows ListServicesCLI pattern for consistency.
+func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filters map[string]string) (*SchedulesResult, error) {
+	// Cap pageSize at 100 (API limit); if 0, default to 25
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	// Build URL with query parameters
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+
+	url := fmt.Sprintf("%s/v1/on_call_schedules?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
+
+	// Add filters (e.g., filter[name]=foo)
+	for key, value := range filters {
+		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+	}
+
+	debug.Logger.Debug("Fetching on-call schedules (CLI)", "page", page, "pageSize", pageSize, "filters", filters)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to list schedules", "error", err)
+		return nil, fmt.Errorf("failed to list schedules: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Schedules response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Schedules response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'read on-call schedules' permission")
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	// Parse JSON:API response
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Name        string  `json:"name"`
+				Description *string `json:"description"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+			} `json:"attributes"`
+		} `json:"data"`
+		Meta struct {
+			CurrentPage int `json:"current_page"`
+			TotalPages  int `json:"total_pages"`
+			TotalCount  int `json:"total_count"`
+		} `json:"meta"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		debug.Logger.Error("Failed to parse schedules response", "error", err, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	schedules := make([]Schedule, 0, len(response.Data))
+	for _, item := range response.Data {
+		schedule := Schedule{
+			ID:        item.ID,
+			Name:      item.Attributes.Name,
+			CreatedAt: parseTime(item.Attributes.CreatedAt),
+			UpdatedAt: parseTime(item.Attributes.UpdatedAt),
+		}
+		if item.Attributes.Description != nil {
+			schedule.Description = *item.Attributes.Description
+		}
+		schedules = append(schedules, schedule)
+	}
+
+	result := &SchedulesResult{
+		Schedules: schedules,
+		Pagination: PaginationInfo{
+			CurrentPage: response.Meta.CurrentPage,
+			TotalPages:  response.Meta.TotalPages,
+			TotalCount:  response.Meta.TotalCount,
+		},
+	}
+
+	debug.Logger.Debug("Parsed schedules", "count", len(schedules), "totalCount", response.Meta.TotalCount)
+	return result, nil
+}
+
+// ListShiftsCLI lists on-call shifts with time range filtering (read-only).
+// Supports filters: schedule_id, starts_after, ends_before for time range queries.
+func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters map[string]string) (*ShiftsResult, error) {
+	// Cap pageSize at 100 (API limit); if 0, default to 25
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	// Build URL with query parameters
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+
+	url := fmt.Sprintf("%s/v1/shifts?page[number]=%d&page[size]=%d&include=user,schedule", baseURL, page, pageSize)
+
+	// Add filters (e.g., filter[schedule_id]=foo, filter[starts_after]=2024-01-01T00:00:00Z)
+	for key, value := range filters {
+		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+	}
+
+	debug.Logger.Debug("Fetching shifts (CLI)", "page", page, "pageSize", pageSize, "filters", filters)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to list shifts", "error", err)
+		return nil, fmt.Errorf("failed to list shifts: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Shifts response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Shifts response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'read shifts' permission")
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	// Parse JSON:API response with included relationships
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				StartsAt string `json:"starts_at"`
+				EndsAt   string `json:"ends_at"`
+			} `json:"attributes"`
+			Relationships struct {
+				User struct {
+					Data *struct {
+						ID   string `json:"id"`
+						Type string `json:"type"`
+					} `json:"data"`
+				} `json:"user"`
+				Schedule struct {
+					Data *struct {
+						ID   string `json:"id"`
+						Type string `json:"type"`
+					} `json:"data"`
+				} `json:"schedule"`
+			} `json:"relationships"`
+		} `json:"data"`
+		Included []struct {
+			ID         string `json:"id"`
+			Type       string `json:"type"`
+			Attributes struct {
+				Name  string  `json:"name"`
+				Email *string `json:"email"`
+			} `json:"attributes"`
+		} `json:"included"`
+		Meta struct {
+			CurrentPage int `json:"current_page"`
+			TotalPages  int `json:"total_pages"`
+			TotalCount  int `json:"total_count"`
+		} `json:"meta"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		debug.Logger.Error("Failed to parse shifts response", "error", err, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Build lookup maps for included data
+	userMap := make(map[string]struct {
+		Name  string
+		Email string
+	})
+	scheduleMap := make(map[string]string)
+
+	for _, inc := range response.Included {
+		if inc.Type == "users" {
+			email := ""
+			if inc.Attributes.Email != nil {
+				email = *inc.Attributes.Email
+			}
+			userMap[inc.ID] = struct {
+				Name  string
+				Email string
+			}{Name: inc.Attributes.Name, Email: email}
+		} else if inc.Type == "on_call_schedules" {
+			scheduleMap[inc.ID] = inc.Attributes.Name
+		}
+	}
+
+	now := time.Now()
+	shifts := make([]Shift, 0, len(response.Data))
+	for _, item := range response.Data {
+		shift := Shift{
+			ID:       item.ID,
+			StartsAt: parseTime(item.Attributes.StartsAt),
+			EndsAt:   parseTime(item.Attributes.EndsAt),
+		}
+
+		// Compute IsActive
+		shift.IsActive = !shift.StartsAt.After(now) && !shift.EndsAt.Before(now)
+
+		// Populate user info from relationships + included
+		if item.Relationships.User.Data != nil {
+			userID := item.Relationships.User.Data.ID
+			if user, ok := userMap[userID]; ok {
+				shift.UserName = user.Name
+				shift.UserEmail = user.Email
+			}
+		}
+
+		// Populate schedule info from relationships + included
+		if item.Relationships.Schedule.Data != nil {
+			scheduleID := item.Relationships.Schedule.Data.ID
+			shift.ScheduleID = scheduleID
+			if scheduleName, ok := scheduleMap[scheduleID]; ok {
+				shift.ScheduleName = scheduleName
+			}
+		}
+
+		shifts = append(shifts, shift)
+	}
+
+	result := &ShiftsResult{
+		Shifts: shifts,
+		Pagination: PaginationInfo{
+			CurrentPage: response.Meta.CurrentPage,
+			TotalPages:  response.Meta.TotalPages,
+			TotalCount:  response.Meta.TotalCount,
+		},
+	}
+
+	debug.Logger.Debug("Parsed shifts", "count", len(shifts), "totalCount", response.Meta.TotalCount)
+	return result, nil
+}
