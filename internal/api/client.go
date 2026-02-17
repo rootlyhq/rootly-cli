@@ -188,6 +188,26 @@ type ServicesResult struct {
 	Pagination PaginationInfo
 }
 
+// Team represents a Rootly team
+type Team struct {
+	ID           string
+	Name         string
+	Slug         string
+	Description  string
+	Color        string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	UserCount    int      // Populated from included users relationship count
+	Users        []string // User names from included users relationship, for detail view
+	DetailLoaded bool
+}
+
+// TeamsResult contains teams and pagination info
+type TeamsResult struct {
+	Teams      []Team
+	Pagination PaginationInfo
+}
+
 // incidentResponseData represents the structure of incident data from the API response
 type incidentResponseData struct {
 	ID         string `json:"id"`
@@ -3282,5 +3302,519 @@ func (c *Client) DeleteService(ctx context.Context, id string) error {
 	}
 
 	debug.Logger.Debug("Deleted service", "id", id)
+	return nil
+}
+
+// ListTeamsCLI lists teams with pagination, sorting, and filters (stateless for CLI).
+func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort string, filters map[string]string) (*TeamsResult, error) {
+	// Cap pageSize at 100 (API limit); if 0, default to 25
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	// Build URL with query parameters
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+
+	url := fmt.Sprintf("%s/v1/teams?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
+	if sort != "" {
+		url += fmt.Sprintf("&sort=%s", sort)
+	}
+
+	// Add filters (e.g., filter[name]=foo)
+	for key, value := range filters {
+		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+	}
+
+	debug.Logger.Debug("Fetching teams (CLI)", "page", page, "pageSize", pageSize, "sort", sort, "filters", filters)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to list teams", "error", err)
+		return nil, fmt.Errorf("failed to list teams: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Teams response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+	debug.Logger.Debug("Teams response body", "json", debug.PrettyJSON(body))
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return nil, fmt.Errorf("access denied: API key lacks 'read teams' permission")
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	// Parse JSON:API response
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Name        string  `json:"name"`
+				Slug        string  `json:"slug"`
+				Description *string `json:"description"`
+				Color       *string `json:"color"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+			} `json:"attributes"`
+		} `json:"data"`
+		Meta struct {
+			CurrentPage int `json:"current_page"`
+			TotalPages  int `json:"total_pages"`
+			TotalCount  int `json:"total_count"`
+		} `json:"meta"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		debug.Logger.Error("Failed to parse teams response", "error", err, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("failed to parse teams: %w", err)
+	}
+
+	// Convert to Team structs
+	teams := make([]Team, 0, len(response.Data))
+	for _, item := range response.Data {
+		team := Team{
+			ID:   item.ID,
+			Name: item.Attributes.Name,
+			Slug: item.Attributes.Slug,
+		}
+		if item.Attributes.Description != nil {
+			team.Description = *item.Attributes.Description
+		}
+		if item.Attributes.Color != nil {
+			team.Color = *item.Attributes.Color
+		}
+		if item.Attributes.CreatedAt != "" {
+			team.CreatedAt = parseTime(item.Attributes.CreatedAt)
+		}
+		if item.Attributes.UpdatedAt != "" {
+			team.UpdatedAt = parseTime(item.Attributes.UpdatedAt)
+		}
+
+		teams = append(teams, team)
+	}
+
+	result := &TeamsResult{
+		Teams: teams,
+		Pagination: PaginationInfo{
+			CurrentPage: response.Meta.CurrentPage,
+			TotalPages:  response.Meta.TotalPages,
+			TotalCount:  response.Meta.TotalCount,
+		},
+	}
+
+	debug.Logger.Debug("Parsed teams", "count", len(teams))
+	return result, nil
+}
+
+// GetTeamByID fetches a single team by ID or slug (stateless for CLI).
+func (c *Client) GetTeamByID(ctx context.Context, id string) (*Team, error) {
+	debug.Logger.Debug("Fetching team detail (CLI)", "id", id)
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/teams/%s?include=users", baseURL, id)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to fetch team", "error", err)
+		return nil, fmt.Errorf("failed to fetch team: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Team detail response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+
+	if httpResp.StatusCode == 401 {
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		return nil, fmt.Errorf("access denied: API key lacks 'read teams' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		return nil, fmt.Errorf("team not found: %s", id)
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	// Parse JSON:API response with included relationships
+	var response struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Name        string  `json:"name"`
+				Slug        string  `json:"slug"`
+				Description *string `json:"description"`
+				Color       *string `json:"color"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+			} `json:"attributes"`
+		} `json:"data"`
+		Included []struct {
+			Type       string `json:"type"`
+			ID         string `json:"id"`
+			Attributes struct {
+				FullName string `json:"full_name"`
+				Email    string `json:"email"`
+			} `json:"attributes"`
+		} `json:"included"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		debug.Logger.Error("Failed to parse team response", "error", err, "body", debug.PrettyJSON(body))
+		return nil, fmt.Errorf("failed to parse team: %w", err)
+	}
+
+	team := &Team{
+		ID:           response.Data.ID,
+		Name:         response.Data.Attributes.Name,
+		Slug:         response.Data.Attributes.Slug,
+		DetailLoaded: true,
+	}
+
+	if response.Data.Attributes.Description != nil {
+		team.Description = *response.Data.Attributes.Description
+	}
+	if response.Data.Attributes.Color != nil {
+		team.Color = *response.Data.Attributes.Color
+	}
+	if response.Data.Attributes.CreatedAt != "" {
+		team.CreatedAt = parseTime(response.Data.Attributes.CreatedAt)
+	}
+	if response.Data.Attributes.UpdatedAt != "" {
+		team.UpdatedAt = parseTime(response.Data.Attributes.UpdatedAt)
+	}
+
+	// Parse included users relationship
+	users := make([]string, 0)
+	for _, included := range response.Included {
+		if included.Type == "users" {
+			userName := included.Attributes.FullName
+			if userName == "" {
+				userName = included.Attributes.Email
+			}
+			users = append(users, userName)
+		}
+	}
+	team.Users = users
+
+	debug.Logger.Debug("Parsed team detail", "id", team.ID, "name", team.Name, "userCount", len(users))
+	return team, nil
+}
+
+// CreateTeam creates a new team.
+func (c *Client) CreateTeam(ctx context.Context, name string, opts map[string]string) (*Team, error) {
+	debug.Logger.Debug("Creating team", "name", name, "opts", opts)
+
+	// Build JSON:API request body
+	body := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type": "teams",
+			"attributes": map[string]interface{}{
+				"name": name,
+			},
+		},
+	}
+
+	// Add optional attributes
+	attrs := body["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+	if description, ok := opts["description"]; ok {
+		attrs["description"] = description
+	}
+	if color, ok := opts["color"]; ok {
+		attrs["color"] = color
+	}
+
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/teams", baseURL)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to create team", "error", err)
+		return nil, fmt.Errorf("failed to create team: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Create team response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(respBody),
+	)
+
+	if httpResp.StatusCode == 401 {
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		return nil, fmt.Errorf("access denied: API key lacks 'create teams' permission")
+	}
+	if httpResp.StatusCode != 201 && httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(respBody))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	// Parse response
+	var response struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Name        string  `json:"name"`
+				Slug        string  `json:"slug"`
+				Description *string `json:"description"`
+				Color       *string `json:"color"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		debug.Logger.Error("Failed to parse create team response", "error", err, "body", debug.PrettyJSON(respBody))
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	team := &Team{
+		ID:   response.Data.ID,
+		Name: response.Data.Attributes.Name,
+		Slug: response.Data.Attributes.Slug,
+	}
+	if response.Data.Attributes.Description != nil {
+		team.Description = *response.Data.Attributes.Description
+	}
+	if response.Data.Attributes.Color != nil {
+		team.Color = *response.Data.Attributes.Color
+	}
+	if response.Data.Attributes.CreatedAt != "" {
+		team.CreatedAt = parseTime(response.Data.Attributes.CreatedAt)
+	}
+	if response.Data.Attributes.UpdatedAt != "" {
+		team.UpdatedAt = parseTime(response.Data.Attributes.UpdatedAt)
+	}
+
+	debug.Logger.Debug("Created team", "id", team.ID, "name", team.Name)
+	return team, nil
+}
+
+// UpdateTeam updates an existing team.
+func (c *Client) UpdateTeam(ctx context.Context, id string, opts map[string]string) (*Team, error) {
+	debug.Logger.Debug("Updating team", "id", id, "opts", opts)
+
+	// Build JSON:API request body
+	body := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type":       "teams",
+			"id":         id,
+			"attributes": opts,
+		},
+	}
+
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/teams/%s", baseURL, id)
+
+	req, err := http.NewRequestWithContext(ctx, "PATCH", url, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to update team", "error", err)
+		return nil, fmt.Errorf("failed to update team: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Update team response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(respBody),
+	)
+
+	if httpResp.StatusCode == 401 {
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		return nil, fmt.Errorf("access denied: API key lacks 'update teams' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		return nil, fmt.Errorf("team not found: %s", id)
+	}
+	if httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(respBody))
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	// Parse response
+	var response struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Name        string  `json:"name"`
+				Slug        string  `json:"slug"`
+				Description *string `json:"description"`
+				Color       *string `json:"color"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		debug.Logger.Error("Failed to parse update team response", "error", err, "body", debug.PrettyJSON(respBody))
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	team := &Team{
+		ID:   response.Data.ID,
+		Name: response.Data.Attributes.Name,
+		Slug: response.Data.Attributes.Slug,
+	}
+	if response.Data.Attributes.Description != nil {
+		team.Description = *response.Data.Attributes.Description
+	}
+	if response.Data.Attributes.Color != nil {
+		team.Color = *response.Data.Attributes.Color
+	}
+	if response.Data.Attributes.CreatedAt != "" {
+		team.CreatedAt = parseTime(response.Data.Attributes.CreatedAt)
+	}
+	if response.Data.Attributes.UpdatedAt != "" {
+		team.UpdatedAt = parseTime(response.Data.Attributes.UpdatedAt)
+	}
+
+	debug.Logger.Debug("Updated team", "id", team.ID, "name", team.Name)
+	return team, nil
+}
+
+// DeleteTeam deletes a team.
+func (c *Client) DeleteTeam(ctx context.Context, id string) error {
+	debug.Logger.Debug("Deleting team", "id", id)
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/teams/%s", baseURL, id)
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		debug.Logger.Error("Failed to delete team", "error", err)
+		return fmt.Errorf("failed to delete team: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	debug.Logger.Debug("Delete team response",
+		"status", httpResp.StatusCode,
+		"bodyLength", len(body),
+	)
+
+	if httpResp.StatusCode == 401 {
+		debug.Logger.Error("API unauthorized", "status", httpResp.StatusCode)
+		return fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == 403 {
+		debug.Logger.Error("API forbidden", "status", httpResp.StatusCode)
+		return fmt.Errorf("access denied: API key lacks 'delete teams' permission")
+	}
+	if httpResp.StatusCode == 404 {
+		debug.Logger.Error("API not found", "status", httpResp.StatusCode)
+		return fmt.Errorf("team not found: %s", id)
+	}
+	if httpResp.StatusCode != 204 && httpResp.StatusCode != 200 {
+		debug.Logger.Error("API error", "status", httpResp.StatusCode, "body", debug.PrettyJSON(body))
+		return fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	debug.Logger.Debug("Deleted team", "id", id)
 	return nil
 }
