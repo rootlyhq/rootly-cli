@@ -53,7 +53,7 @@ func (p *MarkdownPrinter) PrintObj(obj interface{}, w io.Writer) error {
 	var m map[string]interface{}
 	if err := json.Unmarshal(data, &m); err != nil {
 		// Not a map - print as plain text
-		fmt.Fprintf(w, "%v\n", obj)
+		_, _ = fmt.Fprintf(w, "%v\n", obj)
 		return nil
 	}
 

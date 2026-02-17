@@ -441,7 +441,6 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 		url += fmt.Sprintf("&filter[%s]=%s", key, value)
 	}
 
-
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -459,7 +458,6 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -492,7 +490,6 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
-
 
 	incidents := make([]Incident, 0, len(result.Data))
 	for _, d := range result.Data {
@@ -529,7 +526,6 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 // GetIncidentByID fetches incident detail by ID without requiring updatedAt parameter.
 // Does not use cache (stateless).
 func (c *Client) GetIncidentByID(ctx context.Context, id string) (*Incident, error) {
-
 	// Build URL
 	baseURL := c.endpoint
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
@@ -553,7 +549,6 @@ func (c *Client) GetIncidentByID(ctx context.Context, id string) (*Incident, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -584,7 +579,6 @@ func (c *Client) GetIncidentByID(ctx context.Context, id string) (*Incident, err
 
 // CreateIncident creates a new incident using raw HTTP POST.
 func (c *Client) CreateIncident(ctx context.Context, title string, opts map[string]string) (*Incident, error) {
-
 	// Build JSON:API request body
 	requestBody := map[string]interface{}{
 		"data": map[string]interface{}{
@@ -637,7 +631,6 @@ func (c *Client) CreateIncident(ctx context.Context, title string, opts map[stri
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
 	}
@@ -662,7 +655,6 @@ func (c *Client) CreateIncident(ctx context.Context, title string, opts map[stri
 
 // UpdateIncident updates an incident using raw HTTP PUT.
 func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]string) (*Incident, error) {
-
 	// Build JSON:API request body with only changed attributes
 	attributes := make(map[string]interface{})
 	if title, ok := opts["title"]; ok {
@@ -716,7 +708,6 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
 	}
@@ -744,7 +735,6 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 
 // DeleteIncident deletes an incident using raw HTTP DELETE.
 func (c *Client) DeleteIncident(ctx context.Context, id string) error {
-
 	// Build URL
 	baseURL := c.endpoint
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
@@ -785,17 +775,17 @@ func (c *Client) DeleteIncident(ctx context.Context, id string) error {
 type alertResponseData struct {
 	ID         string `json:"id"`
 	Attributes struct {
-		ShortID      string  `json:"short_id"`
-		Summary      string  `json:"summary"`
-		Description  *string `json:"description"`
-		Status       *string `json:"status"`
-		Source       string  `json:"source"`
-		ExternalURL  *string `json:"external_url"`
-		CreatedAt    string  `json:"created_at"`
-		UpdatedAt    string  `json:"updated_at"`
-		StartedAt    *string `json:"started_at"`
-		EndedAt      *string `json:"ended_at"`
-		Services     []struct {
+		ShortID     string  `json:"short_id"`
+		Summary     string  `json:"summary"`
+		Description *string `json:"description"`
+		Status      *string `json:"status"`
+		Source      string  `json:"source"`
+		ExternalURL *string `json:"external_url"`
+		CreatedAt   string  `json:"created_at"`
+		UpdatedAt   string  `json:"updated_at"`
+		StartedAt   *string `json:"started_at"`
+		EndedAt     *string `json:"ended_at"`
+		Services    []struct {
 			Name string `json:"name"`
 		} `json:"services"`
 		Environments []struct {
@@ -883,7 +873,6 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 		url += fmt.Sprintf("&filter[%s]=%s", key, value)
 	}
 
-
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -901,7 +890,6 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -934,7 +922,6 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
-
 
 	alerts := make([]Alert, 0, len(result.Data))
 	for _, d := range result.Data {
@@ -971,7 +958,6 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 // GetAlertByID fetches alert detail by ID without requiring updatedAt parameter.
 // Does not use cache (stateless).
 func (c *Client) GetAlertByID(ctx context.Context, id string) (*Alert, error) {
-
 	// Build URL
 	baseURL := c.endpoint
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
@@ -995,7 +981,6 @@ func (c *Client) GetAlertByID(ctx context.Context, id string) (*Alert, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -1183,7 +1168,6 @@ func (c *Client) GetAlertByID(ctx context.Context, id string) (*Alert, error) {
 
 // CreateAlertCLI creates a new alert using raw HTTP POST.
 func (c *Client) CreateAlertCLI(ctx context.Context, summary string, opts map[string]string) (*Alert, error) {
-
 	// Build JSON:API request body
 	requestBody := map[string]interface{}{
 		"data": map[string]interface{}{
@@ -1239,7 +1223,6 @@ func (c *Client) CreateAlertCLI(ctx context.Context, summary string, opts map[st
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
 	}
@@ -1264,7 +1247,6 @@ func (c *Client) CreateAlertCLI(ctx context.Context, summary string, opts map[st
 
 // UpdateAlertCLI updates an alert using raw HTTP PUT.
 func (c *Client) UpdateAlertCLI(ctx context.Context, id string, opts map[string]string) (*Alert, error) {
-
 	// Build JSON:API request body with only changed attributes
 	attributes := make(map[string]interface{})
 	if summary, ok := opts["summary"]; ok {
@@ -1321,7 +1303,6 @@ func (c *Client) UpdateAlertCLI(ctx context.Context, id string, opts map[string]
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
 	}
@@ -1349,7 +1330,6 @@ func (c *Client) UpdateAlertCLI(ctx context.Context, id string, opts map[string]
 
 // AcknowledgeAlertCLI acknowledges an alert using raw HTTP POST.
 func (c *Client) AcknowledgeAlertCLI(ctx context.Context, id string) error {
-
 	// Build URL
 	baseURL := c.endpoint
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
@@ -1387,8 +1367,7 @@ func (c *Client) AcknowledgeAlertCLI(ctx context.Context, id string) error {
 }
 
 // ResolveAlertCLI resolves an alert using raw HTTP POST.
-func (c *Client) ResolveAlertCLI(ctx context.Context, id string, resolutionMessage string, resolveIncidents bool) error {
-
+func (c *Client) ResolveAlertCLI(ctx context.Context, id, resolutionMessage string, resolveIncidents bool) error {
 	// Build URL
 	baseURL := c.endpoint
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
@@ -1435,7 +1414,6 @@ func (c *Client) ResolveAlertCLI(ctx context.Context, id string, resolutionMessa
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 
-
 	if httpResp.StatusCode == 401 {
 		return fmt.Errorf("invalid API token")
 	}
@@ -1478,7 +1456,6 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 		url += fmt.Sprintf("&filter[%s]=%s", key, value)
 	}
 
-
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -1496,7 +1473,6 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -1568,7 +1544,6 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 
 // GetServiceByID fetches a single service by ID with detailed information.
 func (c *Client) GetServiceByID(ctx context.Context, id string) (*Service, error) {
-
 	// Build URL
 	baseURL := c.endpoint
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
@@ -1592,7 +1567,6 @@ func (c *Client) GetServiceByID(ctx context.Context, id string) (*Service, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -1671,7 +1645,6 @@ func (c *Client) GetServiceByID(ctx context.Context, id string) (*Service, error
 
 // CreateService creates a new service with the given name and optional attributes.
 func (c *Client) CreateService(ctx context.Context, name string, opts map[string]string) (*Service, error) {
-
 	// Build JSON:API request body
 	requestBody := map[string]interface{}{
 		"data": map[string]interface{}{
@@ -1721,7 +1694,6 @@ func (c *Client) CreateService(ctx context.Context, name string, opts map[string
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
 	}
@@ -1770,7 +1742,6 @@ func (c *Client) CreateService(ctx context.Context, name string, opts map[string
 
 // UpdateService updates an existing service with the given attributes.
 func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]string) (*Service, error) {
-
 	// Build JSON:API request body with only changed attributes
 	attributes := make(map[string]interface{})
 	if name, ok := opts["name"]; ok {
@@ -1820,7 +1791,6 @@ func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]s
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -1873,7 +1843,6 @@ func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]s
 
 // DeleteService deletes a service by ID.
 func (c *Client) DeleteService(ctx context.Context, id string) error {
-
 	// Build URL
 	baseURL := c.endpoint
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
@@ -1893,7 +1862,6 @@ func (c *Client) DeleteService(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to delete service: %w", err)
 	}
 	defer func() { _ = httpResp.Body.Close() }()
-
 
 	if httpResp.StatusCode == 401 {
 		return fmt.Errorf("invalid API token")
@@ -1937,7 +1905,6 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 		url += fmt.Sprintf("&filter[%s]=%s", key, value)
 	}
 
-
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -1955,7 +1922,6 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -2029,7 +1995,6 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 
 // GetTeamByID fetches a single team by ID or slug (stateless for CLI).
 func (c *Client) GetTeamByID(ctx context.Context, id string) (*Team, error) {
-
 	// Build URL
 	baseURL := c.endpoint
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
@@ -2053,7 +2018,6 @@ func (c *Client) GetTeamByID(ctx context.Context, id string) (*Team, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -2133,7 +2097,6 @@ func (c *Client) GetTeamByID(ctx context.Context, id string) (*Team, error) {
 
 // CreateTeam creates a new team.
 func (c *Client) CreateTeam(ctx context.Context, name string, opts map[string]string) (*Team, error) {
-
 	// Build JSON:API request body
 	body := map[string]interface{}{
 		"data": map[string]interface{}{
@@ -2182,7 +2145,6 @@ func (c *Client) CreateTeam(ctx context.Context, name string, opts map[string]st
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -2236,7 +2198,6 @@ func (c *Client) CreateTeam(ctx context.Context, name string, opts map[string]st
 
 // UpdateTeam updates an existing team.
 func (c *Client) UpdateTeam(ctx context.Context, id string, opts map[string]string) (*Team, error) {
-
 	// Build JSON:API request body
 	body := map[string]interface{}{
 		"data": map[string]interface{}{
@@ -2275,7 +2236,6 @@ func (c *Client) UpdateTeam(ctx context.Context, id string, opts map[string]stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -2332,7 +2292,6 @@ func (c *Client) UpdateTeam(ctx context.Context, id string, opts map[string]stri
 
 // DeleteTeam deletes a team.
 func (c *Client) DeleteTeam(ctx context.Context, id string) error {
-
 	// Build URL
 	baseURL := c.endpoint
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
@@ -2352,7 +2311,6 @@ func (c *Client) DeleteTeam(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to delete team: %w", err)
 	}
 	defer func() { _ = httpResp.Body.Close() }()
-
 
 	if httpResp.StatusCode == 401 {
 		return fmt.Errorf("invalid API token")
@@ -2432,7 +2390,6 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 		url += fmt.Sprintf("&filter[%s]=%s", key, value)
 	}
 
-
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -2450,7 +2407,6 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -2534,7 +2490,6 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 		url += fmt.Sprintf("&filter[%s]=%s", key, value)
 	}
 
-
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -2552,7 +2507,6 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 
 	if httpResp.StatusCode == 401 {
 		return nil, fmt.Errorf("invalid API token")
@@ -2614,7 +2568,8 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 	scheduleMap := make(map[string]string)
 
 	for _, inc := range response.Included {
-		if inc.Type == "users" {
+		switch inc.Type {
+		case "users":
 			email := ""
 			if inc.Attributes.Email != nil {
 				email = *inc.Attributes.Email
@@ -2623,7 +2578,7 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 				Name  string
 				Email string
 			}{Name: inc.Attributes.Name, Email: email}
-		} else if inc.Type == "on_call_schedules" {
+		case "on_call_schedules":
 			scheduleMap[inc.ID] = inc.Attributes.Name
 		}
 	}

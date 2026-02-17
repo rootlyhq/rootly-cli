@@ -175,8 +175,8 @@ func alertToMap(alert *api.Alert) map[string]interface{} {
 		data["related_incidents"] = incidents
 	}
 
-	// Raw data (if non-nil and len > 0)
-	if alert.Data != nil && len(alert.Data) > 0 {
+	// Raw data (if len > 0)
+	if len(alert.Data) > 0 {
 		data["data"] = alert.Data
 	}
 

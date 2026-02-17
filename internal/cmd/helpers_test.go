@@ -82,7 +82,7 @@ func TestPrintDryRun(t *testing.T) {
 	output := string(buf[:n])
 
 	// Check key parts of output
-	if got := output; len(got) == 0 {
+	if got := output; got == "" {
 		t.Fatal("expected output on stderr, got nothing")
 	}
 
@@ -168,7 +168,7 @@ func TestErrAborted(t *testing.T) {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsString(s, substr))
+	return len(s) >= len(substr) && (s == substr || s != "" && containsString(s, substr))
 }
 
 func containsString(s, substr string) bool {

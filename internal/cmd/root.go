@@ -55,8 +55,8 @@ Or use a config file at ~/.rootly-cli/config.yaml:
 		viper.AutomaticEnv()
 
 		// Map specific environment variables to config keys
-		viper.BindEnv("api_token", "ROOTLY_API_TOKEN")
-		viper.BindEnv("endpoint", "ROOTLY_API_ENDPOINT")
+		_ = viper.BindEnv("api_token", "ROOTLY_API_TOKEN")
+		_ = viper.BindEnv("endpoint", "ROOTLY_API_ENDPOINT")
 
 		// Read config file (ignore if not found)
 		if err := viper.ReadInConfig(); err != nil {

@@ -71,7 +71,7 @@ func (p *TablePrinter) PrintObj(obj interface{}, w io.Writer) error {
 	var m map[string]interface{}
 	if err := json.Unmarshal(data, &m); err != nil {
 		// If it's not a map (e.g., a string or number), just print the value
-		fmt.Fprintf(w, "%v\n", obj)
+		_, _ = fmt.Fprintf(w, "%v\n", obj)
 		return nil
 	}
 

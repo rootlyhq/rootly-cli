@@ -80,7 +80,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print success message to stdout
-	fmt.Fprintf(os.Stdout, "Deleted incident %s\n", incidentID)
+	_, _ = fmt.Fprintf(os.Stdout, "Deleted incident %s\n", incidentID)
 
 	return nil
 }

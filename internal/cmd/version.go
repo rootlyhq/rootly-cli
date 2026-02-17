@@ -27,7 +27,7 @@ var versionCmd = &cobra.Command{
 				return fmt.Errorf("error encoding JSON: %w", err)
 			}
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "rootly version %s (commit: %s, built: %s)\n", version, commit, date)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "rootly version %s (commit: %s, built: %s)\n", version, commit, date)
 		}
 
 		return nil

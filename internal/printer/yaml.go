@@ -27,7 +27,7 @@ func (p *YAMLPrinter) PrintObj(obj interface{}, w io.Writer) error {
 // PrintList converts headers and rows into a YAML array of objects,
 // where each object uses headers as keys.
 func (p *YAMLPrinter) PrintList(headers []string, rows [][]string, w io.Writer) error {
-	if rows == nil || len(rows) == 0 {
+	if len(rows) == 0 {
 		_, err := w.Write([]byte("[]\n"))
 		return err
 	}

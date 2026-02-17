@@ -51,6 +51,6 @@ func runResolve(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print success message to stdout
-	fmt.Fprintf(os.Stdout, "Resolved alert %s\n", alertID)
+	_, _ = fmt.Fprintf(os.Stdout, "Resolved alert %s\n", alertID)
 	return nil
 }

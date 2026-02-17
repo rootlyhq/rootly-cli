@@ -75,6 +75,8 @@ func runGet(cmd *cobra.Command, args []string) error {
 }
 
 // incidentToMap converts an Incident to a map for JSON/YAML output.
+//
+//nolint:gocyclo
 func incidentToMap(inc *api.Incident) map[string]interface{} {
 	data := map[string]interface{}{
 		"id":     inc.ID,

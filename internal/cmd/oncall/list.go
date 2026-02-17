@@ -95,15 +95,15 @@ func runList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// truncateString truncates a string to max length, appending "..." if truncated.
-func truncateString(s string, max int) string {
-	if len(s) <= max {
+// truncateString truncates a string to maxLen length, appending "..." if truncated.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	if max <= 3 {
-		return s[:max]
+	if maxLen <= 3 {
+		return s[:maxLen]
 	}
-	return s[:max-3] + "..."
+	return s[:maxLen-3] + "..."
 }
 
 // formatTime formats a time in "2006-01-02 15:04" format.
