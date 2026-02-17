@@ -17,9 +17,26 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "rootly",
 	Short: "Rootly CLI - manage incidents and resources from the terminal",
-	Long: `Rootly CLI provides command-line access to Rootly incidents, alerts,
-services, and other resources. Perfect for terminal workflows, automation,
-and LLM agent integration.`,
+	Long: `Rootly CLI - manage incidents, alerts, and resources from the terminal.
+
+Authenticate via environment variable:
+  export ROOTLY_API_TOKEN=your-token
+  rootly incidents list
+
+Or use a config file at ~/.rootly-cli/config.yaml:
+  api_token: your-token
+  endpoint: api.rootly.com`,
+	Example: `  # List incidents
+  rootly incidents list
+
+  # Get incident details as JSON
+  rootly incidents get INC-123 --format=json
+
+  # List with filters
+  rootly incidents list --status=started --severity=critical
+
+  # Generate shell completions
+  rootly completion bash`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
