@@ -427,3 +427,190 @@ func TestResolveStringFlagEnvVar(t *testing.T) {
 		t.Errorf("expected 'from-env', got %q", val)
 	}
 }
+
+// --- runProgram tests (equivalent to old repo's TestRunProgram) ---
+
+func TestRunProgramSuccess(t *testing.T) {
+	exitCode, err := runProgram(context.Background(), "echo", "hello", "world")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+}
+
+func TestRunProgramNonZeroExit(t *testing.T) {
+	exitCode, err := runProgram(context.Background(), "false")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+}
+
+func TestRunProgramNotFound(t *testing.T) {
+	exitCode, err := runProgram(context.Background(), "program_that_doesnt_exist_xyz")
+	if err == nil {
+		t.Fatal("expected error for nonexistent program")
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0 on start failure, got %d", exitCode)
+	}
+}
+
+func TestRunProgramWithExitCode2(t *testing.T) {
+	// sh -c "exit 2" returns exit code 2
+	exitCode, err := runProgram(context.Background(), "sh", "-c", "exit 2")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+}
+
+// --- runRun tests (additional coverage) ---
+
+func TestRunRunNoArgs(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cmd := newTestCmd()
+	cmd.Flags().String("summary", "", "")
+	cmd.Flags().StringP("labels", "l", "", "")
+	cmd.Flags().StringP("services", "s", "", "")
+	cmd.Flags().StringP("environments", "e", "", "")
+	cmd.Flags().String("source", "cli", "")
+	cmd.Flags().StringP("refs", "r", "", "")
+
+	err := runRun(cmd, nil)
+	if err == nil {
+		t.Fatal("expected error when no args")
+	}
+	if !strings.Contains(err.Error(), "command required") {
+		t.Errorf("expected 'command required' error, got: %v", err)
+	}
+}
+
+func TestRunRunNoAPIKey(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	cmd := newTestCmd()
+	cmd.Flags().String("summary", "", "")
+	cmd.Flags().StringP("labels", "l", "", "")
+	cmd.Flags().StringP("services", "s", "", "")
+	cmd.Flags().StringP("environments", "e", "", "")
+	cmd.Flags().String("source", "cli", "")
+	cmd.Flags().StringP("refs", "r", "", "")
+
+	err := runRun(cmd, []string{"echo", "hello"})
+	if err == nil {
+		t.Fatal("expected error when no API key")
+	}
+	if !strings.Contains(err.Error(), "API key required") {
+		t.Errorf("expected 'API key required' error, got: %v", err)
+	}
+}
+
+func TestRunRunInvalidLabels(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cmd := newTestCmd()
+	cmd.Flags().String("summary", "", "")
+	cmd.Flags().StringP("labels", "l", "", "")
+	cmd.Flags().StringP("services", "s", "", "")
+	cmd.Flags().StringP("environments", "e", "", "")
+	cmd.Flags().String("source", "cli", "")
+	cmd.Flags().StringP("refs", "r", "", "")
+	cmd.Flags().Set("labels", "no-equals")
+
+	err := runRun(cmd, []string{"echo", "hello"})
+	if err == nil {
+		t.Fatal("expected error for invalid labels")
+	}
+	if !strings.Contains(err.Error(), "invalid --labels") {
+		t.Errorf("expected 'invalid --labels' error, got: %v", err)
+	}
+}
+
+func TestRunRunInvalidRefs(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cmd := newTestCmd()
+	cmd.Flags().String("summary", "", "")
+	cmd.Flags().StringP("labels", "l", "", "")
+	cmd.Flags().StringP("services", "s", "", "")
+	cmd.Flags().StringP("environments", "e", "", "")
+	cmd.Flags().String("source", "cli", "")
+	cmd.Flags().StringP("refs", "r", "", "")
+	cmd.Flags().Set("refs", "no-equals")
+
+	err := runRun(cmd, []string{"echo", "hello"})
+	if err == nil {
+		t.Fatal("expected error for invalid refs")
+	}
+	if !strings.Contains(err.Error(), "invalid --refs") {
+		t.Errorf("expected 'invalid --refs' error, got: %v", err)
+	}
+}
+
+func TestRunCreateInvalidRefs(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cmd := newTestCmd()
+	cmd.Flags().StringP("labels", "l", "", "")
+	cmd.Flags().StringP("services", "s", "", "")
+	cmd.Flags().StringP("environments", "e", "", "")
+	cmd.Flags().String("source", "cli", "")
+	cmd.Flags().StringP("refs", "r", "", "")
+	cmd.Flags().String("summary", "", "")
+	cmd.Flags().Set("refs", "no-equals")
+
+	err := runCreate(cmd, []string{"Deploy"})
+	if err == nil {
+		t.Fatal("expected error for invalid refs")
+	}
+	if !strings.Contains(err.Error(), "invalid --refs") {
+		t.Errorf("expected 'invalid --refs' error, got: %v", err)
+	}
+}
+
+func TestRunCreateYAMLFormat(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(pulseCreateResponse()))
+	})
+
+	viper.Set("format", "yaml")
+	viper.Set("quiet", true)
+
+	cmd := newTestCmd()
+	cmd.Flags().StringP("labels", "l", "", "")
+	cmd.Flags().StringP("services", "s", "", "")
+	cmd.Flags().StringP("environments", "e", "", "")
+	cmd.Flags().String("source", "cli", "")
+	cmd.Flags().StringP("refs", "r", "", "")
+	cmd.Flags().String("summary", "", "")
+
+	output := captureStdout(t, func() {
+		err := runCreate(cmd, []string{"Deploy v1.2.3"})
+		if err != nil {
+			t.Fatalf("runCreate error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "pulse-123") {
+		t.Errorf("expected 'pulse-123' in YAML output, got: %s", output)
+	}
+}

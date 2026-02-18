@@ -168,6 +168,235 @@ func TestCreatePulseCLI_ServerError(t *testing.T) {
 	}
 }
 
+// --- JSON:API body construction tests (equivalent to old repo's TestConvertPulse) ---
+
+func TestCreatePulseCLI_BodyMinimal(t *testing.T) {
+	var receivedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &receivedBody)
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"data":{"id":"p1","attributes":{"summary":"Hello"}}}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.CreatePulseCLI(context.Background(), "Hello", PulseOpts{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data := receivedBody["data"].(map[string]interface{})
+	if data["type"] != "pulses" {
+		t.Errorf("type = %q, want %q", data["type"], "pulses")
+	}
+	attrs := data["attributes"].(map[string]interface{})
+	if attrs["summary"] != "Hello" {
+		t.Errorf("summary = %q, want %q", attrs["summary"], "Hello")
+	}
+	// Minimal opts should not include optional fields
+	if _, ok := attrs["service_ids"]; ok {
+		t.Error("minimal pulse should not have service_ids")
+	}
+	if _, ok := attrs["environment_ids"]; ok {
+		t.Error("minimal pulse should not have environment_ids")
+	}
+	if _, ok := attrs["labels"]; ok {
+		t.Error("minimal pulse should not have labels")
+	}
+	if _, ok := attrs["refs"]; ok {
+		t.Error("minimal pulse should not have refs")
+	}
+	if _, ok := attrs["started_at"]; ok {
+		t.Error("minimal pulse should not have started_at")
+	}
+	if _, ok := attrs["ended_at"]; ok {
+		t.Error("minimal pulse should not have ended_at")
+	}
+}
+
+func TestCreatePulseCLI_BodyWithLabels(t *testing.T) {
+	var receivedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &receivedBody)
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"data":{"id":"p2","attributes":{"summary":"Deploy"}}}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.CreatePulseCLI(context.Background(), "Deploy", PulseOpts{
+		Labels: []KeyValue{
+			{Key: "platform", Value: "osx"},
+			{Key: "exit_code", Value: "0"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	attrs := receivedBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+	labels, ok := attrs["labels"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected labels to be a map")
+	}
+	if labels["platform"] != "osx" {
+		t.Errorf("labels[platform] = %q, want %q", labels["platform"], "osx")
+	}
+	if labels["exit_code"] != "0" {
+		t.Errorf("labels[exit_code] = %q, want %q", labels["exit_code"], "0")
+	}
+}
+
+func TestCreatePulseCLI_BodyWithTimestamps(t *testing.T) {
+	var receivedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &receivedBody)
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"data":{"id":"p3","attributes":{"summary":"Deploy"}}}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	startedAt := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
+	endedAt := time.Date(2025, 6, 15, 10, 5, 0, 0, time.UTC)
+	_, err := client.CreatePulseCLI(context.Background(), "Deploy", PulseOpts{
+		StartedAt: &startedAt,
+		EndedAt:   &endedAt,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	attrs := receivedBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+	if attrs["started_at"] != "2025-06-15T10:00:00Z" {
+		t.Errorf("started_at = %q, want %q", attrs["started_at"], "2025-06-15T10:00:00Z")
+	}
+	if attrs["ended_at"] != "2025-06-15T10:05:00Z" {
+		t.Errorf("ended_at = %q, want %q", attrs["ended_at"], "2025-06-15T10:05:00Z")
+	}
+}
+
+func TestCreatePulseCLI_BodyWithRefs(t *testing.T) {
+	var receivedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &receivedBody)
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"data":{"id":"p4","attributes":{"summary":"Deploy"}}}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.CreatePulseCLI(context.Background(), "Deploy", PulseOpts{
+		Refs: []KeyValue{
+			{Key: "sha", Value: "abc123"},
+			{Key: "image", Value: "registry.rootly.com/app:v1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	attrs := receivedBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+	refs, ok := attrs["refs"].([]interface{})
+	if !ok {
+		t.Fatal("expected refs to be an array")
+	}
+	if len(refs) != 2 {
+		t.Fatalf("expected 2 refs, got %d", len(refs))
+	}
+	ref0 := refs[0].(map[string]interface{})
+	if ref0["name"] != "sha" || ref0["value"] != "abc123" {
+		t.Errorf("ref[0] = %v, want name=sha value=abc123", ref0)
+	}
+	ref1 := refs[1].(map[string]interface{})
+	if ref1["name"] != "image" || ref1["value"] != "registry.rootly.com/app:v1" {
+		t.Errorf("ref[1] = %v, want name=image value=registry.rootly.com/app:v1", ref1)
+	}
+}
+
+func TestCreatePulseCLI_BodyFull(t *testing.T) {
+	var receivedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &receivedBody)
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"data":{"id":"p5","attributes":{"summary":"Full deploy","source":"k8s"}}}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	startedAt := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	endedAt := time.Date(2025, 1, 1, 0, 5, 0, 0, time.UTC)
+	_, err := client.CreatePulseCLI(context.Background(), "Full deploy", PulseOpts{
+		Source:         "k8s",
+		ServiceIDs:     []string{"elasticsearch-prod"},
+		EnvironmentIDs: []string{"production", "staging"},
+		Labels: []KeyValue{
+			{Key: "platform", Value: "osx"},
+			{Key: "exit_code", Value: "1"},
+		},
+		Refs: []KeyValue{
+			{Key: "sha", Value: "cd62148"},
+			{Key: "image", Value: "registry.rootly.com/rootly/my-service:cd6214"},
+		},
+		StartedAt: &startedAt,
+		EndedAt:   &endedAt,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	attrs := receivedBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+
+	if attrs["summary"] != "Full deploy" {
+		t.Errorf("summary = %q, want %q", attrs["summary"], "Full deploy")
+	}
+	if attrs["source"] != "k8s" {
+		t.Errorf("source = %q, want %q", attrs["source"], "k8s")
+	}
+
+	serviceIDs := attrs["service_ids"].([]interface{})
+	if len(serviceIDs) != 1 || serviceIDs[0] != "elasticsearch-prod" {
+		t.Errorf("service_ids = %v, want [elasticsearch-prod]", serviceIDs)
+	}
+
+	envIDs := attrs["environment_ids"].([]interface{})
+	if len(envIDs) != 2 || envIDs[0] != "production" || envIDs[1] != "staging" {
+		t.Errorf("environment_ids = %v, want [production, staging]", envIDs)
+	}
+
+	labels := attrs["labels"].(map[string]interface{})
+	if labels["platform"] != "osx" || labels["exit_code"] != "1" {
+		t.Errorf("labels = %v, want platform=osx exit_code=1", labels)
+	}
+
+	refs := attrs["refs"].([]interface{})
+	if len(refs) != 2 {
+		t.Fatalf("expected 2 refs, got %d", len(refs))
+	}
+
+	if attrs["started_at"] != "2025-01-01T00:00:00Z" {
+		t.Errorf("started_at = %q, want %q", attrs["started_at"], "2025-01-01T00:00:00Z")
+	}
+	if attrs["ended_at"] != "2025-01-01T00:05:00Z" {
+		t.Errorf("ended_at = %q, want %q", attrs["ended_at"], "2025-01-01T00:05:00Z")
+	}
+}
+
 func TestCreatePulseCLI_WithServicesAndEnvs(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/vnd.api+json")

@@ -1,6 +1,7 @@
 package pulse
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -88,24 +89,12 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	// Run the command
 	startedAt := time.Now()
-
-	childCmd := exec.CommandContext(cmd.Context(), args[0], args[1:]...)
-	childCmd.Stdin = os.Stdin
-	childCmd.Stdout = os.Stdout
-	childCmd.Stderr = os.Stderr
-
-	cmdErr := childCmd.Run()
+	exitCode, cmdErr := runProgram(cmd.Context(), args[0], args[1:]...)
 	endedAt := time.Now()
 
-	// Determine exit code
-	exitCode := 0
 	if cmdErr != nil {
-		if exitErr, ok := cmdErr.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else {
-			// Command failed to start
-			exitCode = 1
-		}
+		// Command failed to start entirely
+		exitCode = 1
 	}
 
 	// Append exit_status label
@@ -147,4 +136,23 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// runProgram executes a command and returns its exit code.
+// Returns (exitCode, nil) for normal execution (including non-zero exits).
+// Returns (0, err) if the command fails to start entirely.
+func runProgram(ctx context.Context, name string, args ...string) (int, error) {
+	childCmd := exec.CommandContext(ctx, name, args...)
+	childCmd.Stdin = os.Stdin
+	childCmd.Stdout = os.Stdout
+	childCmd.Stderr = os.Stderr
+
+	err := childCmd.Run()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return exitErr.ExitCode(), nil
+		}
+		return 0, err
+	}
+	return 0, nil
 }
