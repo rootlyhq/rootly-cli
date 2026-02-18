@@ -215,6 +215,38 @@ type TeamsResult struct {
 	RawBody    []byte
 }
 
+// KeyValue represents a key-value pair for pulse labels and refs
+type KeyValue struct {
+	Key   string
+	Value string
+}
+
+// Pulse represents a Rootly pulse (deployment/event signal)
+type Pulse struct {
+	ID           string
+	Summary      string
+	Source       string
+	StartedAt    *time.Time
+	EndedAt      *time.Time
+	Services     []string
+	Environments []string
+	Labels       []KeyValue
+	Refs         []KeyValue
+	// Raw API response body for JSON/YAML passthrough
+	RawBody []byte
+}
+
+// PulseOpts contains optional parameters for creating a pulse
+type PulseOpts struct {
+	Source         string
+	ServiceIDs     []string
+	EnvironmentIDs []string
+	Labels         []KeyValue
+	Refs           []KeyValue
+	StartedAt      *time.Time
+	EndedAt        *time.Time
+}
+
 // incidentResponseData represents the structure of incident data from the API response
 type incidentResponseData struct {
 	ID         string `json:"id"`
@@ -2973,4 +3005,143 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 	}
 
 	return result, nil
+}
+
+// CreatePulseCLI creates a new pulse using raw HTTP POST.
+func (c *Client) CreatePulseCLI(ctx context.Context, summary string, opts PulseOpts) (*Pulse, error) {
+	// Build JSON:API request body
+	attributes := map[string]interface{}{
+		"summary": summary,
+	}
+
+	if opts.Source != "" {
+		attributes["source"] = opts.Source
+	}
+	if len(opts.ServiceIDs) > 0 {
+		attributes["service_ids"] = opts.ServiceIDs
+	}
+	if len(opts.EnvironmentIDs) > 0 {
+		attributes["environment_ids"] = opts.EnvironmentIDs
+	}
+	if len(opts.Labels) > 0 {
+		labels := make(map[string]string, len(opts.Labels))
+		for _, kv := range opts.Labels {
+			labels[kv.Key] = kv.Value
+		}
+		attributes["labels"] = labels
+	}
+	if len(opts.Refs) > 0 {
+		refs := make([]map[string]string, 0, len(opts.Refs))
+		for _, kv := range opts.Refs {
+			refs = append(refs, map[string]string{"name": kv.Key, "value": kv.Value})
+		}
+		attributes["refs"] = refs
+	}
+	if opts.StartedAt != nil {
+		attributes["started_at"] = opts.StartedAt.Format(time.RFC3339)
+	}
+	if opts.EndedAt != nil {
+		attributes["ended_at"] = opts.EndedAt.Format(time.RFC3339)
+	}
+
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type":       "pulses",
+			"attributes": attributes,
+		},
+	}
+
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Build URL
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	url := fmt.Sprintf("%s/v1/pulses", baseURL)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pulse: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if httpResp.StatusCode == 401 {
+		return nil, fmt.Errorf("invalid API key")
+	}
+	if httpResp.StatusCode == 403 {
+		return nil, fmt.Errorf("access denied: API key lacks 'create pulses' permission")
+	}
+	if httpResp.StatusCode != 201 && httpResp.StatusCode != 200 {
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	// Parse response
+	var resp struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Summary   string  `json:"summary"`
+				Source    string  `json:"source"`
+				StartedAt *string `json:"started_at"`
+				EndedAt   *string `json:"ended_at"`
+				Services  *struct {
+					Data []struct {
+						Attributes struct {
+							Name string `json:"name"`
+						} `json:"attributes"`
+					} `json:"data"`
+				} `json:"services"`
+				Environments *struct {
+					Data []struct {
+						Attributes struct {
+							Name string `json:"name"`
+						} `json:"attributes"`
+					} `json:"data"`
+				} `json:"environments"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	pulse := &Pulse{
+		ID:      resp.Data.ID,
+		Summary: resp.Data.Attributes.Summary,
+		Source:  resp.Data.Attributes.Source,
+		RawBody: body,
+	}
+
+	pulse.StartedAt = parseTimePtr(resp.Data.Attributes.StartedAt)
+	pulse.EndedAt = parseTimePtr(resp.Data.Attributes.EndedAt)
+
+	if resp.Data.Attributes.Services != nil {
+		for _, s := range resp.Data.Attributes.Services.Data {
+			pulse.Services = append(pulse.Services, s.Attributes.Name)
+		}
+	}
+	if resp.Data.Attributes.Environments != nil {
+		for _, e := range resp.Data.Attributes.Environments.Data {
+			pulse.Environments = append(pulse.Environments, e.Attributes.Name)
+		}
+	}
+
+	return pulse, nil
 }

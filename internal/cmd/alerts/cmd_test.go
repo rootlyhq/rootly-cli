@@ -23,8 +23,8 @@ func setupTestServer(t *testing.T, handler http.HandlerFunc) {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	viper.Set("api_token", "test-token")
-	viper.Set("endpoint", server.URL)
+	viper.Set("api_key", "test-token")
+	viper.Set("api_host", server.URL)
 	t.Cleanup(viper.Reset)
 }
 
@@ -167,8 +167,8 @@ func TestRunListNoToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when no API token")
 	}
-	if !strings.Contains(err.Error(), "API token required") {
-		t.Errorf("expected 'API token required' error, got: %v", err)
+	if !strings.Contains(err.Error(), "API key required") {
+		t.Errorf("expected 'API key required' error, got: %v", err)
 	}
 }
 
@@ -367,8 +367,8 @@ func TestRunAckNoToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when no API token")
 	}
-	if !strings.Contains(err.Error(), "API token required") {
-		t.Errorf("expected 'API token required' error, got: %v", err)
+	if !strings.Contains(err.Error(), "API key required") {
+		t.Errorf("expected 'API key required' error, got: %v", err)
 	}
 }
 
@@ -473,8 +473,8 @@ func TestRunResolveNoToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when no API token")
 	}
-	if !strings.Contains(err.Error(), "API token required") {
-		t.Errorf("expected 'API token required' error, got: %v", err)
+	if !strings.Contains(err.Error(), "API key required") {
+		t.Errorf("expected 'API key required' error, got: %v", err)
 	}
 }
 

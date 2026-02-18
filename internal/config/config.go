@@ -18,8 +18,8 @@ const (
 )
 
 type Config struct {
-	APIKey   string `yaml:"api_token"`
-	Endpoint string `yaml:"endpoint"`
+	APIKey   string `yaml:"api_key"`
+	Endpoint string `yaml:"api_host"`
 	Timezone string `yaml:"timezone"` // TUI-specific
 	Language string `yaml:"language"` // TUI-specific
 	Layout   string `yaml:"layout"`   // TUI-specific
@@ -66,9 +66,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	// Check env var fallback for API token (for non-Viper usage like tests)
+	// Check env var fallback for API key (for non-Viper usage like tests)
 	if cfg.APIKey == "" {
-		cfg.APIKey = os.Getenv("ROOTLY_API_TOKEN")
+		cfg.APIKey = os.Getenv("ROOTLY_API_KEY")
 	}
 
 	if cfg.Endpoint == "" {

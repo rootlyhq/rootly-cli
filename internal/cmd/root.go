@@ -20,12 +20,12 @@ var rootCmd = &cobra.Command{
 	Long: `Rootly CLI - manage incidents, alerts, and resources from the terminal.
 
 Authenticate via environment variable:
-  export ROOTLY_API_TOKEN=your-token
+  export ROOTLY_API_KEY=your-api-key
   rootly incidents list
 
 Or use a config file at ~/.rootly-cli/config.yaml:
-  api_token: your-token
-  endpoint: api.rootly.com`,
+  api_key: your-api-key
+  api_host: api.rootly.com`,
 	Example: `  # List incidents
   rootly incidents list
 
@@ -34,6 +34,9 @@ Or use a config file at ~/.rootly-cli/config.yaml:
 
   # List with filters
   rootly incidents list --status=started --severity=critical
+
+  # Send a deployment pulse
+  rootly pulse create "Deploy v1.2.3" --source=ci
 
   # Generate shell completions
   rootly completion bash`,
@@ -55,8 +58,10 @@ Or use a config file at ~/.rootly-cli/config.yaml:
 		viper.AutomaticEnv()
 
 		// Map specific environment variables to config keys
-		_ = viper.BindEnv("api_token", "ROOTLY_API_TOKEN")
-		_ = viper.BindEnv("endpoint", "ROOTLY_API_ENDPOINT")
+		_ = viper.BindEnv("api_key", "ROOTLY_API_KEY")
+		_ = viper.BindEnv("api_host", "ROOTLY_API_HOST")
+		_ = viper.BindEnv("debug", "ROOTLY_DEBUG")
+		_ = viper.BindEnv("quiet", "ROOTLY_QUIET")
 
 		// Read config file (ignore if not found)
 		if err := viper.ReadInConfig(); err != nil {
@@ -88,10 +93,12 @@ func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	// Add persistent flags
-	rootCmd.PersistentFlags().String("api-token", "", "Rootly API token (env: ROOTLY_API_TOKEN)")
-	rootCmd.PersistentFlags().String("endpoint", "api.rootly.com", "Rootly API endpoint")
+	rootCmd.PersistentFlags().StringP("api-key", "k", "", "Rootly API key (env: ROOTLY_API_KEY)")
+	rootCmd.PersistentFlags().String("api-host", "api.rootly.com", "Rootly API host (env: ROOTLY_API_HOST)")
 	rootCmd.PersistentFlags().String("format", "table", "Output format (table, json, yaml, markdown)")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output")
+	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable debug output (env: ROOTLY_DEBUG)")
+	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-essential output (env: ROOTLY_QUIET)")
 }
 
 // SetVersionInfo sets the version information from main package ldflags

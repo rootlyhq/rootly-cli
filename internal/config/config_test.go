@@ -588,8 +588,8 @@ func TestLoadFillsDefaults(t *testing.T) {
 		t.Fatalf("failed to create config dir: %v", err)
 	}
 
-	// Write YAML with only api_token — all other fields empty
-	yaml := []byte("api_token: my-key\n")
+	// Write YAML with only api_key — all other fields empty
+	yaml := []byte("api_key: my-key\n")
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), yaml, 0600); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
@@ -616,7 +616,7 @@ func TestLoadFillsDefaults(t *testing.T) {
 	}
 }
 
-// TestLoadAPIKeyEnvFallback verifies that Load falls back to ROOTLY_API_TOKEN env var.
+// TestLoadAPIKeyEnvFallback verifies that Load falls back to ROOTLY_API_KEY env var.
 func TestLoadAPIKeyEnvFallback(t *testing.T) {
 	tmpDir, cleanup := setupTestEnv(t)
 	defer cleanup()
@@ -626,16 +626,16 @@ func TestLoadAPIKeyEnvFallback(t *testing.T) {
 		t.Fatalf("failed to create config dir: %v", err)
 	}
 
-	// Write YAML with empty api_token
-	yamlContent := []byte("endpoint: api.rootly.com\n")
+	// Write YAML with empty api_key
+	yamlContent := []byte("api_host: api.rootly.com\n")
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), yamlContent, 0600); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
 
 	// Set env var
-	original := os.Getenv("ROOTLY_API_TOKEN")
-	os.Setenv("ROOTLY_API_TOKEN", "env-token-123")
-	defer os.Setenv("ROOTLY_API_TOKEN", original)
+	original := os.Getenv("ROOTLY_API_KEY")
+	os.Setenv("ROOTLY_API_KEY", "env-token-123")
+	defer os.Setenv("ROOTLY_API_KEY", original)
 
 	loaded, err := Load()
 	if err != nil {

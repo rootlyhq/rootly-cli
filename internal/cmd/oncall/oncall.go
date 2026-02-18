@@ -37,11 +37,11 @@ Note: Schedules are managed in the Rootly UI. This command provides read-only ac
 // getAPIClient creates a stateless API client for CLI operations.
 // Returns error if API token is not configured.
 func getAPIClient() (*api.Client, error) {
-	token := viper.GetString("api_token")
+	token := viper.GetString("api_key")
 	if token == "" {
-		return nil, fmt.Errorf("API token required: set ROOTLY_API_TOKEN or add api_token to ~/.rootly-cli/config.yaml")
+		return nil, fmt.Errorf("API key required: set ROOTLY_API_KEY or add api_key to ~/.rootly-cli/config.yaml")
 	}
-	endpoint := viper.GetString("endpoint")
+	endpoint := viper.GetString("api_host")
 	if endpoint == "" {
 		endpoint = config.DefaultEndpoint
 	}
