@@ -139,6 +139,182 @@ func TestGetAlertByIDNotFound(t *testing.T) {
 	}
 }
 
+func TestGetAlertByIDFullDetail(t *testing.T) {
+	seqID := 42
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]interface{}{
+			"data": map[string]interface{}{
+				"id": "alert-full",
+				"attributes": map[string]interface{}{
+					"short_id":              "ALT-FULL",
+					"summary":               "Full Detail Alert",
+					"description":           "Alert with all fields",
+					"status":                "triggered",
+					"source":                "pagerduty",
+					"external_url":          "https://pagerduty.com/alert/123",
+					"created_at":            "2025-06-15T10:00:00Z",
+					"updated_at":            "2025-06-15T11:00:00Z",
+					"started_at":            "2025-06-15T10:01:00Z",
+					"ended_at":              "2025-06-15T11:00:00Z",
+					"url":                   "https://rootly.com/alerts/full",
+					"external_id":           "ext-123",
+					"noise":                 "not_noise",
+					"is_group_leader_alert": true,
+					"group_leader_alert_id": "leader-1",
+					"deduplication_key":     "dedup-abc",
+					"labels": []map[string]interface{}{
+						{"key": "severity", "value": "critical"},
+					},
+					"services": []map[string]interface{}{
+						{"name": "api-gateway"},
+						{"name": "auth-service"},
+					},
+					"environments": []map[string]interface{}{
+						{"name": "production"},
+					},
+					"groups": []map[string]interface{}{
+						{"name": "Platform"},
+					},
+					"responders": []map[string]interface{}{
+						{
+							"id": "resp-1",
+							"attributes": map[string]interface{}{
+								"user": map[string]interface{}{
+									"data": map[string]interface{}{
+										"attributes": map[string]interface{}{
+											"name": "Alice OnCall",
+										},
+									},
+								},
+							},
+						},
+					},
+					"alert_urgency": map[string]interface{}{
+						"data": map[string]interface{}{
+							"attributes": map[string]interface{}{
+								"name": "high",
+							},
+						},
+					},
+					"notified_users": []map[string]interface{}{
+						{"name": "Bob Notified", "email": "bob@example.com"},
+					},
+					"incidents": []map[string]interface{}{
+						{
+							"id": "inc-rel",
+							"attributes": map[string]interface{}{
+								"sequential_id": seqID,
+								"title":         "Related Incident",
+								"status":        "started",
+							},
+						},
+					},
+					"data": map[string]interface{}{
+						"custom_field": "custom_value",
+					},
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	alert, err := client.GetAlertByID(context.Background(), "alert-full")
+	if err != nil {
+		t.Fatalf("GetAlertByID returned error: %v", err)
+	}
+
+	// Basic fields
+	if alert.ShortID != "ALT-FULL" {
+		t.Errorf("ShortID = %q, want %q", alert.ShortID, "ALT-FULL")
+	}
+	if alert.Source != "pagerduty" {
+		t.Errorf("Source = %q, want %q", alert.Source, "pagerduty")
+	}
+	if alert.Description != "Alert with all fields" {
+		t.Errorf("Description = %q", alert.Description)
+	}
+	if alert.ExternalURL != "https://pagerduty.com/alert/123" {
+		t.Errorf("ExternalURL = %q", alert.ExternalURL)
+	}
+	if alert.URL != "https://rootly.com/alerts/full" {
+		t.Errorf("URL = %q", alert.URL)
+	}
+	if alert.ExternalID != "ext-123" {
+		t.Errorf("ExternalID = %q", alert.ExternalID)
+	}
+	if alert.Noise != "not_noise" {
+		t.Errorf("Noise = %q", alert.Noise)
+	}
+	if !alert.IsGroupLeaderAlert {
+		t.Error("IsGroupLeaderAlert = false, want true")
+	}
+	if alert.GroupLeaderAlertID != "leader-1" {
+		t.Errorf("GroupLeaderAlertID = %q", alert.GroupLeaderAlertID)
+	}
+	if alert.DeduplicationKey != "dedup-abc" {
+		t.Errorf("DeduplicationKey = %q", alert.DeduplicationKey)
+	}
+	if !alert.DetailLoaded {
+		t.Error("DetailLoaded = false, want true")
+	}
+
+	// Labels
+	if alert.Labels["severity"] != "critical" {
+		t.Errorf("Labels[severity] = %q", alert.Labels["severity"])
+	}
+
+	// Collections
+	if len(alert.Services) != 2 || alert.Services[0] != "api-gateway" {
+		t.Errorf("Services = %v", alert.Services)
+	}
+	if len(alert.Environments) != 1 || alert.Environments[0] != "production" {
+		t.Errorf("Environments = %v", alert.Environments)
+	}
+	if len(alert.Groups) != 1 || alert.Groups[0] != "Platform" {
+		t.Errorf("Groups = %v", alert.Groups)
+	}
+
+	// Responders
+	if len(alert.Responders) != 1 || alert.Responders[0] != "Alice OnCall" {
+		t.Errorf("Responders = %v", alert.Responders)
+	}
+
+	// Urgency
+	if alert.Urgency != "high" {
+		t.Errorf("Urgency = %q, want %q", alert.Urgency, "high")
+	}
+
+	// Notified users
+	if len(alert.NotifiedUsers) != 1 || alert.NotifiedUsers[0].Name != "Bob Notified" {
+		t.Errorf("NotifiedUsers = %v", alert.NotifiedUsers)
+	}
+
+	// Related incidents
+	if len(alert.RelatedIncidents) != 1 {
+		t.Fatalf("RelatedIncidents count = %d, want 1", len(alert.RelatedIncidents))
+	}
+	if alert.RelatedIncidents[0].SequentialID != "INC-42" {
+		t.Errorf("RelatedIncident SequentialID = %q, want %q", alert.RelatedIncidents[0].SequentialID, "INC-42")
+	}
+
+	// Timestamps
+	if alert.StartedAt == nil {
+		t.Error("StartedAt is nil, want non-nil")
+	}
+	if alert.EndedAt == nil {
+		t.Error("EndedAt is nil, want non-nil")
+	}
+
+	// Custom data
+	if alert.Data == nil || alert.Data["custom_field"] != "custom_value" {
+		t.Errorf("Data = %v", alert.Data)
+	}
+}
+
 // --- Services ---
 
 func TestListServicesCLI(t *testing.T) {

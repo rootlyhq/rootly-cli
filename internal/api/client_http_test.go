@@ -399,3 +399,256 @@ func TestListIncidentsCLIServerError(t *testing.T) {
 		t.Errorf("error = %q, want 'status 500'", err.Error())
 	}
 }
+
+// --- GetIncidentByID with full detail relationships ---
+
+// fullDetailIncidentServer returns a test server that responds with a fully-populated incident.
+func fullDetailIncidentServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]interface{}{
+			"data": map[string]interface{}{
+				"id": "inc-full",
+				"attributes": map[string]interface{}{
+					"sequential_id":      55,
+					"title":              "Full Detail Incident",
+					"summary":            "Everything populated",
+					"status":             "resolved",
+					"kind":               "normal",
+					"private":            true,
+					"created_at":         "2025-06-15T10:00:00Z",
+					"updated_at":         "2025-06-15T14:00:00Z",
+					"started_at":         "2025-06-15T10:05:00Z",
+					"resolved_at":        "2025-06-15T13:00:00Z",
+					"mitigated_at":       "2025-06-15T12:00:00Z",
+					"url":                "https://rootly.com/incidents/55",
+					"short_url":          "https://rootly.io/i/55",
+					"source":             "datadog",
+					"mitigation_message": "Restarted DB replicas",
+					"resolution_message": "Root cause: OOM killer",
+					"slack_channel_name": "inc-55-full-detail",
+					"slack_channel_url":  "https://slack.com/channel/inc-55",
+					"jira_issue_url":     "https://jira.com/PROJ-123",
+					"github_issue_url":   "https://github.com/org/repo/issues/42",
+					"labels": []map[string]interface{}{
+						{"key": "env", "value": "production"},
+						{"key": "region", "value": "us-east-1"},
+					},
+					"severity": map[string]interface{}{
+						"data": map[string]interface{}{
+							"attributes": map[string]interface{}{"name": "sev0"},
+						},
+					},
+					"commander": map[string]interface{}{
+						"data": map[string]interface{}{
+							"attributes": map[string]interface{}{"name": "Alice Commander"},
+						},
+					},
+					"communicator": map[string]interface{}{
+						"data": map[string]interface{}{
+							"attributes": map[string]interface{}{"name": "Bob Communicator"},
+						},
+					},
+					"user": map[string]interface{}{
+						"data": map[string]interface{}{
+							"attributes": map[string]interface{}{"full_name": "Charlie Creator", "email": "charlie@example.com"},
+						},
+					},
+					"started_by": map[string]interface{}{
+						"data": map[string]interface{}{
+							"attributes": map[string]interface{}{"full_name": "Dave Starter", "email": "dave@example.com"},
+						},
+					},
+					"mitigated_by": map[string]interface{}{
+						"data": map[string]interface{}{
+							"attributes": map[string]interface{}{"full_name": "Eve Mitigator", "email": "eve@example.com"},
+						},
+					},
+					"resolved_by": map[string]interface{}{
+						"data": map[string]interface{}{
+							"attributes": map[string]interface{}{"full_name": "Frank Resolver", "email": "frank@example.com"},
+						},
+					},
+					"roles": []map[string]interface{}{
+						{"attributes": map[string]interface{}{
+							"name": "Scribe",
+							"user": map[string]interface{}{
+								"data": map[string]interface{}{
+									"attributes": map[string]interface{}{"full_name": "Grace Scribe", "email": "grace@example.com"},
+								},
+							},
+						}},
+					},
+					"causes": []map[string]interface{}{
+						{"attributes": map[string]interface{}{"name": "Memory leak"}},
+						{"attributes": map[string]interface{}{"name": "Config drift"}},
+					},
+					"incident_types": []map[string]interface{}{
+						{"attributes": map[string]interface{}{"name": "Infrastructure"}},
+					},
+					"functionalities": []map[string]interface{}{
+						{"attributes": map[string]interface{}{"name": "API Requests"}},
+					},
+					"services": map[string]interface{}{
+						"data": []map[string]interface{}{
+							{"attributes": map[string]interface{}{"name": "api-gateway"}},
+							{"attributes": map[string]interface{}{"name": "auth-service"}},
+						},
+					},
+					"environments": map[string]interface{}{
+						"data": []map[string]interface{}{
+							{"attributes": map[string]interface{}{"name": "production"}},
+						},
+					},
+					"groups": map[string]interface{}{
+						"data": []map[string]interface{}{
+							{"attributes": map[string]interface{}{"name": "Platform"}},
+						},
+					},
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+}
+
+func TestGetIncidentByIDDetailBasicFields(t *testing.T) {
+	server := fullDetailIncidentServer(t)
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	inc, err := client.GetIncidentByID(context.Background(), "inc-full")
+	if err != nil {
+		t.Fatalf("returned error: %v", err)
+	}
+
+	if inc.SequentialID != "INC-55" {
+		t.Errorf("SequentialID = %q, want %q", inc.SequentialID, "INC-55")
+	}
+	if inc.Severity != "sev0" {
+		t.Errorf("Severity = %q, want %q", inc.Severity, "sev0")
+	}
+	if !inc.Private {
+		t.Error("Private = false, want true")
+	}
+	if !inc.DetailLoaded {
+		t.Error("DetailLoaded = false, want true")
+	}
+	if inc.URL != "https://rootly.com/incidents/55" {
+		t.Errorf("URL = %q", inc.URL)
+	}
+	if inc.ShortURL != "https://rootly.io/i/55" {
+		t.Errorf("ShortURL = %q", inc.ShortURL)
+	}
+	if inc.Source != "datadog" {
+		t.Errorf("Source = %q", inc.Source)
+	}
+	if inc.MitigationMessage != "Restarted DB replicas" {
+		t.Errorf("MitigationMessage = %q", inc.MitigationMessage)
+	}
+	if inc.ResolutionMessage != "Root cause: OOM killer" {
+		t.Errorf("ResolutionMessage = %q", inc.ResolutionMessage)
+	}
+}
+
+func TestGetIncidentByIDDetailLinks(t *testing.T) {
+	server := fullDetailIncidentServer(t)
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	inc, err := client.GetIncidentByID(context.Background(), "inc-full")
+	if err != nil {
+		t.Fatalf("returned error: %v", err)
+	}
+
+	if inc.SlackChannelURL != "https://slack.com/channel/inc-55" {
+		t.Errorf("SlackChannelURL = %q", inc.SlackChannelURL)
+	}
+	if inc.JiraIssueURL != "https://jira.com/PROJ-123" {
+		t.Errorf("JiraIssueURL = %q", inc.JiraIssueURL)
+	}
+	if inc.GithubIssueURL != "https://github.com/org/repo/issues/42" {
+		t.Errorf("GithubIssueURL = %q", inc.GithubIssueURL)
+	}
+	if inc.Labels["env"] != "production" {
+		t.Errorf("Labels[env] = %q", inc.Labels["env"])
+	}
+	if inc.Labels["region"] != "us-east-1" {
+		t.Errorf("Labels[region] = %q", inc.Labels["region"])
+	}
+}
+
+func TestGetIncidentByIDDetailRelationships(t *testing.T) {
+	server := fullDetailIncidentServer(t)
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	inc, err := client.GetIncidentByID(context.Background(), "inc-full")
+	if err != nil {
+		t.Fatalf("returned error: %v", err)
+	}
+
+	if inc.CommanderName != "Alice Commander" {
+		t.Errorf("CommanderName = %q", inc.CommanderName)
+	}
+	if inc.CommunicatorName != "Bob Communicator" {
+		t.Errorf("CommunicatorName = %q", inc.CommunicatorName)
+	}
+	if inc.CreatedByName != "Charlie Creator" {
+		t.Errorf("CreatedByName = %q", inc.CreatedByName)
+	}
+	if inc.CreatedByEmail != "charlie@example.com" {
+		t.Errorf("CreatedByEmail = %q", inc.CreatedByEmail)
+	}
+	if inc.StartedByName != "Dave Starter" {
+		t.Errorf("StartedByName = %q", inc.StartedByName)
+	}
+	if inc.MitigatedByName != "Eve Mitigator" {
+		t.Errorf("MitigatedByName = %q", inc.MitigatedByName)
+	}
+	if inc.ResolvedByName != "Frank Resolver" {
+		t.Errorf("ResolvedByName = %q", inc.ResolvedByName)
+	}
+}
+
+func TestGetIncidentByIDDetailCollections(t *testing.T) {
+	server := fullDetailIncidentServer(t)
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	inc, err := client.GetIncidentByID(context.Background(), "inc-full")
+	if err != nil {
+		t.Fatalf("returned error: %v", err)
+	}
+
+	// Roles
+	if len(inc.Roles) != 1 {
+		t.Fatalf("Roles count = %d, want 1", len(inc.Roles))
+	}
+	if inc.Roles[0].Name != "Scribe" || inc.Roles[0].UserName != "Grace Scribe" {
+		t.Errorf("Roles[0] = {%q, %q}", inc.Roles[0].Name, inc.Roles[0].UserName)
+	}
+	if len(inc.Causes) != 2 || inc.Causes[0] != "Memory leak" {
+		t.Errorf("Causes = %v", inc.Causes)
+	}
+	if len(inc.IncidentTypes) != 1 || inc.IncidentTypes[0] != "Infrastructure" {
+		t.Errorf("IncidentTypes = %v", inc.IncidentTypes)
+	}
+	if len(inc.Functionalities) != 1 || inc.Functionalities[0] != "API Requests" {
+		t.Errorf("Functionalities = %v", inc.Functionalities)
+	}
+	if len(inc.Services) != 2 || inc.Services[0] != "api-gateway" {
+		t.Errorf("Services = %v", inc.Services)
+	}
+	if len(inc.Environments) != 1 || inc.Environments[0] != "production" {
+		t.Errorf("Environments = %v", inc.Environments)
+	}
+	if len(inc.Teams) != 1 || inc.Teams[0] != "Platform" {
+		t.Errorf("Teams = %v", inc.Teams)
+	}
+	if inc.StartedAt == nil || inc.ResolvedAt == nil || inc.MitigatedAt == nil {
+		t.Error("timestamps should be non-nil")
+	}
+}
