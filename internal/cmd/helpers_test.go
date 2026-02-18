@@ -167,6 +167,26 @@ func TestErrAborted(t *testing.T) {
 	}
 }
 
+func TestSetVersionInfo(t *testing.T) {
+	// Save originals
+	origV, origC, origD := version, commit, date
+	defer func() {
+		version, commit, date = origV, origC, origD
+	}()
+
+	SetVersionInfo("1.2.3", "abc123", "2025-06-15")
+
+	if version != "1.2.3" {
+		t.Errorf("version = %q, want %q", version, "1.2.3")
+	}
+	if commit != "abc123" {
+		t.Errorf("commit = %q, want %q", commit, "abc123")
+	}
+	if date != "2025-06-15" {
+		t.Errorf("date = %q, want %q", date, "2025-06-15")
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || s != "" && containsString(s, substr))
 }

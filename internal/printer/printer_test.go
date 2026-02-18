@@ -426,6 +426,202 @@ func TestMarkdownPrinterPrintRawJSON(t *testing.T) {
 	}
 }
 
+// --- PrintObj edge case tests (nil values, empty strings, non-map objects) ---
+
+func TestTablePrinterPrintObjWithNilAndEmptyValues(t *testing.T) {
+	p := NewTablePrinter()
+	// Object with nil and empty string values — those rows should be skipped
+	obj := map[string]interface{}{
+		"name":   "test",
+		"status": "active",
+		"empty":  "",
+		"nilval": nil,
+	}
+	var buf bytes.Buffer
+
+	err := p.PrintObj(obj, &buf)
+	if err != nil {
+		t.Fatalf("PrintObj returned error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "name") {
+		t.Error("expected output to contain 'name'")
+	}
+	if !strings.Contains(output, "active") {
+		t.Error("expected output to contain 'active'")
+	}
+	// nil and empty values should be skipped — "nilval" should not appear
+	if strings.Contains(output, "nilval") {
+		t.Error("expected nil value row to be skipped")
+	}
+}
+
+func TestTablePrinterPrintObjNonMap(t *testing.T) {
+	p := NewTablePrinter()
+	// A plain string is not a map — unmarshal into map[string]interface{} will fail
+	var buf bytes.Buffer
+
+	err := p.PrintObj("just a string", &buf)
+	if err != nil {
+		t.Fatalf("PrintObj returned error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "just a string") {
+		t.Errorf("expected output to contain 'just a string', got %q", output)
+	}
+}
+
+func TestMarkdownPrinterPrintObjWithNilAndEmptyValues(t *testing.T) {
+	p := NewMarkdownPrinter()
+	obj := map[string]interface{}{
+		"name":   "test",
+		"status": "active",
+		"empty":  "",
+		"nilval": nil,
+	}
+	var buf bytes.Buffer
+
+	err := p.PrintObj(obj, &buf)
+	if err != nil {
+		t.Fatalf("PrintObj returned error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "name") {
+		t.Error("expected output to contain 'name'")
+	}
+	if strings.Contains(output, "nilval") {
+		t.Error("expected nil value row to be skipped")
+	}
+}
+
+func TestMarkdownPrinterPrintObjNonMap(t *testing.T) {
+	p := NewMarkdownPrinter()
+	var buf bytes.Buffer
+
+	err := p.PrintObj("just a string", &buf)
+	if err != nil {
+		t.Fatalf("PrintObj returned error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "just a string") {
+		t.Errorf("expected output to contain 'just a string', got %q", output)
+	}
+}
+
+func TestTablePrinterPrintObjMarshalError(t *testing.T) {
+	p := NewTablePrinter()
+	var buf bytes.Buffer
+
+	// Channels cannot be marshaled to JSON
+	err := p.PrintObj(make(chan int), &buf)
+	if err == nil {
+		t.Fatal("expected error for unmarshalable object")
+	}
+	if !strings.Contains(err.Error(), "failed to marshal") {
+		t.Errorf("expected 'failed to marshal' error, got: %v", err)
+	}
+}
+
+func TestMarkdownPrinterPrintObjMarshalError(t *testing.T) {
+	p := NewMarkdownPrinter()
+	var buf bytes.Buffer
+
+	err := p.PrintObj(make(chan int), &buf)
+	if err == nil {
+		t.Fatal("expected error for unmarshalable object")
+	}
+	if !strings.Contains(err.Error(), "failed to marshal") {
+		t.Errorf("expected 'failed to marshal' error, got: %v", err)
+	}
+}
+
+// --- PrintList edge case tests ---
+
+func TestTablePrinterPrintListEmpty(t *testing.T) {
+	p := NewTablePrinter()
+	var buf bytes.Buffer
+
+	err := p.PrintList([]string{"ID", "Name"}, nil, &buf)
+	if err != nil {
+		t.Fatalf("PrintList(nil rows) returned error: %v", err)
+	}
+	// Should still render the header
+	output := buf.String()
+	if !strings.Contains(output, "ID") {
+		t.Error("expected output to contain header 'ID'")
+	}
+}
+
+func TestMarkdownPrinterPrintListEmpty(t *testing.T) {
+	p := NewMarkdownPrinter()
+	var buf bytes.Buffer
+
+	err := p.PrintList([]string{"ID", "Name"}, nil, &buf)
+	if err != nil {
+		t.Fatalf("PrintList(nil rows) returned error: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "ID") {
+		t.Error("expected output to contain header 'ID'")
+	}
+}
+
+func TestJSONPrinterPrintListShortRow(t *testing.T) {
+	p := NewJSONPrinter()
+	headers := []string{"ID", "Title", "Status"}
+	// Row has fewer values than headers — bounds check branch
+	rows := [][]string{
+		{"1", "Server down"},
+	}
+	var buf bytes.Buffer
+
+	err := p.PrintList(headers, rows, &buf)
+	if err != nil {
+		t.Fatalf("PrintList returned error: %v", err)
+	}
+
+	var result []map[string]string
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(result))
+	}
+	// "Status" key should not exist since the row was short
+	if _, ok := result[0]["Status"]; ok {
+		t.Error("expected 'Status' key to be absent for short row")
+	}
+}
+
+func TestYAMLPrinterPrintListShortRow(t *testing.T) {
+	p := NewYAMLPrinter()
+	headers := []string{"ID", "Title", "Status"}
+	rows := [][]string{
+		{"1", "Server down"},
+	}
+	var buf bytes.Buffer
+
+	err := p.PrintList(headers, rows, &buf)
+	if err != nil {
+		t.Fatalf("PrintList returned error: %v", err)
+	}
+
+	var result []map[string]string
+	if err := yaml.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(result))
+	}
+	if _, ok := result[0]["Status"]; ok {
+		t.Error("expected 'Status' key to be absent for short row")
+	}
+}
+
 // --- SupportedFormats test ---
 
 func TestSupportedFormats(t *testing.T) {
