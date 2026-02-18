@@ -256,6 +256,98 @@ func TestParseIncidentDataMinimal(t *testing.T) {
 	}
 }
 
+func TestParseIncidentDataWithEnvironmentsAndGroups(t *testing.T) {
+	d := incidentResponseData{
+		ID: "inc-env",
+	}
+	d.Attributes.Title = "Env Test"
+	d.Attributes.Status = "started"
+	d.Attributes.CreatedAt = "2025-01-01T00:00:00Z"
+
+	slackURL := "https://slack.com/channel"
+	jiraURL := "https://jira.com/PROJ-1"
+	d.Attributes.SlackChannelURL = &slackURL
+	d.Attributes.JiraIssueURL = &jiraURL
+
+	d.Attributes.Environments = &struct {
+		Data []struct {
+			Attributes struct {
+				Name string `json:"name"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}{
+		Data: []struct {
+			Attributes struct {
+				Name string `json:"name"`
+			} `json:"attributes"`
+		}{
+			{Attributes: struct {
+				Name string `json:"name"`
+			}{Name: "production"}},
+		},
+	}
+
+	d.Attributes.Groups = &struct {
+		Data []struct {
+			Attributes struct {
+				Name string `json:"name"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}{
+		Data: []struct {
+			Attributes struct {
+				Name string `json:"name"`
+			} `json:"attributes"`
+		}{
+			{Attributes: struct {
+				Name string `json:"name"`
+			}{Name: "Platform"}},
+		},
+	}
+
+	inc := parseIncidentData(d)
+
+	if len(inc.Environments) != 1 || inc.Environments[0] != "production" {
+		t.Errorf("Environments = %v, want [production]", inc.Environments)
+	}
+	if len(inc.Teams) != 1 || inc.Teams[0] != "Platform" {
+		t.Errorf("Teams = %v, want [Platform]", inc.Teams)
+	}
+	if inc.SlackChannelURL != "https://slack.com/channel" {
+		t.Errorf("SlackChannelURL = %q", inc.SlackChannelURL)
+	}
+	if inc.JiraIssueURL != "https://jira.com/PROJ-1" {
+		t.Errorf("JiraIssueURL = %q", inc.JiraIssueURL)
+	}
+}
+
+func TestDurationTillCancelled(t *testing.T) {
+	started := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
+	cancelled := time.Date(2025, 6, 15, 10, 30, 0, 0, time.UTC)
+	inTriage := time.Date(2025, 6, 15, 9, 50, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		incident Incident
+		wantSecs int64
+	}{
+		{"from started", Incident{StartedAt: &started, CancelledAt: &cancelled}, 1800},
+		{"from triage", Incident{InTriageAt: &inTriage, CancelledAt: &cancelled}, 2400},
+		{"no start", Incident{CancelledAt: &cancelled}, 0},
+		{"no cancel", Incident{StartedAt: &started}, 0},
+		{"both nil", Incident{}, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.incident.durationTillCancelled()
+			if got != tt.wantSecs {
+				t.Errorf("durationTillCancelled() = %d, want %d", got, tt.wantSecs)
+			}
+		})
+	}
+}
+
 func TestSetStringFromPtr(t *testing.T) {
 	tests := []struct {
 		name string

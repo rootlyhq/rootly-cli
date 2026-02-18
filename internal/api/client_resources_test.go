@@ -426,6 +426,83 @@ func TestGetServiceByID(t *testing.T) {
 	}
 }
 
+func TestGetServiceByIDWithOwnerGroup(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]interface{}{
+			"data": map[string]interface{}{
+				"id": "svc-og",
+				"attributes": map[string]interface{}{
+					"name":        "auth-service",
+					"slug":        "auth-service",
+					"description": "Authentication",
+					"color":       "#0000FF",
+					"created_at":  "2025-01-01T00:00:00Z",
+					"updated_at":  "2025-06-15T10:00:00Z",
+				},
+				"relationships": map[string]interface{}{
+					"owner_group": map[string]interface{}{
+						"data": map[string]interface{}{
+							"id": "group-99",
+						},
+					},
+				},
+			},
+			"included": []map[string]interface{}{
+				{
+					"id":   "group-99",
+					"type": "groups",
+					"attributes": map[string]interface{}{
+						"name": "Platform Team",
+					},
+				},
+				{
+					"id":   "group-other",
+					"type": "groups",
+					"attributes": map[string]interface{}{
+						"name": "Other Team",
+					},
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	svc, err := client.GetServiceByID(context.Background(), "svc-og")
+	if err != nil {
+		t.Fatalf("GetServiceByID returned error: %v", err)
+	}
+
+	if svc.OwnerTeamName != "Platform Team" {
+		t.Errorf("OwnerTeamName = %q, want %q", svc.OwnerTeamName, "Platform Team")
+	}
+	if svc.Color != "#0000FF" {
+		t.Errorf("Color = %q, want %q", svc.Color, "#0000FF")
+	}
+	if !svc.DetailLoaded {
+		t.Error("DetailLoaded = false, want true")
+	}
+}
+
+func TestGetServiceByIDForbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.GetServiceByID(context.Background(), "svc-1")
+	if err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("error = %q, want 'access denied'", err.Error())
+	}
+}
+
 func TestDeleteService(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "DELETE" {
@@ -567,6 +644,96 @@ func TestGetTeamByID(t *testing.T) {
 	}
 	if team.Slug != "backend" {
 		t.Errorf("Slug = %q, want %q", team.Slug, "backend")
+	}
+}
+
+func TestGetTeamByIDWithUsers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]interface{}{
+			"data": map[string]interface{}{
+				"id": "team-users",
+				"attributes": map[string]interface{}{
+					"name":        "Platform",
+					"slug":        "platform",
+					"description": "Platform team",
+					"color":       "#FF0000",
+					"created_at":  "2025-01-01T00:00:00Z",
+					"updated_at":  "2025-06-15T10:00:00Z",
+				},
+			},
+			"included": []map[string]interface{}{
+				{
+					"type": "users",
+					"id":   "user-1",
+					"attributes": map[string]interface{}{
+						"full_name": "Alice Smith",
+						"email":     "alice@example.com",
+					},
+				},
+				{
+					"type": "users",
+					"id":   "user-2",
+					"attributes": map[string]interface{}{
+						"full_name": "",
+						"email":     "bob@example.com",
+					},
+				},
+				{
+					"type": "services",
+					"id":   "svc-1",
+					"attributes": map[string]interface{}{
+						"full_name": "Not a user",
+					},
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	team, err := client.GetTeamByID(context.Background(), "team-users")
+	if err != nil {
+		t.Fatalf("GetTeamByID returned error: %v", err)
+	}
+
+	if !team.DetailLoaded {
+		t.Error("DetailLoaded = false, want true")
+	}
+	if team.Color != "#FF0000" {
+		t.Errorf("Color = %q, want %q", team.Color, "#FF0000")
+	}
+	if team.Description != "Platform team" {
+		t.Errorf("Description = %q, want %q", team.Description, "Platform team")
+	}
+	// Should have 2 users (not the service entry)
+	if len(team.Users) != 2 {
+		t.Fatalf("Users count = %d, want 2", len(team.Users))
+	}
+	if team.Users[0] != "Alice Smith" {
+		t.Errorf("Users[0] = %q, want %q", team.Users[0], "Alice Smith")
+	}
+	// User with empty full_name should fall back to email
+	if team.Users[1] != "bob@example.com" {
+		t.Errorf("Users[1] = %q, want %q (email fallback)", team.Users[1], "bob@example.com")
+	}
+}
+
+func TestGetTeamByIDForbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.GetTeamByID(context.Background(), "team-1")
+	if err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("error = %q, want 'access denied'", err.Error())
 	}
 }
 
