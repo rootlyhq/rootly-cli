@@ -331,6 +331,101 @@ func TestMarkdownPrinterPrintObj(t *testing.T) {
 	}
 }
 
+// --- PrintRawJSON tests ---
+
+func TestJSONPrinterPrintRawJSON(t *testing.T) {
+	p := NewJSONPrinter()
+	raw := []byte(`{"data":{"id":"123","attributes":{"title":"Test"}}}`)
+	var buf bytes.Buffer
+
+	err := p.PrintRawJSON(raw, &buf)
+	if err != nil {
+		t.Fatalf("PrintRawJSON returned error: %v", err)
+	}
+
+	output := buf.Bytes()
+	if !json.Valid(output) {
+		t.Fatalf("output is not valid JSON: %s", output)
+	}
+
+	// Should be pretty-printed (contain newlines and indentation)
+	if !strings.Contains(buf.String(), "\n") {
+		t.Fatal("expected pretty-printed JSON with newlines")
+	}
+}
+
+func TestJSONPrinterPrintRawJSONInvalid(t *testing.T) {
+	p := NewJSONPrinter()
+	var buf bytes.Buffer
+
+	err := p.PrintRawJSON([]byte("not json"), &buf)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON input")
+	}
+}
+
+func TestYAMLPrinterPrintRawJSON(t *testing.T) {
+	p := NewYAMLPrinter()
+	raw := []byte(`{"data":{"id":"123","attributes":{"title":"Test Incident"}}}`)
+	var buf bytes.Buffer
+
+	err := p.PrintRawJSON(raw, &buf)
+	if err != nil {
+		t.Fatalf("PrintRawJSON returned error: %v", err)
+	}
+
+	output := buf.String()
+	if output == "" {
+		t.Fatal("expected non-empty YAML output")
+	}
+
+	// Should contain the data as YAML
+	var result map[string]interface{}
+	if err := yaml.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("output is not valid YAML: %v", err)
+	}
+
+	if result["data"] == nil {
+		t.Fatal("expected 'data' key in YAML output")
+	}
+}
+
+func TestYAMLPrinterPrintRawJSONInvalid(t *testing.T) {
+	p := NewYAMLPrinter()
+	var buf bytes.Buffer
+
+	err := p.PrintRawJSON([]byte("not json"), &buf)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON input")
+	}
+}
+
+func TestTablePrinterPrintRawJSON(t *testing.T) {
+	p := NewTablePrinter()
+	var buf bytes.Buffer
+
+	err := p.PrintRawJSON([]byte(`{}`), &buf)
+	if err == nil {
+		t.Fatal("expected error for table format PrintRawJSON")
+	}
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("expected 'not supported' error, got: %v", err)
+	}
+}
+
+func TestMarkdownPrinterPrintRawJSON(t *testing.T) {
+	p := NewMarkdownPrinter()
+	var buf bytes.Buffer
+
+	err := p.PrintRawJSON([]byte(`{}`), &buf)
+	if err == nil {
+		t.Fatal("expected error for markdown format PrintRawJSON")
+	}
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("expected 'not supported' error, got: %v", err)
+	}
+}
+
 // --- SupportedFormats test ---
 
 func TestSupportedFormats(t *testing.T) {
