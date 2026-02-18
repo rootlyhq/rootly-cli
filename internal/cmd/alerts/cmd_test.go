@@ -329,3 +329,170 @@ func TestRunUpdateNoFlags(t *testing.T) {
 		t.Errorf("expected 'at least one field' error, got: %v", err)
 	}
 }
+
+// --- runAck tests ---
+
+func TestRunAckSuccess(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if !strings.Contains(r.URL.Path, "/acknowledge") {
+			t.Errorf("expected acknowledge path, got %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cmd := newTestCmd()
+
+	output := captureStdout(t, func() {
+		err := runAck(cmd, []string{"ALR-42"})
+		if err != nil {
+			t.Fatalf("runAck error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Acknowledged alert ALR-42") {
+		t.Errorf("expected success message, got: %s", output)
+	}
+}
+
+func TestRunAckNoToken(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	cmd := newTestCmd()
+
+	err := runAck(cmd, []string{"ALR-42"})
+	if err == nil {
+		t.Fatal("expected error when no API token")
+	}
+	if !strings.Contains(err.Error(), "API token required") {
+		t.Errorf("expected 'API token required' error, got: %v", err)
+	}
+}
+
+func TestRunAckAPIError(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"errors": [{"title": "Not Found"}]}`))
+	})
+
+	cmd := newTestCmd()
+
+	err := runAck(cmd, []string{"ALR-999"})
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+	if !strings.Contains(err.Error(), "failed to acknowledge alert") {
+		t.Errorf("expected 'failed to acknowledge alert' error, got: %v", err)
+	}
+}
+
+// --- runResolve tests ---
+
+func TestRunResolveSuccess(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if !strings.Contains(r.URL.Path, "/resolve") {
+			t.Errorf("expected resolve path, got %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cmd := newTestCmd()
+	cmd.Flags().String("message", "", "")
+	cmd.Flags().Bool("resolve-incidents", false, "")
+
+	output := captureStdout(t, func() {
+		err := runResolve(cmd, []string{"ALR-42"})
+		if err != nil {
+			t.Fatalf("runResolve error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Resolved alert ALR-42") {
+		t.Errorf("expected success message, got: %s", output)
+	}
+}
+
+func TestRunResolveWithMessage(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cmd := newTestCmd()
+	cmd.Flags().String("message", "Fixed by restarting", "")
+	cmd.Flags().Bool("resolve-incidents", false, "")
+
+	output := captureStdout(t, func() {
+		err := runResolve(cmd, []string{"ALR-42"})
+		if err != nil {
+			t.Fatalf("runResolve error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Resolved alert ALR-42") {
+		t.Errorf("expected success message, got: %s", output)
+	}
+}
+
+func TestRunResolveWithIncidents(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cmd := newTestCmd()
+	cmd.Flags().String("message", "All good", "")
+	cmd.Flags().Bool("resolve-incidents", false, "")
+	cmd.Flags().Set("resolve-incidents", "true")
+
+	output := captureStdout(t, func() {
+		err := runResolve(cmd, []string{"ALR-42"})
+		if err != nil {
+			t.Fatalf("runResolve error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Resolved alert ALR-42") {
+		t.Errorf("expected success message, got: %s", output)
+	}
+}
+
+func TestRunResolveNoToken(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	cmd := newTestCmd()
+	cmd.Flags().String("message", "", "")
+	cmd.Flags().Bool("resolve-incidents", false, "")
+
+	err := runResolve(cmd, []string{"ALR-42"})
+	if err == nil {
+		t.Fatal("expected error when no API token")
+	}
+	if !strings.Contains(err.Error(), "API token required") {
+		t.Errorf("expected 'API token required' error, got: %v", err)
+	}
+}
+
+func TestRunResolveAPIError(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"errors": [{"title": "Server Error"}]}`))
+	})
+
+	cmd := newTestCmd()
+	cmd.Flags().String("message", "", "")
+	cmd.Flags().Bool("resolve-incidents", false, "")
+
+	err := runResolve(cmd, []string{"ALR-42"})
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+	if !strings.Contains(err.Error(), "failed to resolve alert") {
+		t.Errorf("expected 'failed to resolve alert' error, got: %v", err)
+	}
+}

@@ -311,3 +311,101 @@ func TestRunUpdateNoFlags(t *testing.T) {
 		t.Errorf("expected 'at least one field' error, got: %v", err)
 	}
 }
+
+// --- confirmDelete tests ---
+
+func TestConfirmDeleteSkip(t *testing.T) {
+	err := confirmDelete("Delete?", true)
+	if err != nil {
+		t.Fatalf("expected nil error when skipConfirm=true, got: %v", err)
+	}
+}
+
+func TestConfirmDeleteNonInteractive(t *testing.T) {
+	err := confirmDelete("Delete?", false)
+	if err == nil {
+		t.Fatal("expected error in non-interactive mode")
+	}
+	if !strings.Contains(err.Error(), "cannot prompt in non-interactive mode") {
+		t.Errorf("expected non-interactive error, got: %v", err)
+	}
+}
+
+// --- runDelete tests ---
+
+func TestRunDeleteWithYes(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	cmd := newTestCmd()
+	cmd.Flags().BoolP("yes", "y", false, "")
+	cmd.Flags().Set("yes", "true")
+
+	output := captureStdout(t, func() {
+		err := runDelete(cmd, []string{"api-gateway"})
+		if err != nil {
+			t.Fatalf("runDelete error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Deleted service api-gateway") {
+		t.Errorf("expected success message, got: %s", output)
+	}
+}
+
+func TestRunDeleteNoConfirmNonInteractive(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cmd := newTestCmd()
+	cmd.Flags().BoolP("yes", "y", false, "")
+
+	err := runDelete(cmd, []string{"api-gateway"})
+	if err == nil {
+		t.Fatal("expected error in non-interactive mode without --yes")
+	}
+	if !strings.Contains(err.Error(), "cannot prompt in non-interactive mode") {
+		t.Errorf("expected non-interactive error, got: %v", err)
+	}
+}
+
+func TestRunDeleteNoToken(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	cmd := newTestCmd()
+	cmd.Flags().BoolP("yes", "y", false, "")
+	cmd.Flags().Set("yes", "true")
+
+	err := runDelete(cmd, []string{"api-gateway"})
+	if err == nil {
+		t.Fatal("expected error when no API token")
+	}
+	if !strings.Contains(err.Error(), "API token required") {
+		t.Errorf("expected 'API token required' error, got: %v", err)
+	}
+}
+
+func TestRunDeleteAPIError(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"errors": [{"title": "Not Found"}]}`))
+	})
+
+	cmd := newTestCmd()
+	cmd.Flags().BoolP("yes", "y", false, "")
+	cmd.Flags().Set("yes", "true")
+
+	err := runDelete(cmd, []string{"svc-999"})
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+	if !strings.Contains(err.Error(), "failed to delete service") {
+		t.Errorf("expected 'failed to delete service' error, got: %v", err)
+	}
+}

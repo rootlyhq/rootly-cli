@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func TestConfirmAction_SkipConfirm(t *testing.T) {
@@ -184,6 +187,139 @@ func TestSetVersionInfo(t *testing.T) {
 	}
 	if date != "2025-06-15" {
 		t.Errorf("date = %q, want %q", date, "2025-06-15")
+	}
+}
+
+// --- version command tests ---
+
+func TestVersionCommandText(t *testing.T) {
+	origV, origC, origD := version, commit, date
+	defer func() {
+		version, commit, date = origV, origC, origD
+	}()
+
+	SetVersionInfo("2.0.0", "def456", "2025-07-01")
+	viper.Set("format", "table")
+	defer viper.Reset()
+
+	buf := new(bytes.Buffer)
+	versionCmd.SetOut(buf)
+	versionCmd.SetArgs([]string{})
+	err := versionCmd.RunE(versionCmd, []string{})
+	if err != nil {
+		t.Fatalf("version command error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "2.0.0") {
+		t.Errorf("expected version in output, got: %s", output)
+	}
+	if !strings.Contains(output, "def456") {
+		t.Errorf("expected commit in output, got: %s", output)
+	}
+	if !strings.Contains(output, "2025-07-01") {
+		t.Errorf("expected date in output, got: %s", output)
+	}
+}
+
+func TestVersionCommandJSON(t *testing.T) {
+	origV, origC, origD := version, commit, date
+	defer func() {
+		version, commit, date = origV, origC, origD
+	}()
+
+	SetVersionInfo("3.0.0", "abc789", "2025-08-01")
+	viper.Set("format", "json")
+	defer viper.Reset()
+
+	buf := new(bytes.Buffer)
+	versionCmd.SetOut(buf)
+	versionCmd.SetArgs([]string{})
+	err := versionCmd.RunE(versionCmd, []string{})
+	if err != nil {
+		t.Fatalf("version command error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, `"version": "3.0.0"`) {
+		t.Errorf("expected JSON version, got: %s", output)
+	}
+	if !strings.Contains(output, `"commit": "abc789"`) {
+		t.Errorf("expected JSON commit, got: %s", output)
+	}
+}
+
+// --- completion command tests ---
+
+func TestCompletionBash(t *testing.T) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+
+	err := completionCmd.RunE(completionCmd, []string{"bash"})
+	if err != nil {
+		t.Fatalf("completion bash error: %v", err)
+	}
+}
+
+func TestCompletionZsh(t *testing.T) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+
+	err := completionCmd.RunE(completionCmd, []string{"zsh"})
+	if err != nil {
+		t.Fatalf("completion zsh error: %v", err)
+	}
+}
+
+func TestCompletionFish(t *testing.T) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+
+	err := completionCmd.RunE(completionCmd, []string{"fish"})
+	if err != nil {
+		t.Fatalf("completion fish error: %v", err)
+	}
+}
+
+func TestCompletionPowershell(t *testing.T) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+
+	err := completionCmd.RunE(completionCmd, []string{"powershell"})
+	if err != nil {
+		t.Fatalf("completion powershell error: %v", err)
+	}
+}
+
+func TestCompletionUnsupported(t *testing.T) {
+	err := completionCmd.RunE(completionCmd, []string{"tcsh"})
+	if err == nil {
+		t.Fatal("expected error for unsupported shell")
+	}
+	if !strings.Contains(err.Error(), "unsupported shell") {
+		t.Errorf("expected 'unsupported shell' error, got: %v", err)
+	}
+}
+
+// --- PersistentPreRunE tests ---
+
+func TestPersistentPreRunE_VersionSkipsAuth(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	err := rootCmd.PersistentPreRunE(versionCmd, []string{})
+	if err != nil {
+		t.Fatalf("expected nil error for version command, got: %v", err)
+	}
+}
+
+func TestPersistentPreRunE_CompletionSkipsAuth(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	err := rootCmd.PersistentPreRunE(completionCmd, []string{})
+	if err != nil {
+		t.Fatalf("expected nil error for completion command, got: %v", err)
 	}
 }
 
