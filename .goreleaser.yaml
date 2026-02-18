@@ -73,7 +73,7 @@ changelog:
       order: 999
 
 brews:
-  - name: rootly
+  - name: rootly-cli
     ids: [rootly]
     repository:
       owner: rootlyhq

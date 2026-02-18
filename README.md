@@ -22,7 +22,7 @@ A command-line interface for managing Rootly incidents, alerts, services, teams,
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew install rootlyhq/tap/rootly
+brew install rootlyhq/tap/rootly-cli
 ```
 
 ### Go Install
