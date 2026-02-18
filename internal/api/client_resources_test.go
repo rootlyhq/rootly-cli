@@ -1,0 +1,638 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+// --- Alerts ---
+
+func TestListAlertsCLI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if !strings.Contains(r.URL.Path, "/v1/alerts") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]interface{}{
+			"data": []map[string]interface{}{
+				{
+					"id": "alert-1",
+					"attributes": map[string]interface{}{
+						"short_id":   "ALT-1A2B",
+						"summary":    "High CPU",
+						"status":     "triggered",
+						"source":     "datadog",
+						"created_at": "2025-06-15T10:00:00Z",
+						"updated_at": "2025-06-15T10:00:00Z",
+					},
+				},
+			},
+			"meta": map[string]interface{}{
+				"current_page": 1,
+				"total_pages":  1,
+				"total_count":  1,
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	result, err := client.ListAlertsCLI(context.Background(), 1, 25, "", nil)
+	if err != nil {
+		t.Fatalf("ListAlertsCLI returned error: %v", err)
+	}
+
+	if len(result.Alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(result.Alerts))
+	}
+	if result.Alerts[0].ShortID != "ALT-1A2B" {
+		t.Errorf("ShortID = %q, want %q", result.Alerts[0].ShortID, "ALT-1A2B")
+	}
+	if result.Alerts[0].Source != "datadog" {
+		t.Errorf("Source = %q, want %q", result.Alerts[0].Source, "datadog")
+	}
+}
+
+func TestListAlertsCLIUnauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListAlertsCLI(context.Background(), 1, 25, "", nil)
+	if err == nil {
+		t.Fatal("expected error for 401")
+	}
+	if !strings.Contains(err.Error(), "invalid API token") {
+		t.Errorf("error = %q, want 'invalid API token'", err.Error())
+	}
+}
+
+func TestGetAlertByID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/v1/alerts/alert-42") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]interface{}{
+			"data": map[string]interface{}{
+				"id": "alert-42",
+				"attributes": map[string]interface{}{
+					"short_id":    "ALT-42AB",
+					"summary":     "DB Replica Lag",
+					"description": "Lag over 30s",
+					"status":      "acknowledged",
+					"source":      "grafana",
+					"created_at":  "2025-06-15T10:00:00Z",
+					"updated_at":  "2025-06-15T11:00:00Z",
+					"url":         "https://rootly.com/alerts/42",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	alert, err := client.GetAlertByID(context.Background(), "alert-42")
+	if err != nil {
+		t.Fatalf("GetAlertByID returned error: %v", err)
+	}
+
+	if alert.ShortID != "ALT-42AB" {
+		t.Errorf("ShortID = %q, want %q", alert.ShortID, "ALT-42AB")
+	}
+	if alert.Summary != "DB Replica Lag" {
+		t.Errorf("Summary = %q, want %q", alert.Summary, "DB Replica Lag")
+	}
+	if alert.URL != "https://rootly.com/alerts/42" {
+		t.Errorf("URL = %q, want %q", alert.URL, "https://rootly.com/alerts/42")
+	}
+}
+
+func TestGetAlertByIDNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.GetAlertByID(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+	if !strings.Contains(err.Error(), "alert not found") {
+		t.Errorf("error = %q, want 'alert not found'", err.Error())
+	}
+}
+
+// --- Services ---
+
+func TestListServicesCLI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/v1/services") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		desc := "Main API"
+		color := "#FF5733"
+		resp := map[string]interface{}{
+			"data": []map[string]interface{}{
+				{
+					"id": "svc-1",
+					"attributes": map[string]interface{}{
+						"name":        "api-gateway",
+						"slug":        "api-gateway",
+						"description": desc,
+						"color":       color,
+						"created_at":  "2025-06-15T10:00:00Z",
+						"updated_at":  "2025-06-15T10:00:00Z",
+					},
+				},
+			},
+			"meta": map[string]interface{}{
+				"current_page": 1,
+				"total_pages":  1,
+				"total_count":  1,
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	result, err := client.ListServicesCLI(context.Background(), 1, 25, "", nil)
+	if err != nil {
+		t.Fatalf("ListServicesCLI returned error: %v", err)
+	}
+
+	if len(result.Services) != 1 {
+		t.Fatalf("expected 1 service, got %d", len(result.Services))
+	}
+	if result.Services[0].Name != "api-gateway" {
+		t.Errorf("Name = %q, want %q", result.Services[0].Name, "api-gateway")
+	}
+	if result.Services[0].Description != "Main API" {
+		t.Errorf("Description = %q, want %q", result.Services[0].Description, "Main API")
+	}
+	if result.Services[0].Color != "#FF5733" {
+		t.Errorf("Color = %q, want %q", result.Services[0].Color, "#FF5733")
+	}
+}
+
+func TestListServicesCLIUnauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListServicesCLI(context.Background(), 1, 25, "", nil)
+	if err == nil {
+		t.Fatal("expected error for 401")
+	}
+}
+
+func TestGetServiceByID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/v1/services/svc-42") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]interface{}{
+			"data": map[string]interface{}{
+				"id": "svc-42",
+				"attributes": map[string]interface{}{
+					"name":        "payments",
+					"slug":        "payments",
+					"description": "Payment service",
+					"color":       "#00FF00",
+					"created_at":  "2025-01-01T00:00:00Z",
+					"updated_at":  "2025-06-15T10:00:00Z",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	svc, err := client.GetServiceByID(context.Background(), "svc-42")
+	if err != nil {
+		t.Fatalf("GetServiceByID returned error: %v", err)
+	}
+
+	if svc.Name != "payments" {
+		t.Errorf("Name = %q, want %q", svc.Name, "payments")
+	}
+	if svc.Slug != "payments" {
+		t.Errorf("Slug = %q, want %q", svc.Slug, "payments")
+	}
+	if svc.Description != "Payment service" {
+		t.Errorf("Description = %q, want %q", svc.Description, "Payment service")
+	}
+}
+
+func TestDeleteService(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	err := client.DeleteService(context.Background(), "svc-del")
+	if err != nil {
+		t.Fatalf("DeleteService returned error: %v", err)
+	}
+}
+
+func TestDeleteServiceNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	err := client.DeleteService(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+}
+
+// --- Teams ---
+
+func TestListTeamsCLI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/v1/teams") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]interface{}{
+			"data": []map[string]interface{}{
+				{
+					"id": "team-1",
+					"attributes": map[string]interface{}{
+						"name":        "Platform",
+						"slug":        "platform",
+						"description": "Platform team",
+						"color":       "#3498DB",
+						"created_at":  "2025-06-15T10:00:00Z",
+						"updated_at":  "2025-06-15T10:00:00Z",
+					},
+				},
+				{
+					"id": "team-2",
+					"attributes": map[string]interface{}{
+						"name":       "SRE",
+						"slug":       "sre",
+						"created_at": "2025-06-14T10:00:00Z",
+						"updated_at": "2025-06-14T10:00:00Z",
+					},
+				},
+			},
+			"meta": map[string]interface{}{
+				"current_page": 1,
+				"total_pages":  1,
+				"total_count":  2,
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	result, err := client.ListTeamsCLI(context.Background(), 1, 25, "", nil)
+	if err != nil {
+		t.Fatalf("ListTeamsCLI returned error: %v", err)
+	}
+
+	if len(result.Teams) != 2 {
+		t.Fatalf("expected 2 teams, got %d", len(result.Teams))
+	}
+	if result.Teams[0].Name != "Platform" {
+		t.Errorf("Name = %q, want %q", result.Teams[0].Name, "Platform")
+	}
+	if result.Teams[0].Color != "#3498DB" {
+		t.Errorf("Color = %q, want %q", result.Teams[0].Color, "#3498DB")
+	}
+	// Second team has no description/color
+	if result.Teams[1].Description != "" {
+		t.Errorf("Description = %q, want empty", result.Teams[1].Description)
+	}
+}
+
+func TestListTeamsCLIUnauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListTeamsCLI(context.Background(), 1, 25, "", nil)
+	if err == nil {
+		t.Fatal("expected error for 401")
+	}
+}
+
+func TestGetTeamByID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/v1/teams/team-42") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]interface{}{
+			"data": map[string]interface{}{
+				"id": "team-42",
+				"attributes": map[string]interface{}{
+					"name":        "Backend",
+					"slug":        "backend",
+					"description": "Backend engineers",
+					"created_at":  "2025-01-01T00:00:00Z",
+					"updated_at":  "2025-06-15T10:00:00Z",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	team, err := client.GetTeamByID(context.Background(), "team-42")
+	if err != nil {
+		t.Fatalf("GetTeamByID returned error: %v", err)
+	}
+
+	if team.Name != "Backend" {
+		t.Errorf("Name = %q, want %q", team.Name, "Backend")
+	}
+	if team.Slug != "backend" {
+		t.Errorf("Slug = %q, want %q", team.Slug, "backend")
+	}
+}
+
+func TestDeleteTeam(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	err := client.DeleteTeam(context.Background(), "team-del")
+	if err != nil {
+		t.Fatalf("DeleteTeam returned error: %v", err)
+	}
+}
+
+// --- Schedules ---
+
+func TestListSchedulesCLI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/v1/on_call_schedules") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]interface{}{
+			"data": []map[string]interface{}{
+				{
+					"id": "sched-1",
+					"attributes": map[string]interface{}{
+						"name":        "Primary On-Call",
+						"description": "Primary rotation",
+						"created_at":  "2025-01-01T00:00:00Z",
+						"updated_at":  "2025-06-15T10:00:00Z",
+					},
+				},
+			},
+			"meta": map[string]interface{}{
+				"current_page": 1,
+				"total_pages":  1,
+				"total_count":  1,
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	result, err := client.ListSchedulesCLI(context.Background(), 1, 25, nil)
+	if err != nil {
+		t.Fatalf("ListSchedulesCLI returned error: %v", err)
+	}
+
+	if len(result.Schedules) != 1 {
+		t.Fatalf("expected 1 schedule, got %d", len(result.Schedules))
+	}
+	if result.Schedules[0].Name != "Primary On-Call" {
+		t.Errorf("Name = %q, want %q", result.Schedules[0].Name, "Primary On-Call")
+	}
+	if result.Schedules[0].Description != "Primary rotation" {
+		t.Errorf("Description = %q, want %q", result.Schedules[0].Description, "Primary rotation")
+	}
+}
+
+func TestListSchedulesCLIUnauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListSchedulesCLI(context.Background(), 1, 25, nil)
+	if err == nil {
+		t.Fatal("expected error for 401")
+	}
+}
+
+// --- Shifts ---
+
+func TestListShiftsCLI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/v1/shifts") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]interface{}{
+			"data": []map[string]interface{}{
+				{
+					"id": "shift-1",
+					"attributes": map[string]interface{}{
+						"starts_at": "2025-06-15T08:00:00Z",
+						"ends_at":   "2025-06-15T20:00:00Z",
+					},
+					"relationships": map[string]interface{}{
+						"user": map[string]interface{}{
+							"data": map[string]interface{}{"id": "user-1", "type": "users"},
+						},
+						"schedule": map[string]interface{}{
+							"data": map[string]interface{}{"id": "sched-1", "type": "on_call_schedules"},
+						},
+					},
+				},
+			},
+			"included": []map[string]interface{}{
+				{
+					"id":   "user-1",
+					"type": "users",
+					"attributes": map[string]interface{}{
+						"name":  "Alice",
+						"email": "alice@example.com",
+					},
+				},
+				{
+					"id":   "sched-1",
+					"type": "on_call_schedules",
+					"attributes": map[string]interface{}{
+						"name": "Primary",
+					},
+				},
+			},
+			"meta": map[string]interface{}{
+				"current_page": 1,
+				"total_pages":  1,
+				"total_count":  1,
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	result, err := client.ListShiftsCLI(context.Background(), 1, 25, nil)
+	if err != nil {
+		t.Fatalf("ListShiftsCLI returned error: %v", err)
+	}
+
+	if len(result.Shifts) != 1 {
+		t.Fatalf("expected 1 shift, got %d", len(result.Shifts))
+	}
+	if result.Shifts[0].UserName != "Alice" {
+		t.Errorf("UserName = %q, want %q", result.Shifts[0].UserName, "Alice")
+	}
+	if result.Shifts[0].UserEmail != "alice@example.com" {
+		t.Errorf("UserEmail = %q, want %q", result.Shifts[0].UserEmail, "alice@example.com")
+	}
+	if result.Shifts[0].ScheduleName != "Primary" {
+		t.Errorf("ScheduleName = %q, want %q", result.Shifts[0].ScheduleName, "Primary")
+	}
+}
+
+func TestListShiftsCLIUnauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListShiftsCLI(context.Background(), 1, 25, nil)
+	if err == nil {
+		t.Fatal("expected error for 401")
+	}
+}
+
+// --- parseAlertData ---
+
+func TestParseAlertData(t *testing.T) {
+	desc := "CPU at 95%"
+	status := "triggered"
+	extURL := "https://datadog.com/alert/1"
+
+	d := alertResponseData{
+		ID: "alert-1",
+	}
+	d.Attributes.ShortID = "ALT-1A"
+	d.Attributes.Summary = " High CPU "
+	d.Attributes.Source = " datadog "
+	d.Attributes.Description = &desc
+	d.Attributes.Status = &status
+	d.Attributes.ExternalURL = &extURL
+	d.Attributes.CreatedAt = "2025-06-15T10:00:00Z"
+	d.Attributes.UpdatedAt = "2025-06-15T11:00:00Z"
+	d.Attributes.Services = []struct {
+		Name string `json:"name"`
+	}{{Name: "web"}}
+	d.Attributes.Environments = []struct {
+		Name string `json:"name"`
+	}{{Name: "production"}}
+	d.Attributes.Groups = []struct {
+		Name string `json:"name"`
+	}{{Name: "SRE"}}
+	d.Attributes.Labels = []struct {
+		Key   string      `json:"key"`
+		Value interface{} `json:"value"`
+	}{{Key: "host", Value: "web-1"}}
+
+	alert := parseAlertData(d)
+
+	if alert.ShortID != "ALT-1A" {
+		t.Errorf("ShortID = %q, want %q", alert.ShortID, "ALT-1A")
+	}
+	if alert.Summary != "High CPU" {
+		t.Errorf("Summary = %q, want %q", alert.Summary, "High CPU")
+	}
+	if alert.Source != "datadog" {
+		t.Errorf("Source = %q, want %q", alert.Source, "datadog")
+	}
+	if alert.Description != "CPU at 95%" {
+		t.Errorf("Description = %q, want %q", alert.Description, "CPU at 95%")
+	}
+	if alert.Status != "triggered" {
+		t.Errorf("Status = %q, want %q", alert.Status, "triggered")
+	}
+	if len(alert.Services) != 1 || alert.Services[0] != "web" {
+		t.Errorf("Services = %v, want [web]", alert.Services)
+	}
+	if len(alert.Labels) != 1 || alert.Labels["host"] != "web-1" {
+		t.Errorf("Labels = %v, want {host: web-1}", alert.Labels)
+	}
+}
+
+func TestParseAlertDataMinimal(t *testing.T) {
+	d := alertResponseData{ID: "alert-min"}
+	d.Attributes.Summary = "Minimal"
+	d.Attributes.Source = "manual"
+	d.Attributes.CreatedAt = "2025-01-01T00:00:00Z"
+	d.Attributes.UpdatedAt = "2025-01-01T00:00:00Z"
+
+	alert := parseAlertData(d)
+
+	if alert.ID != "alert-min" {
+		t.Errorf("ID = %q, want %q", alert.ID, "alert-min")
+	}
+	if alert.Description != "" {
+		t.Errorf("Description = %q, want empty", alert.Description)
+	}
+	if alert.Status != "" {
+		t.Errorf("Status = %q, want empty", alert.Status)
+	}
+}
