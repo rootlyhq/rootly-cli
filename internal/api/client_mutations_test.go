@@ -556,6 +556,51 @@ func TestUpdateServiceNotFound(t *testing.T) {
 	}
 }
 
+func TestUpdateServiceForbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.UpdateService(context.Background(), "svc-1", map[string]string{"name": "x"})
+	if err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("error = %q, want 'access denied'", err.Error())
+	}
+}
+
+func TestUpdateServiceUnauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.UpdateService(context.Background(), "svc-1", map[string]string{"name": "x"})
+	if err == nil {
+		t.Fatal("expected error for 401")
+	}
+	if !strings.Contains(err.Error(), "invalid API token") {
+		t.Errorf("error = %q, want 'invalid API token'", err.Error())
+	}
+}
+
+func TestUpdateServiceServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.UpdateService(context.Background(), "svc-1", map[string]string{"name": "x"})
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+}
+
 // --- CreateTeam ---
 
 func TestCreateTeam(t *testing.T) {

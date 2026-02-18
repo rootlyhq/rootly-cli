@@ -63,6 +63,54 @@ func TestListAlertsCLI(t *testing.T) {
 	}
 }
 
+func TestListAlertsCLIPageSizeCap(t *testing.T) {
+	var receivedPageSize string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPageSize = r.URL.Query().Get("page[size]")
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]interface{}{},
+			"meta": map[string]interface{}{"current_page": 1, "total_pages": 1, "total_count": 0},
+		})
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+
+	_, _ = client.ListAlertsCLI(context.Background(), 1, 0, "", nil)
+	if receivedPageSize != "25" {
+		t.Errorf("default page size = %q, want 25", receivedPageSize)
+	}
+
+	_, _ = client.ListAlertsCLI(context.Background(), 1, 200, "", nil)
+	if receivedPageSize != "100" {
+		t.Errorf("capped page size = %q, want 100", receivedPageSize)
+	}
+}
+
+func TestListAlertsCLIWithFilters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.RawQuery
+		if !strings.Contains(query, "filter[status]=triggered") {
+			t.Errorf("expected status filter, got query: %s", query)
+		}
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]interface{}{},
+			"meta": map[string]interface{}{"current_page": 1, "total_pages": 1, "total_count": 0},
+		})
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListAlertsCLI(context.Background(), 1, 25, "-created_at", map[string]string{"status": "triggered"})
+	if err != nil {
+		t.Fatalf("ListAlertsCLI returned error: %v", err)
+	}
+}
+
 func TestListAlertsCLIUnauthorized(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -76,6 +124,51 @@ func TestListAlertsCLIUnauthorized(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid API token") {
 		t.Errorf("error = %q, want 'invalid API token'", err.Error())
+	}
+}
+
+func TestListAlertsCLIForbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListAlertsCLI(context.Background(), 1, 25, "", nil)
+	if err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("error = %q, want 'access denied'", err.Error())
+	}
+}
+
+func TestListAlertsCLINotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListAlertsCLI(context.Background(), 1, 25, "", nil)
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+}
+
+func TestListAlertsCLIServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListAlertsCLI(context.Background(), 1, 25, "", nil)
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+	if !strings.Contains(err.Error(), "status 500") {
+		t.Errorf("error = %q, want 'status 500'", err.Error())
 	}
 }
 
@@ -371,6 +464,54 @@ func TestListServicesCLI(t *testing.T) {
 	}
 }
 
+func TestListServicesCLIPageSizeCap(t *testing.T) {
+	var receivedPageSize string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPageSize = r.URL.Query().Get("page[size]")
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]interface{}{},
+			"meta": map[string]interface{}{"current_page": 1, "total_pages": 1, "total_count": 0},
+		})
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+
+	_, _ = client.ListServicesCLI(context.Background(), 1, 0, "", nil)
+	if receivedPageSize != "25" {
+		t.Errorf("default page size = %q, want 25", receivedPageSize)
+	}
+
+	_, _ = client.ListServicesCLI(context.Background(), 1, 200, "", nil)
+	if receivedPageSize != "100" {
+		t.Errorf("capped page size = %q, want 100", receivedPageSize)
+	}
+}
+
+func TestListServicesCLIWithFilters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.RawQuery
+		if !strings.Contains(query, "filter[name]=api") {
+			t.Errorf("expected name filter, got query: %s", query)
+		}
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]interface{}{},
+			"meta": map[string]interface{}{"current_page": 1, "total_pages": 1, "total_count": 0},
+		})
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListServicesCLI(context.Background(), 1, 25, "", map[string]string{"name": "api"})
+	if err != nil {
+		t.Fatalf("returned error: %v", err)
+	}
+}
+
 func TestListServicesCLIUnauthorized(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -381,6 +522,35 @@ func TestListServicesCLIUnauthorized(t *testing.T) {
 	_, err := client.ListServicesCLI(context.Background(), 1, 25, "", nil)
 	if err == nil {
 		t.Fatal("expected error for 401")
+	}
+}
+
+func TestListServicesCLIForbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListServicesCLI(context.Background(), 1, 25, "", nil)
+	if err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("error = %q, want 'access denied'", err.Error())
+	}
+}
+
+func TestListServicesCLIServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListServicesCLI(context.Background(), 1, 25, "", nil)
+	if err == nil {
+		t.Fatal("expected error for 500")
 	}
 }
 
@@ -532,6 +702,51 @@ func TestDeleteServiceNotFound(t *testing.T) {
 	}
 }
 
+func TestDeleteServiceForbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	err := client.DeleteService(context.Background(), "svc-1")
+	if err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("error = %q, want 'access denied'", err.Error())
+	}
+}
+
+func TestDeleteServiceUnauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	err := client.DeleteService(context.Background(), "svc-1")
+	if err == nil {
+		t.Fatal("expected error for 401")
+	}
+	if !strings.Contains(err.Error(), "invalid API token") {
+		t.Errorf("error = %q, want 'invalid API token'", err.Error())
+	}
+}
+
+func TestDeleteServiceServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	err := client.DeleteService(context.Background(), "svc-1")
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+}
+
 // --- Teams ---
 
 func TestListTeamsCLI(t *testing.T) {
@@ -596,6 +811,32 @@ func TestListTeamsCLI(t *testing.T) {
 	}
 }
 
+func TestListTeamsCLIPageSizeCap(t *testing.T) {
+	var receivedPageSize string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPageSize = r.URL.Query().Get("page[size]")
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]interface{}{},
+			"meta": map[string]interface{}{"current_page": 1, "total_pages": 1, "total_count": 0},
+		})
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+
+	_, _ = client.ListTeamsCLI(context.Background(), 1, 0, "", nil)
+	if receivedPageSize != "25" {
+		t.Errorf("default page size = %q, want 25", receivedPageSize)
+	}
+
+	_, _ = client.ListTeamsCLI(context.Background(), 1, 200, "", nil)
+	if receivedPageSize != "100" {
+		t.Errorf("capped page size = %q, want 100", receivedPageSize)
+	}
+}
+
 func TestListTeamsCLIUnauthorized(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -606,6 +847,35 @@ func TestListTeamsCLIUnauthorized(t *testing.T) {
 	_, err := client.ListTeamsCLI(context.Background(), 1, 25, "", nil)
 	if err == nil {
 		t.Fatal("expected error for 401")
+	}
+}
+
+func TestListTeamsCLIForbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListTeamsCLI(context.Background(), 1, 25, "", nil)
+	if err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("error = %q, want 'access denied'", err.Error())
+	}
+}
+
+func TestListTeamsCLIServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListTeamsCLI(context.Background(), 1, 25, "", nil)
+	if err == nil {
+		t.Fatal("expected error for 500")
 	}
 }
 
@@ -753,6 +1023,67 @@ func TestDeleteTeam(t *testing.T) {
 	}
 }
 
+func TestDeleteTeamNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	err := client.DeleteTeam(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+	if !strings.Contains(err.Error(), "team not found") {
+		t.Errorf("error = %q, want 'team not found'", err.Error())
+	}
+}
+
+func TestDeleteTeamForbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	err := client.DeleteTeam(context.Background(), "team-1")
+	if err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("error = %q, want 'access denied'", err.Error())
+	}
+}
+
+func TestDeleteTeamUnauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	err := client.DeleteTeam(context.Background(), "team-1")
+	if err == nil {
+		t.Fatal("expected error for 401")
+	}
+	if !strings.Contains(err.Error(), "invalid API token") {
+		t.Errorf("error = %q, want 'invalid API token'", err.Error())
+	}
+}
+
+func TestDeleteTeamServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	err := client.DeleteTeam(context.Background(), "team-1")
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+}
+
 // --- Schedules ---
 
 func TestListSchedulesCLI(t *testing.T) {
@@ -802,6 +1133,32 @@ func TestListSchedulesCLI(t *testing.T) {
 	}
 }
 
+func TestListSchedulesCLIPageSizeCap(t *testing.T) {
+	var receivedPageSize string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPageSize = r.URL.Query().Get("page[size]")
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]interface{}{},
+			"meta": map[string]interface{}{"current_page": 1, "total_pages": 1, "total_count": 0},
+		})
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+
+	_, _ = client.ListSchedulesCLI(context.Background(), 1, 0, nil)
+	if receivedPageSize != "25" {
+		t.Errorf("default page size = %q, want 25", receivedPageSize)
+	}
+
+	_, _ = client.ListSchedulesCLI(context.Background(), 1, 200, nil)
+	if receivedPageSize != "100" {
+		t.Errorf("capped page size = %q, want 100", receivedPageSize)
+	}
+}
+
 func TestListSchedulesCLIUnauthorized(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -812,6 +1169,35 @@ func TestListSchedulesCLIUnauthorized(t *testing.T) {
 	_, err := client.ListSchedulesCLI(context.Background(), 1, 25, nil)
 	if err == nil {
 		t.Fatal("expected error for 401")
+	}
+}
+
+func TestListSchedulesCLIForbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListSchedulesCLI(context.Background(), 1, 25, nil)
+	if err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("error = %q, want 'access denied'", err.Error())
+	}
+}
+
+func TestListSchedulesCLIServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.ListSchedulesCLI(context.Background(), 1, 25, nil)
+	if err == nil {
+		t.Fatal("expected error for 500")
 	}
 }
 
