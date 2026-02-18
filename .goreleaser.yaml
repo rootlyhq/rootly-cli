@@ -74,7 +74,7 @@ changelog:
 
 brews:
   - name: rootly-cli
-    ids: [rootly]
+    ids: [default]
     repository:
       owner: rootlyhq
       name: homebrew-tap
