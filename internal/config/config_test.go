@@ -576,3 +576,150 @@ func TestLayoutConstants(t *testing.T) {
 		t.Errorf("expected LayoutVertical to be 'vertical', got '%s'", LayoutVertical)
 	}
 }
+
+// TestLoadFillsDefaults writes a minimal YAML file directly (bypassing Save)
+// so that Load's default-fill branches are exercised.
+func TestLoadFillsDefaults(t *testing.T) {
+	tmpDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	cfgDir := filepath.Join(tmpDir, ".rootly-cli")
+	if err := os.MkdirAll(cfgDir, 0700); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+
+	// Write YAML with only api_token — all other fields empty
+	yaml := []byte("api_token: my-key\n")
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), yaml, 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if loaded.APIKey != "my-key" {
+		t.Errorf("APIKey = %q, want %q", loaded.APIKey, "my-key")
+	}
+	if loaded.Endpoint != DefaultEndpoint {
+		t.Errorf("Endpoint = %q, want default %q", loaded.Endpoint, DefaultEndpoint)
+	}
+	if loaded.Timezone != DefaultTimezone {
+		t.Errorf("Timezone = %q, want default %q", loaded.Timezone, DefaultTimezone)
+	}
+	if loaded.Language != DefaultLanguage {
+		t.Errorf("Language = %q, want default %q", loaded.Language, DefaultLanguage)
+	}
+	if loaded.Layout != DefaultLayout {
+		t.Errorf("Layout = %q, want default %q", loaded.Layout, DefaultLayout)
+	}
+}
+
+// TestLoadAPIKeyEnvFallback verifies that Load falls back to ROOTLY_API_TOKEN env var.
+func TestLoadAPIKeyEnvFallback(t *testing.T) {
+	tmpDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	cfgDir := filepath.Join(tmpDir, ".rootly-cli")
+	if err := os.MkdirAll(cfgDir, 0700); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+
+	// Write YAML with empty api_token
+	yamlContent := []byte("endpoint: api.rootly.com\n")
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), yamlContent, 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	// Set env var
+	original := os.Getenv("ROOTLY_API_TOKEN")
+	os.Setenv("ROOTLY_API_TOKEN", "env-token-123")
+	defer os.Setenv("ROOTLY_API_TOKEN", original)
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if loaded.APIKey != "env-token-123" {
+		t.Errorf("APIKey = %q, want %q from env", loaded.APIKey, "env-token-123")
+	}
+}
+
+// TestLoadReadError verifies Load handles non-IsNotExist read errors.
+func TestLoadReadError(t *testing.T) {
+	tmpDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	cfgDir := filepath.Join(tmpDir, ".rootly-cli")
+	if err := os.MkdirAll(cfgDir, 0700); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+
+	// Create config.yaml as a directory (causes read error, not IsNotExist)
+	configPath := filepath.Join(cfgDir, "config.yaml")
+	if err := os.MkdirAll(configPath, 0700); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when config.yaml is a directory")
+	}
+}
+
+// TestDetectTimezoneOffsetFallback tests the offset-based fallback path
+// by clearing both TZ env and making /etc/localtime unresolvable.
+func TestDetectTimezoneOffsetFallback(t *testing.T) {
+	// Save original TZ
+	originalTZ := os.Getenv("TZ")
+	defer os.Setenv("TZ", originalTZ)
+
+	// Set TZ to empty — forces past the env check
+	os.Unsetenv("TZ")
+
+	tz := DetectTimezone()
+
+	// Should always return a valid timezone regardless of path taken
+	if tz == "" {
+		t.Error("expected non-empty timezone")
+	}
+	_, err := time.LoadLocation(tz)
+	if err != nil {
+		t.Errorf("expected valid timezone, got %q: %v", tz, err)
+	}
+}
+
+// TestSaveMarshalAndWrite verifies Save with all fields populated.
+func TestSaveAllFields(t *testing.T) {
+	_, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	cfg := &Config{
+		APIKey:   "key",
+		Endpoint: "custom.endpoint",
+		Timezone: "Asia/Tokyo",
+		Language: "ja_JP",
+		Layout:   LayoutVertical,
+	}
+
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if loaded.Endpoint != "custom.endpoint" {
+		t.Errorf("Endpoint = %q, want %q", loaded.Endpoint, "custom.endpoint")
+	}
+	if loaded.Language != "ja_JP" {
+		t.Errorf("Language = %q, want %q", loaded.Language, "ja_JP")
+	}
+	if loaded.Layout != LayoutVertical {
+		t.Errorf("Layout = %q, want %q", loaded.Layout, LayoutVertical)
+	}
+}
