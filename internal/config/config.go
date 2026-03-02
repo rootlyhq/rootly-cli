@@ -23,6 +23,7 @@ type Config struct {
 	Timezone string `yaml:"timezone"` // TUI-specific
 	Language string `yaml:"language"` // TUI-specific
 	Layout   string `yaml:"layout"`   // TUI-specific
+	Debug    bool   `yaml:"-"`        // Runtime only, not persisted
 }
 
 const DefaultTimezone = "UTC"

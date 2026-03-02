@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
+	"os"
 	"strings"
 	"time"
 
@@ -18,9 +20,31 @@ import (
 var Version = "dev"
 
 type Client struct {
-	client   *rootly.ClientWithResponses
-	endpoint string
-	apiKey   string
+	client     *rootly.ClientWithResponses
+	endpoint   string
+	apiKey     string
+	httpClient *http.Client
+}
+
+// debugTransport wraps an http.RoundTripper and dumps requests/responses to stderr.
+type debugTransport struct {
+	transport http.RoundTripper
+}
+
+func (dt *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	dump, _ := httputil.DumpRequestOut(req, true)
+	fmt.Fprintf(os.Stderr, "\n--- DEBUG REQUEST ---\n%s\n", dump)
+
+	resp, err := dt.transport.RoundTrip(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ERROR ---\n%v\n", err)
+		return resp, err
+	}
+
+	dump, _ = httputil.DumpResponse(resp, true)
+	fmt.Fprintf(os.Stderr, "--- DEBUG RESPONSE ---\n%s\n", dump)
+
+	return resp, err
 }
 
 type Incident struct {
@@ -686,7 +710,20 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		endpoint = "https://" + endpoint
 	}
 
+	// Build HTTP client with optional debug transport
+	httpClient := http.DefaultClient
+	if cfg.Debug {
+		transport := http.DefaultTransport
+		if httpClient.Transport != nil {
+			transport = httpClient.Transport
+		}
+		httpClient = &http.Client{
+			Transport: &debugTransport{transport: transport},
+		}
+	}
+
 	client, err := rootly.NewClientWithResponses(endpoint,
+		rootly.WithHTTPClient(httpClient),
 		rootly.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 			req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 			req.Header.Set("Content-Type", "application/vnd.api+json")
@@ -699,9 +736,10 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	}
 
 	return &Client{
-		client:   client,
-		endpoint: cfg.Endpoint,
-		apiKey:   cfg.APIKey,
+		client:     client,
+		endpoint:   cfg.Endpoint,
+		apiKey:     cfg.APIKey,
+		httpClient: httpClient,
 	}, nil
 }
 
@@ -813,7 +851,7 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list incidents: %w", err)
 	}
@@ -905,7 +943,7 @@ func (c *Client) GetIncidentByID(ctx context.Context, id string) (*Incident, err
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch incident: %w", err)
 	}
@@ -981,7 +1019,7 @@ func (c *Client) CreateIncident(ctx context.Context, title string, opts map[stri
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create incident: %w", err)
 	}
@@ -1059,7 +1097,7 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update incident: %w", err)
 	}
@@ -1112,7 +1150,7 @@ func (c *Client) DeleteIncident(ctx context.Context, id string) error {
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to delete incident: %w", err)
 	}
@@ -1243,7 +1281,7 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list alerts: %w", err)
 	}
@@ -1335,7 +1373,7 @@ func (c *Client) GetAlertByID(ctx context.Context, id string) (*Alert, error) {
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch alert: %w", err)
 	}
@@ -1577,7 +1615,7 @@ func (c *Client) CreateAlertCLI(ctx context.Context, summary string, opts map[st
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create alert: %w", err)
 	}
@@ -1658,7 +1696,7 @@ func (c *Client) UpdateAlertCLI(ctx context.Context, id string, opts map[string]
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update alert: %w", err)
 	}
@@ -1711,7 +1749,7 @@ func (c *Client) AcknowledgeAlertCLI(ctx context.Context, id string) error {
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to acknowledge alert: %w", err)
 	}
@@ -1775,7 +1813,7 @@ func (c *Client) ResolveAlertCLI(ctx context.Context, id, resolutionMessage stri
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to resolve alert: %w", err)
 	}
@@ -1830,7 +1868,7 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list services: %w", err)
 	}
@@ -1925,7 +1963,7 @@ func (c *Client) GetServiceByID(ctx context.Context, id string) (*Service, error
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch service: %w", err)
 	}
@@ -2052,7 +2090,7 @@ func (c *Client) CreateService(ctx context.Context, name string, opts map[string
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create service: %w", err)
 	}
@@ -2151,7 +2189,7 @@ func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]s
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update service: %w", err)
 	}
@@ -2228,7 +2266,7 @@ func (c *Client) DeleteService(ctx context.Context, id string) error {
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to delete service: %w", err)
 	}
@@ -2283,7 +2321,7 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list teams: %w", err)
 	}
@@ -2380,7 +2418,7 @@ func (c *Client) GetTeamByID(ctx context.Context, id string) (*Team, error) {
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch team: %w", err)
 	}
@@ -2508,7 +2546,7 @@ func (c *Client) CreateTeam(ctx context.Context, name string, opts map[string]st
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create team: %w", err)
 	}
@@ -2600,7 +2638,7 @@ func (c *Client) UpdateTeam(ctx context.Context, id string, opts map[string]stri
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update team: %w", err)
 	}
@@ -2681,7 +2719,7 @@ func (c *Client) DeleteTeam(ctx context.Context, id string) error {
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to delete team: %w", err)
 	}
@@ -2774,7 +2812,7 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list schedules: %w", err)
 	}
@@ -2875,7 +2913,7 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list shifts: %w", err)
 	}
@@ -3070,7 +3108,7 @@ func (c *Client) CreatePulseCLI(ctx context.Context, summary string, opts PulseO
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pulse: %w", err)
 	}

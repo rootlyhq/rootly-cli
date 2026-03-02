@@ -46,6 +46,7 @@ func getAPIClient() (*api.Client, error) {
 	cfg := &config.Config{
 		APIKey:   token,
 		Endpoint: endpoint,
+		Debug:    viper.GetBool("debug"),
 	}
 	return api.NewClient(cfg)
 }
