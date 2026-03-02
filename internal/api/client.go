@@ -2798,7 +2798,7 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 		baseURL = "https://" + baseURL
 	}
 
-	url := fmt.Sprintf("%s/v1/on_call_schedules?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
+	url := fmt.Sprintf("%s/v1/schedules?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 
 	// Add filters (e.g., filter[name]=foo)
 	for key, value := range filters {
@@ -2883,7 +2883,8 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 }
 
 // ListShiftsCLI lists on-call shifts with time range filtering (read-only).
-// Supports filters: schedule_id, starts_after, ends_before for time range queries.
+// Supports params: from, to (ISO-8601), schedule_ids[] for filtering.
+// Also pre-fetches schedules to resolve schedule_id → name.
 func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters map[string]string) (*ShiftsResult, error) {
 	// Cap pageSize at 100 (API limit); if 0, default to 25
 	if pageSize == 0 {
@@ -2893,17 +2894,25 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 		pageSize = 100
 	}
 
+	// Pre-fetch schedules for ID → name mapping
+	scheduleMap := make(map[string]string)
+	if schedResult, err := c.ListSchedulesCLI(ctx, 1, 100, nil); err == nil {
+		for _, s := range schedResult.Schedules {
+			scheduleMap[s.ID] = s.Name
+		}
+	}
+
 	// Build URL with query parameters
 	baseURL := c.endpoint
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
 		baseURL = "https://" + baseURL
 	}
 
-	url := fmt.Sprintf("%s/v1/shifts?page[number]=%d&page[size]=%d&include=user,schedule", baseURL, page, pageSize)
+	url := fmt.Sprintf("%s/v1/shifts?page[number]=%d&page[size]=%d&include=user", baseURL, page, pageSize)
 
-	// Add filters (e.g., filter[schedule_id]=foo, filter[starts_after]=2024-01-01T00:00:00Z)
+	// Add top-level query params (from, to, schedule_ids[], user_ids[])
 	for key, value := range filters {
-		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+		url += fmt.Sprintf("&%s=%s", key, value)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
@@ -2939,8 +2948,9 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 		Data []struct {
 			ID         string `json:"id"`
 			Attributes struct {
-				StartsAt string `json:"starts_at"`
-				EndsAt   string `json:"ends_at"`
+				ScheduleID string `json:"schedule_id"`
+				StartsAt   string `json:"starts_at"`
+				EndsAt     string `json:"ends_at"`
 			} `json:"attributes"`
 			Relationships struct {
 				User struct {
@@ -2949,12 +2959,6 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 						Type string `json:"type"`
 					} `json:"data"`
 				} `json:"user"`
-				Schedule struct {
-					Data *struct {
-						ID   string `json:"id"`
-						Type string `json:"type"`
-					} `json:"data"`
-				} `json:"schedule"`
 			} `json:"relationships"`
 		} `json:"data"`
 		Included []struct {
@@ -2976,16 +2980,14 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Build lookup maps for included data
+	// Build lookup map for included users
 	userMap := make(map[string]struct {
 		Name  string
 		Email string
 	})
-	scheduleMap := make(map[string]string)
 
 	for _, inc := range response.Included {
-		switch inc.Type {
-		case "users":
+		if inc.Type == "users" {
 			email := ""
 			if inc.Attributes.Email != nil {
 				email = *inc.Attributes.Email
@@ -2994,8 +2996,6 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 				Name  string
 				Email string
 			}{Name: inc.Attributes.Name, Email: email}
-		case "on_call_schedules":
-			scheduleMap[inc.ID] = inc.Attributes.Name
 		}
 	}
 
@@ -3020,13 +3020,10 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 			}
 		}
 
-		// Populate schedule info from relationships + included
-		if item.Relationships.Schedule.Data != nil {
-			scheduleID := item.Relationships.Schedule.Data.ID
-			shift.ScheduleID = scheduleID
-			if scheduleName, ok := scheduleMap[scheduleID]; ok {
-				shift.ScheduleName = scheduleName
-			}
+		// Populate schedule info from attributes + pre-fetched schedules
+		shift.ScheduleID = item.Attributes.ScheduleID
+		if name, ok := scheduleMap[item.Attributes.ScheduleID]; ok {
+			shift.ScheduleName = name
 		}
 
 		shifts = append(shifts, shift)

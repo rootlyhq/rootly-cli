@@ -60,13 +60,12 @@ func runShifts(cmd *cobra.Command, args []string) error {
 	now := time.Now()
 	endTime := now.AddDate(0, 0, days)
 
-	// Use ISO 8601 format for API filters
-	filters["starts_before"] = url.QueryEscape(endTime.Format(time.RFC3339))
-	filters["ends_after"] = url.QueryEscape(now.Format(time.RFC3339))
+	// Use ISO 8601 format for API time range params
+	filters["from"] = url.QueryEscape(now.Format(time.RFC3339))
+	filters["to"] = url.QueryEscape(endTime.Format(time.RFC3339))
 
 	if schedule != "" {
-		// Try filtering by schedule name first, API will handle it
-		filters["schedule"] = url.QueryEscape(schedule)
+		filters["schedule_ids[]"] = url.QueryEscape(schedule)
 	}
 
 	// Call API

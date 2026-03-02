@@ -58,28 +58,27 @@ func shiftsResponse() string {
 		"data": [{
 			"id": "shift-1",
 			"attributes": {
+				"schedule_id": "sched-1",
 				"starts_at": "%s",
 				"ends_at": "%s"
 			},
 			"relationships": {
-				"user": {"data": {"id": "user-1"}},
-				"schedule": {"data": {"id": "sched-1"}}
+				"user": {"data": {"id": "user-1"}}
 			}
 		}, {
 			"id": "shift-2",
 			"attributes": {
+				"schedule_id": "sched-1",
 				"starts_at": "%s",
 				"ends_at": "%s"
 			},
 			"relationships": {
-				"user": {"data": {"id": "user-2"}},
-				"schedule": {"data": {"id": "sched-1"}}
+				"user": {"data": {"id": "user-2"}}
 			}
 		}],
 		"included": [
 			{"type": "users", "id": "user-1", "attributes": {"name": "Alice Smith"}},
-			{"type": "users", "id": "user-2", "attributes": {"name": "Bob Jones"}},
-			{"type": "on_call_schedules", "id": "sched-1", "attributes": {"name": "Primary On-Call"}}
+			{"type": "users", "id": "user-2", "attributes": {"name": "Bob Jones"}}
 		],
 		"meta": {
 			"current_page": 1,
@@ -130,7 +129,7 @@ func captureStdout(t *testing.T, fn func()) string {
 
 func TestRunListTable(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/v1/on_call_schedules") {
+		if !strings.Contains(r.URL.Path, "/v1/schedules") {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
@@ -224,10 +223,11 @@ func TestRunListNoToken(t *testing.T) {
 
 func TestRunShiftsTable(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/v1/shifts") {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
+		if strings.Contains(r.URL.Path, "/v1/schedules") {
+			w.Write([]byte(schedulesResponse()))
+			return
+		}
 		w.Write([]byte(shiftsResponse()))
 	})
 
@@ -279,11 +279,15 @@ func TestRunShiftsJSON(t *testing.T) {
 
 func TestRunShiftsWithScheduleFilter(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		query := r.URL.RawQuery
-		if !strings.Contains(query, "schedule") {
-			t.Errorf("expected schedule filter in query, got: %s", query)
-		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
+		if strings.Contains(r.URL.Path, "/v1/schedules") {
+			w.Write([]byte(schedulesResponse()))
+			return
+		}
+		query := r.URL.RawQuery
+		if !strings.Contains(query, "schedule_ids") {
+			t.Errorf("expected schedule_ids filter in query, got: %s", query)
+		}
 		w.Write([]byte(shiftsResponse()))
 	})
 
@@ -374,11 +378,15 @@ func TestRunWhoNoActiveShifts(t *testing.T) {
 
 func TestRunWhoWithScheduleFilter(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		query := r.URL.RawQuery
-		if !strings.Contains(query, "schedule") {
-			t.Errorf("expected schedule filter in query, got: %s", query)
-		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
+		if strings.Contains(r.URL.Path, "/v1/schedules") {
+			w.Write([]byte(schedulesResponse()))
+			return
+		}
+		query := r.URL.RawQuery
+		if !strings.Contains(query, "schedule_ids") {
+			t.Errorf("expected schedule_ids filter in query, got: %s", query)
+		}
 		w.Write([]byte(shiftsResponse()))
 	})
 

@@ -1088,7 +1088,7 @@ func TestDeleteTeamServerError(t *testing.T) {
 
 func TestListSchedulesCLI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/v1/on_call_schedules") {
+		if !strings.Contains(r.URL.Path, "/v1/schedules") {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 
@@ -1205,26 +1205,43 @@ func TestListSchedulesCLIServerError(t *testing.T) {
 
 func TestListShiftsCLI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/v1/shifts") {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
-
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		w.WriteHeader(http.StatusOK)
+
+		if strings.Contains(r.URL.Path, "/v1/schedules") {
+			resp := map[string]interface{}{
+				"data": []map[string]interface{}{
+					{
+						"id": "sched-1",
+						"attributes": map[string]interface{}{
+							"name":       "Primary",
+							"created_at": "2025-01-01T00:00:00Z",
+							"updated_at": "2025-01-01T00:00:00Z",
+						},
+					},
+				},
+				"meta": map[string]interface{}{
+					"current_page": 1,
+					"total_pages":  1,
+					"total_count":  1,
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
 		resp := map[string]interface{}{
 			"data": []map[string]interface{}{
 				{
 					"id": "shift-1",
 					"attributes": map[string]interface{}{
-						"starts_at": "2025-06-15T08:00:00Z",
-						"ends_at":   "2025-06-15T20:00:00Z",
+						"schedule_id": "sched-1",
+						"starts_at":   "2025-06-15T08:00:00Z",
+						"ends_at":     "2025-06-15T20:00:00Z",
 					},
 					"relationships": map[string]interface{}{
 						"user": map[string]interface{}{
 							"data": map[string]interface{}{"id": "user-1", "type": "users"},
-						},
-						"schedule": map[string]interface{}{
-							"data": map[string]interface{}{"id": "sched-1", "type": "on_call_schedules"},
 						},
 					},
 				},
@@ -1236,13 +1253,6 @@ func TestListShiftsCLI(t *testing.T) {
 					"attributes": map[string]interface{}{
 						"name":  "Alice",
 						"email": "alice@example.com",
-					},
-				},
-				{
-					"id":   "sched-1",
-					"type": "on_call_schedules",
-					"attributes": map[string]interface{}{
-						"name": "Primary",
 					},
 				},
 			},

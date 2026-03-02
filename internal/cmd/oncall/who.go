@@ -47,15 +47,13 @@ func runWho(cmd *cobra.Command, args []string) error {
 	// Build filters map to get shifts active RIGHT NOW
 	filters := make(map[string]string)
 
-	// Set time range to capture current shifts:
-	// - starts_before: now (shift must have started)
-	// - ends_after: now (shift must not have ended)
+	// Set time range to capture current shifts
 	now := time.Now()
-	filters["starts_before"] = url.QueryEscape(now.Format(time.RFC3339))
-	filters["ends_after"] = url.QueryEscape(now.Format(time.RFC3339))
+	filters["from"] = url.QueryEscape(now.Format(time.RFC3339))
+	filters["to"] = url.QueryEscape(now.Format(time.RFC3339))
 
 	if schedule != "" {
-		filters["schedule"] = url.QueryEscape(schedule)
+		filters["schedule_ids[]"] = url.QueryEscape(schedule)
 	}
 
 	// Call API with large page size to get all current shifts
