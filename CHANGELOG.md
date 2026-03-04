@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-03-03
+
+### Fixed
+- Use `application/vnd.api+json` Content-Type for all API requests (fixes 415 errors for orgs created after 2026-01-01)
+- Handle API returning labels as both array and object formats (fixes `incidents get` JSON parsing error)
+
 ## [0.1.4] - 2026-03-02
 
 ### Added
