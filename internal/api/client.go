@@ -1425,18 +1425,18 @@ func (c *Client) GetAlertByID(ctx context.Context, id string) (*Alert, error) {
 		Data struct {
 			ID         string `json:"id"`
 			Attributes struct {
-				ShortID     *string `json:"short_id"`
-				Summary     string  `json:"summary"`
-				Description *string `json:"description"`
-				Status      string  `json:"status"`
-				Source      *string `json:"source"`
-				ExternalURL *string `json:"external_url"`
-				CreatedAt   string  `json:"created_at"`
-				UpdatedAt   string  `json:"updated_at"`
-				StartedAt   *string `json:"started_at"`
-				EndedAt     *string `json:"ended_at"`
-				Labels flexibleLabels `json:"labels"`
-				Services []struct {
+				ShortID     *string        `json:"short_id"`
+				Summary     string         `json:"summary"`
+				Description *string        `json:"description"`
+				Status      string         `json:"status"`
+				Source      *string        `json:"source"`
+				ExternalURL *string        `json:"external_url"`
+				CreatedAt   string         `json:"created_at"`
+				UpdatedAt   string         `json:"updated_at"`
+				StartedAt   *string        `json:"started_at"`
+				EndedAt     *string        `json:"ended_at"`
+				Labels      flexibleLabels `json:"labels"`
+				Services    []struct {
 					Name string `json:"name"`
 				} `json:"services"`
 				Environments []struct {
