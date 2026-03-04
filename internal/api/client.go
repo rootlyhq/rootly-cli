@@ -876,7 +876,7 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/vnd.api+json")
 
 	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -968,7 +968,7 @@ func (c *Client) GetIncidentByID(ctx context.Context, id string) (*Incident, err
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/vnd.api+json")
 
 	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1303,7 +1303,7 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/vnd.api+json")
 
 	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1395,7 +1395,7 @@ func (c *Client) GetAlertByID(ctx context.Context, id string) (*Alert, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/vnd.api+json")
 
 	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1887,7 +1887,7 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/vnd.api+json")
 
 	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1982,7 +1982,7 @@ func (c *Client) GetServiceByID(ctx context.Context, id string) (*Service, error
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/vnd.api+json")
 
 	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -2340,7 +2340,7 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/vnd.api+json")
 
 	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -2437,7 +2437,7 @@ func (c *Client) GetTeamByID(ctx context.Context, id string) (*Team, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/vnd.api+json")
 
 	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -2831,7 +2831,7 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/vnd.api+json")
 
 	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -2932,7 +2932,7 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/vnd.api+json")
 
 	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
