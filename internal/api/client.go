@@ -382,6 +382,36 @@ func parseIncidentData(d incidentResponseData) Incident {
 	return incident
 }
 
+// labelEntry represents a single key-value label.
+type labelEntry struct {
+	Key   string      `json:"key"`
+	Value interface{} `json:"value"`
+}
+
+// flexibleLabels handles the API returning labels as either an array of {key,value}
+// objects or as a plain object/map (e.g. empty {} or {"key":"value"}).
+type flexibleLabels []labelEntry
+
+func (f *flexibleLabels) UnmarshalJSON(data []byte) error {
+	// Try array first (normal case)
+	var arr []labelEntry
+	if err := json.Unmarshal(data, &arr); err == nil {
+		*f = arr
+		return nil
+	}
+	// Fall back to object/map
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+	result := make(flexibleLabels, 0, len(m))
+	for k, v := range m {
+		result = append(result, labelEntry{Key: k, Value: v})
+	}
+	*f = result
+	return nil
+}
+
 // incidentDetailResponse is the full JSON:API response for a single incident with includes.
 type incidentDetailResponse struct {
 	Data struct {
@@ -427,10 +457,7 @@ type incidentDetailAttributes struct {
 	RetrospectiveProgressStatus *string `json:"retrospective_progress_status"`
 	SlackChannelName            *string `json:"slack_channel_name"`
 	// Labels
-	Labels []struct {
-		Key   string      `json:"key"`
-		Value interface{} `json:"value"`
-	} `json:"labels"`
+	Labels flexibleLabels `json:"labels"`
 	// Integration links
 	SlackChannelURL       *string `json:"slack_channel_url"`
 	JiraIssueURL          *string `json:"jira_issue_url"`
@@ -1195,10 +1222,7 @@ type alertResponseData struct {
 		Groups []struct {
 			Name string `json:"name"`
 		} `json:"groups"`
-		Labels []struct {
-			Key   string      `json:"key"`
-			Value interface{} `json:"value"`
-		} `json:"labels"`
+		Labels flexibleLabels `json:"labels"`
 	} `json:"attributes"`
 }
 
@@ -1411,10 +1435,7 @@ func (c *Client) GetAlertByID(ctx context.Context, id string) (*Alert, error) {
 				UpdatedAt   string  `json:"updated_at"`
 				StartedAt   *string `json:"started_at"`
 				EndedAt     *string `json:"ended_at"`
-				Labels      []struct {
-					Key   string      `json:"key"`
-					Value interface{} `json:"value"`
-				} `json:"labels"`
+				Labels flexibleLabels `json:"labels"`
 				Services []struct {
 					Name string `json:"name"`
 				} `json:"services"`

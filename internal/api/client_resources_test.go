@@ -1316,10 +1316,7 @@ func TestParseAlertData(t *testing.T) {
 	d.Attributes.Groups = []struct {
 		Name string `json:"name"`
 	}{{Name: "SRE"}}
-	d.Attributes.Labels = []struct {
-		Key   string      `json:"key"`
-		Value interface{} `json:"value"`
-	}{{Key: "host", Value: "web-1"}}
+	d.Attributes.Labels = flexibleLabels{{Key: "host", Value: "web-1"}}
 
 	alert := parseAlertData(d)
 
@@ -1363,5 +1360,51 @@ func TestParseAlertDataMinimal(t *testing.T) {
 	}
 	if alert.Status != "" {
 		t.Errorf("Status = %q, want empty", alert.Status)
+	}
+}
+
+func TestFlexibleLabels_Array(t *testing.T) {
+	input := `[{"key":"host","value":"web-1"},{"key":"count","value":42}]`
+	var labels flexibleLabels
+	if err := json.Unmarshal([]byte(input), &labels); err != nil {
+		t.Fatalf("Unmarshal array: %v", err)
+	}
+	if len(labels) != 2 {
+		t.Fatalf("got %d labels, want 2", len(labels))
+	}
+	if labels[0].Key != "host" || labels[0].Value != "web-1" {
+		t.Errorf("labels[0] = %+v, want {host web-1}", labels[0])
+	}
+}
+
+func TestFlexibleLabels_EmptyObject(t *testing.T) {
+	input := `{}`
+	var labels flexibleLabels
+	if err := json.Unmarshal([]byte(input), &labels); err != nil {
+		t.Fatalf("Unmarshal empty object: %v", err)
+	}
+	if len(labels) != 0 {
+		t.Errorf("got %d labels, want 0", len(labels))
+	}
+}
+
+func TestFlexibleLabels_ObjectWithKeys(t *testing.T) {
+	input := `{"env":"prod","region":"us-east-1"}`
+	var labels flexibleLabels
+	if err := json.Unmarshal([]byte(input), &labels); err != nil {
+		t.Fatalf("Unmarshal object: %v", err)
+	}
+	if len(labels) != 2 {
+		t.Fatalf("got %d labels, want 2", len(labels))
+	}
+	m := make(map[string]interface{})
+	for _, l := range labels {
+		m[l.Key] = l.Value
+	}
+	if m["env"] != "prod" {
+		t.Errorf("env = %v, want prod", m["env"])
+	}
+	if m["region"] != "us-east-1" {
+		t.Errorf("region = %v, want us-east-1", m["region"])
 	}
 }
