@@ -45,54 +45,50 @@ func schedulesResponse() string {
 	}`
 }
 
-// shiftsResponse returns a shifts response with one active and one future shift.
-// Uses dynamic times so IsActive is computed correctly (client-side check).
-func shiftsResponse() string {
+// oncallsResponse returns a /v1/oncalls response with two on-call entries.
+func oncallsResponse() string {
 	now := time.Now()
-	activeStart := now.Add(-1 * time.Hour).Format(time.RFC3339)
-	activeEnd := now.Add(23 * time.Hour).Format(time.RFC3339)
+	endsAt := now.Add(23 * time.Hour).Format(time.RFC3339)
 	futureStart := now.Add(24 * time.Hour).Format(time.RFC3339)
 	futureEnd := now.Add(48 * time.Hour).Format(time.RFC3339)
 
 	return fmt.Sprintf(`{
 		"data": [{
-			"id": "shift-1",
+			"id": "oncall-1",
 			"attributes": {
+				"user_id": "user-1",
+				"schedule_id": "sched-1",
+				"schedule_name": "Primary On-Call",
+				"escalation_policy_id": "ep-1",
+				"escalation_policy_name": "Default Policy",
+				"escalation_level": 1,
 				"starts_at": "%s",
 				"ends_at": "%s"
-			},
-			"relationships": {
-				"user": {"data": {"id": "user-1"}},
-				"schedule": {"data": {"id": "sched-1"}}
 			}
 		}, {
-			"id": "shift-2",
+			"id": "oncall-2",
 			"attributes": {
+				"user_id": "user-2",
+				"schedule_id": "sched-1",
+				"schedule_name": "Primary On-Call",
+				"escalation_policy_id": "ep-1",
+				"escalation_policy_name": "Default Policy",
+				"escalation_level": 2,
 				"starts_at": "%s",
 				"ends_at": "%s"
-			},
-			"relationships": {
-				"user": {"data": {"id": "user-2"}},
-				"schedule": {"data": {"id": "sched-1"}}
 			}
 		}],
 		"included": [
-			{"type": "users", "id": "user-1", "attributes": {"name": "Alice Smith"}},
-			{"type": "users", "id": "user-2", "attributes": {"name": "Bob Jones"}},
-			{"type": "on_call_schedules", "id": "sched-1", "attributes": {"name": "Primary On-Call"}}
-		],
-		"meta": {
-			"current_page": 1,
-			"total_pages": 1,
-			"total_count": 2
-		}
-	}`, activeStart, activeEnd, futureStart, futureEnd)
+			{"type": "users", "id": "user-1", "attributes": {"full_name": "Alice Smith", "email": "alice@example.com"}},
+			{"type": "users", "id": "user-2", "attributes": {"full_name": "Bob Jones", "email": "bob@example.com"}}
+		]
+	}`, now.Add(-1*time.Hour).Format(time.RFC3339), endsAt, futureStart, futureEnd)
 }
 
-func emptyShiftsResponse() string {
+func emptyOncallsResponse() string {
 	return `{
 		"data": [],
-		"meta": {"current_page": 1, "total_pages": 1, "total_count": 0}
+		"included": []
 	}`
 }
 
@@ -224,20 +220,23 @@ func TestRunListNoToken(t *testing.T) {
 
 func TestRunShiftsTable(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/v1/shifts") {
+		if !strings.Contains(r.URL.Path, "/v1/oncalls") {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
-		w.Write([]byte(shiftsResponse()))
+		w.Write([]byte(oncallsResponse()))
 	})
 
 	viper.Set("format", "table")
 
 	cmd := newTestCmd()
 	cmd.Flags().Int("days", 7, "")
-	cmd.Flags().String("schedule", "", "")
-	cmd.Flags().Int("page", 1, "")
-	cmd.Flags().Int("page-size", 25, "")
+	cmd.Flags().String("schedule-id", "", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
 
 	output := captureStdout(t, func() {
 		err := runShifts(cmd, nil)
@@ -249,21 +248,30 @@ func TestRunShiftsTable(t *testing.T) {
 	if !strings.Contains(output, "Alice Smith") {
 		t.Errorf("expected output to contain 'Alice Smith', got: %s", output)
 	}
+	if !strings.Contains(output, "alice@example.com") {
+		t.Errorf("expected output to contain 'alice@example.com', got: %s", output)
+	}
+	if !strings.Contains(output, "Default Policy") {
+		t.Errorf("expected output to contain 'Default Policy', got: %s", output)
+	}
 }
 
-func TestRunShiftsJSON(t *testing.T) {
+func TestRunShiftsEmptyResults(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/vnd.api+json")
-		w.Write([]byte(shiftsResponse()))
+		w.Write([]byte(emptyOncallsResponse()))
 	})
 
-	viper.Set("format", "json")
+	viper.Set("format", "table")
 
 	cmd := newTestCmd()
 	cmd.Flags().Int("days", 7, "")
-	cmd.Flags().String("schedule", "", "")
-	cmd.Flags().Int("page", 1, "")
-	cmd.Flags().Int("page-size", 25, "")
+	cmd.Flags().String("schedule-id", "", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
 
 	output := captureStdout(t, func() {
 		err := runShifts(cmd, nil)
@@ -272,28 +280,93 @@ func TestRunShiftsJSON(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "shift-1") {
-		t.Errorf("expected JSON output to contain 'shift-1', got: %s", output)
+	// Empty table should still have headers
+	if strings.Contains(output, "Alice") {
+		t.Errorf("expected no data rows, got: %s", output)
+	}
+}
+
+func TestRunShiftsSinceUntilParams(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.RawQuery
+		if !strings.Contains(query, "since=") {
+			t.Errorf("expected 'since' param in query, got: %s", query)
+		}
+		if !strings.Contains(query, "until=") {
+			t.Errorf("expected 'until' param in query, got: %s", query)
+		}
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.Write([]byte(oncallsResponse()))
+	})
+
+	viper.Set("format", "table")
+
+	cmd := newTestCmd()
+	cmd.Flags().Int("days", 14, "")
+	cmd.Flags().String("schedule-id", "", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
+
+	captureStdout(t, func() {
+		err := runShifts(cmd, nil)
+		if err != nil {
+			t.Fatalf("runShifts returned error: %v", err)
+		}
+	})
+}
+
+func TestRunShiftsJSON(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.Write([]byte(oncallsResponse()))
+	})
+
+	viper.Set("format", "json")
+
+	cmd := newTestCmd()
+	cmd.Flags().Int("days", 7, "")
+	cmd.Flags().String("schedule-id", "", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
+
+	output := captureStdout(t, func() {
+		err := runShifts(cmd, nil)
+		if err != nil {
+			t.Fatalf("runShifts returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "oncall-1") {
+		t.Errorf("expected JSON output to contain 'oncall-1', got: %s", output)
 	}
 }
 
 func TestRunShiftsWithScheduleFilter(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.RawQuery
-		if !strings.Contains(query, "schedule") {
-			t.Errorf("expected schedule filter in query, got: %s", query)
+		if !strings.Contains(query, "filter[schedule_id]=sched-1") {
+			t.Errorf("expected schedule_id filter in query, got: %s", query)
 		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
-		w.Write([]byte(shiftsResponse()))
+		w.Write([]byte(oncallsResponse()))
 	})
 
 	viper.Set("format", "table")
 
 	cmd := newTestCmd()
 	cmd.Flags().Int("days", 7, "")
-	cmd.Flags().String("schedule", "Primary On-Call", "")
-	cmd.Flags().Int("page", 1, "")
-	cmd.Flags().Int("page-size", 25, "")
+	cmd.Flags().String("schedule-id", "sched-1", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
 
 	captureStdout(t, func() {
 		err := runShifts(cmd, nil)
@@ -307,14 +380,27 @@ func TestRunShiftsWithScheduleFilter(t *testing.T) {
 
 func TestRunWhoTable(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/v1/oncalls") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		query := r.URL.RawQuery
+		if !strings.Contains(query, "earliest=true") {
+			t.Errorf("expected earliest=true in query, got: %s", query)
+		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
-		w.Write([]byte(shiftsResponse()))
+		w.Write([]byte(oncallsResponse()))
 	})
 
 	viper.Set("format", "table")
 
 	cmd := newTestCmd()
-	cmd.Flags().String("schedule", "", "")
+	cmd.Flags().String("schedule-id", "", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().Bool("earliest", true, "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
 
 	output := captureStdout(t, func() {
 		err := runWho(cmd, nil)
@@ -323,22 +409,91 @@ func TestRunWhoTable(t *testing.T) {
 		}
 	})
 
-	// Only active shifts should appear in "who" output
 	if !strings.Contains(output, "Alice Smith") {
-		t.Errorf("expected active user 'Alice Smith' in output, got: %s", output)
+		t.Errorf("expected 'Alice Smith' in output, got: %s", output)
 	}
+	if !strings.Contains(output, "alice@example.com") {
+		t.Errorf("expected 'alice@example.com' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "Default Policy") {
+		t.Errorf("expected 'Default Policy' in output, got: %s", output)
+	}
+}
+
+func TestRunWhoEarliestFalse(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.RawQuery
+		if strings.Contains(query, "earliest=true") {
+			t.Errorf("expected earliest=true to be absent, got: %s", query)
+		}
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.Write([]byte(oncallsResponse()))
+	})
+
+	viper.Set("format", "table")
+
+	cmd := newTestCmd()
+	cmd.Flags().String("schedule-id", "", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().Bool("earliest", false, "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
+
+	captureStdout(t, func() {
+		err := runWho(cmd, nil)
+		if err != nil {
+			t.Fatalf("runWho returned error: %v", err)
+		}
+	})
+}
+
+func TestRunWhoWithServiceFilter(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.RawQuery
+		if !strings.Contains(query, "filter[service_id]=svc-1") {
+			t.Errorf("expected service_id filter in query, got: %s", query)
+		}
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.Write([]byte(oncallsResponse()))
+	})
+
+	viper.Set("format", "table")
+
+	cmd := newTestCmd()
+	cmd.Flags().String("schedule-id", "", "")
+	cmd.Flags().String("service-id", "svc-1", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().Bool("earliest", true, "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
+
+	captureStdout(t, func() {
+		err := runWho(cmd, nil)
+		if err != nil {
+			t.Fatalf("runWho returned error: %v", err)
+		}
+	})
 }
 
 func TestRunWhoJSON(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/vnd.api+json")
-		w.Write([]byte(shiftsResponse()))
+		w.Write([]byte(oncallsResponse()))
 	})
 
 	viper.Set("format", "json")
 
 	cmd := newTestCmd()
-	cmd.Flags().String("schedule", "", "")
+	cmd.Flags().String("schedule-id", "", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().Bool("earliest", true, "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
 
 	output := captureStdout(t, func() {
 		err := runWho(cmd, nil)
@@ -347,23 +502,28 @@ func TestRunWhoJSON(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "shift-1") {
-		t.Errorf("expected JSON output to contain 'shift-1', got: %s", output)
+	if !strings.Contains(output, "oncall-1") {
+		t.Errorf("expected JSON output to contain 'oncall-1', got: %s", output)
 	}
 }
 
 func TestRunWhoNoActiveShifts(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/vnd.api+json")
-		w.Write([]byte(emptyShiftsResponse()))
+		w.Write([]byte(emptyOncallsResponse()))
 	})
 
 	viper.Set("format", "table")
 
 	cmd := newTestCmd()
-	cmd.Flags().String("schedule", "", "")
+	cmd.Flags().String("schedule-id", "", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().Bool("earliest", true, "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
 
-	// No error expected - just prints "no one is on-call" to stderr
 	captureStdout(t, func() {
 		err := runWho(cmd, nil)
 		if err != nil {
@@ -375,17 +535,23 @@ func TestRunWhoNoActiveShifts(t *testing.T) {
 func TestRunWhoWithScheduleFilter(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.RawQuery
-		if !strings.Contains(query, "schedule") {
-			t.Errorf("expected schedule filter in query, got: %s", query)
+		if !strings.Contains(query, "filter[schedule_id]=sched-1") {
+			t.Errorf("expected schedule_id filter in query, got: %s", query)
 		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
-		w.Write([]byte(shiftsResponse()))
+		w.Write([]byte(oncallsResponse()))
 	})
 
 	viper.Set("format", "table")
 
 	cmd := newTestCmd()
-	cmd.Flags().String("schedule", "Primary On-Call", "")
+	cmd.Flags().String("schedule-id", "sched-1", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().Bool("earliest", true, "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
 
 	captureStdout(t, func() {
 		err := runWho(cmd, nil)
@@ -401,9 +567,12 @@ func TestRunShiftsNoToken(t *testing.T) {
 
 	cmd := newTestCmd()
 	cmd.Flags().Int("days", 7, "")
-	cmd.Flags().String("schedule", "", "")
-	cmd.Flags().Int("page", 1, "")
-	cmd.Flags().Int("page-size", 25, "")
+	cmd.Flags().String("schedule-id", "", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
 
 	err := runShifts(cmd, nil)
 	if err == nil {
@@ -419,7 +588,13 @@ func TestRunWhoNoToken(t *testing.T) {
 	defer viper.Reset()
 
 	cmd := newTestCmd()
-	cmd.Flags().String("schedule", "", "")
+	cmd.Flags().String("schedule-id", "", "")
+	cmd.Flags().String("service-id", "", "")
+	cmd.Flags().String("escalation-policy-id", "", "")
+	cmd.Flags().String("user-id", "", "")
+	cmd.Flags().String("time-zone", "", "")
+	cmd.Flags().Bool("earliest", true, "")
+	cmd.Flags().String("include", "user,schedule,escalation_policy", "")
 
 	err := runWho(cmd, nil)
 	if err == nil {

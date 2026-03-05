@@ -797,6 +797,14 @@ func parseTimePtr(s *string) *time.Time {
 }
 
 // parseTime parses a time string in RFC3339 format, returning zero time if parsing fails.
+// toStr converts an interface{} (string or number) to a string representation.
+func toStr(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", v)
+}
+
 func parseTime(s string) time.Time {
 	if s == "" {
 		return time.Time{}
@@ -2783,23 +2791,38 @@ type SchedulesResult struct {
 	RawBody    []byte
 }
 
-// Shift represents an on-call shift
-type Shift struct {
-	ID           string
-	UserName     string
-	UserEmail    string
-	ScheduleID   string
-	ScheduleName string
-	StartsAt     time.Time
-	EndsAt       time.Time
-	IsActive     bool // Computed: StartsAt <= now <= EndsAt
+// OnCallEntry represents a single on-call entry from the /v1/oncalls endpoint.
+type OnCallEntry struct {
+	ID                   string
+	EscalationPolicyID   string
+	EscalationPolicyName string
+	EscalationLevel      int
+	ScheduleID           string
+	ScheduleName         string
+	UserID               string
+	UserName             string
+	UserEmail            string
+	StartsAt             time.Time
+	EndsAt               time.Time
 }
 
-// ShiftsResult contains shifts and pagination info
-type ShiftsResult struct {
-	Shifts     []Shift
-	Pagination PaginationInfo
-	RawBody    []byte
+// OnCallsResult contains on-call entries and raw body for JSON passthrough.
+type OnCallsResult struct {
+	Entries []OnCallEntry
+	RawBody []byte
+}
+
+// OnCallsParams configures the /v1/oncalls request.
+type OnCallsParams struct {
+	Include             string // comma-separated: user, schedule, escalation_policy
+	Since               string // ISO-8601 start time
+	Until               string // ISO-8601 end time
+	Earliest            bool   // only first on-call user per escalation level
+	TimeZone            string // e.g. America/New_York
+	ScheduleIDs         string // filter by schedule ID
+	ServiceIDs          string // filter by service ID
+	EscalationPolicyIDs string // filter by escalation policy ID
+	UserIDs             string // filter by user ID
 }
 
 // ListSchedulesCLI lists on-call schedules (read-only).
@@ -2903,29 +2926,45 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 	return result, nil
 }
 
-// ListShiftsCLI lists on-call shifts with time range filtering (read-only).
-// Supports filters: schedule_id, starts_after, ends_before for time range queries.
-func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters map[string]string) (*ShiftsResult, error) {
-	// Cap pageSize at 100 (API limit); if 0, default to 25
-	if pageSize == 0 {
-		pageSize = 25
-	}
-	if pageSize > 100 {
-		pageSize = 100
-	}
-
-	// Build URL with query parameters
+// ListOnCallsCLI lists on-call entries using the unified /v1/oncalls endpoint.
+func (c *Client) ListOnCallsCLI(ctx context.Context, params OnCallsParams) (*OnCallsResult, error) {
 	baseURL := c.endpoint
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
 		baseURL = "https://" + baseURL
 	}
 
-	url := fmt.Sprintf("%s/v1/shifts?page[number]=%d&page[size]=%d&include=user,schedule", baseURL, page, pageSize)
+	url := fmt.Sprintf("%s/v1/oncalls?", baseURL)
 
-	// Add filters (e.g., filter[schedule_id]=foo, filter[starts_after]=2024-01-01T00:00:00Z)
-	for key, value := range filters {
-		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+	qp := make([]string, 0)
+	if params.Include != "" {
+		qp = append(qp, "include="+params.Include)
 	}
+	if params.Since != "" {
+		qp = append(qp, "since="+params.Since)
+	}
+	if params.Until != "" {
+		qp = append(qp, "until="+params.Until)
+	}
+	if params.Earliest {
+		qp = append(qp, "earliest=true")
+	}
+	if params.TimeZone != "" {
+		qp = append(qp, "time_zone="+params.TimeZone)
+	}
+	if params.ScheduleIDs != "" {
+		qp = append(qp, "filter[schedule_id]="+params.ScheduleIDs)
+	}
+	if params.ServiceIDs != "" {
+		qp = append(qp, "filter[service_id]="+params.ServiceIDs)
+	}
+	if params.EscalationPolicyIDs != "" {
+		qp = append(qp, "filter[escalation_policy_id]="+params.EscalationPolicyIDs)
+	}
+	if params.UserIDs != "" {
+		qp = append(qp, "filter[user_id]="+params.UserIDs)
+	}
+
+	url += strings.Join(qp, "&")
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
@@ -2936,7 +2975,7 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 
 	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list shifts: %w", err)
+		return nil, fmt.Errorf("failed to list on-calls: %w", err)
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 
@@ -2949,121 +2988,91 @@ func (c *Client) ListShiftsCLI(ctx context.Context, page, pageSize int, filters 
 		return nil, fmt.Errorf("invalid API token")
 	}
 	if httpResp.StatusCode == 403 {
-		return nil, fmt.Errorf("access denied: API key lacks 'read shifts' permission")
+		return nil, fmt.Errorf("access denied: API key lacks 'read on-calls' permission")
 	}
 	if httpResp.StatusCode != 200 {
 		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
 	}
 
-	// Parse JSON:API response with included relationships
+	// Parse JSON:API response
 	var response struct {
 		Data []struct {
 			ID         string `json:"id"`
 			Attributes struct {
-				StartsAt string `json:"starts_at"`
-				EndsAt   string `json:"ends_at"`
+				UserID               interface{} `json:"user_id"`
+				ScheduleID           interface{} `json:"schedule_id"`
+				ScheduleName         string      `json:"schedule_name"`
+				EscalationPolicyID   interface{} `json:"escalation_policy_id"`
+				EscalationPolicyName string      `json:"escalation_policy_name"`
+				EscalationLevel      int         `json:"escalation_level"`
+				StartsAt             string      `json:"starts_at"`
+				EndsAt               string      `json:"ends_at"`
 			} `json:"attributes"`
-			Relationships struct {
-				User struct {
-					Data *struct {
-						ID   string `json:"id"`
-						Type string `json:"type"`
-					} `json:"data"`
-				} `json:"user"`
-				Schedule struct {
-					Data *struct {
-						ID   string `json:"id"`
-						Type string `json:"type"`
-					} `json:"data"`
-				} `json:"schedule"`
-			} `json:"relationships"`
 		} `json:"data"`
 		Included []struct {
-			ID         string `json:"id"`
-			Type       string `json:"type"`
+			ID         interface{} `json:"id"`
+			Type       string      `json:"type"`
 			Attributes struct {
-				Name  string  `json:"name"`
-				Email *string `json:"email"`
+				FullName string  `json:"full_name"`
+				Name     string  `json:"name"`
+				Email    *string `json:"email"`
 			} `json:"attributes"`
 		} `json:"included"`
-		Meta struct {
-			CurrentPage int `json:"current_page"`
-			TotalPages  int `json:"total_pages"`
-			TotalCount  int `json:"total_count"`
-		} `json:"meta"`
 	}
 
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Build lookup maps for included data
+	// Build user lookup from included
 	userMap := make(map[string]struct {
 		Name  string
 		Email string
 	})
-	scheduleMap := make(map[string]string)
-
 	for _, inc := range response.Included {
-		switch inc.Type {
-		case "users":
-			email := ""
-			if inc.Attributes.Email != nil {
-				email = *inc.Attributes.Email
-			}
-			userMap[inc.ID] = struct {
-				Name  string
-				Email string
-			}{Name: inc.Attributes.Name, Email: email}
-		case "on_call_schedules":
-			scheduleMap[inc.ID] = inc.Attributes.Name
+		if inc.Type != "users" {
+			continue
 		}
+		name := inc.Attributes.FullName
+		if name == "" {
+			name = inc.Attributes.Name
+		}
+		email := ""
+		if inc.Attributes.Email != nil {
+			email = *inc.Attributes.Email
+		}
+		userMap[toStr(inc.ID)] = struct {
+			Name  string
+			Email string
+		}{Name: name, Email: email}
 	}
 
-	now := time.Now()
-	shifts := make([]Shift, 0, len(response.Data))
+	entries := make([]OnCallEntry, 0, len(response.Data))
 	for _, item := range response.Data {
-		shift := Shift{
-			ID:       item.ID,
-			StartsAt: parseTime(item.Attributes.StartsAt),
-			EndsAt:   parseTime(item.Attributes.EndsAt),
+		entry := OnCallEntry{
+			ID:                   item.ID,
+			EscalationPolicyID:   toStr(item.Attributes.EscalationPolicyID),
+			EscalationPolicyName: item.Attributes.EscalationPolicyName,
+			EscalationLevel:      item.Attributes.EscalationLevel,
+			ScheduleID:           toStr(item.Attributes.ScheduleID),
+			ScheduleName:         item.Attributes.ScheduleName,
+			UserID:               toStr(item.Attributes.UserID),
+			StartsAt:             parseTime(item.Attributes.StartsAt),
+			EndsAt:               parseTime(item.Attributes.EndsAt),
 		}
 
-		// Compute IsActive
-		shift.IsActive = !shift.StartsAt.After(now) && !shift.EndsAt.Before(now)
-
-		// Populate user info from relationships + included
-		if item.Relationships.User.Data != nil {
-			userID := item.Relationships.User.Data.ID
-			if user, ok := userMap[userID]; ok {
-				shift.UserName = user.Name
-				shift.UserEmail = user.Email
-			}
+		if user, ok := userMap[toStr(item.Attributes.UserID)]; ok {
+			entry.UserName = user.Name
+			entry.UserEmail = user.Email
 		}
 
-		// Populate schedule info from relationships + included
-		if item.Relationships.Schedule.Data != nil {
-			scheduleID := item.Relationships.Schedule.Data.ID
-			shift.ScheduleID = scheduleID
-			if scheduleName, ok := scheduleMap[scheduleID]; ok {
-				shift.ScheduleName = scheduleName
-			}
-		}
-
-		shifts = append(shifts, shift)
+		entries = append(entries, entry)
 	}
 
-	result := &ShiftsResult{
-		Shifts: shifts,
-		Pagination: PaginationInfo{
-			CurrentPage: response.Meta.CurrentPage,
-			TotalPages:  response.Meta.TotalPages,
-			TotalCount:  response.Meta.TotalCount,
-		},
+	return &OnCallsResult{
+		Entries: entries,
 		RawBody: body,
-	}
-
-	return result, nil
+	}, nil
 }
 
 // CreatePulseCLI creates a new pulse using raw HTTP POST.

@@ -1201,11 +1201,11 @@ func TestListSchedulesCLIServerError(t *testing.T) {
 	}
 }
 
-// --- Shifts ---
+// --- OnCalls ---
 
-func TestListShiftsCLI(t *testing.T) {
+func TestListOnCallsCLI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/v1/shifts") {
+		if !strings.Contains(r.URL.Path, "/v1/oncalls") {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 
@@ -1214,18 +1214,16 @@ func TestListShiftsCLI(t *testing.T) {
 		resp := map[string]interface{}{
 			"data": []map[string]interface{}{
 				{
-					"id": "shift-1",
+					"id": "oncall-1",
 					"attributes": map[string]interface{}{
-						"starts_at": "2025-06-15T08:00:00Z",
-						"ends_at":   "2025-06-15T20:00:00Z",
-					},
-					"relationships": map[string]interface{}{
-						"user": map[string]interface{}{
-							"data": map[string]interface{}{"id": "user-1", "type": "users"},
-						},
-						"schedule": map[string]interface{}{
-							"data": map[string]interface{}{"id": "sched-1", "type": "on_call_schedules"},
-						},
+						"user_id":                "user-1",
+						"schedule_id":            "sched-1",
+						"schedule_name":          "Primary",
+						"escalation_policy_id":   "ep-1",
+						"escalation_policy_name": "Default Policy",
+						"escalation_level":       1,
+						"starts_at":              "2025-06-15T08:00:00Z",
+						"ends_at":                "2025-06-15T20:00:00Z",
 					},
 				},
 			},
@@ -1234,22 +1232,10 @@ func TestListShiftsCLI(t *testing.T) {
 					"id":   "user-1",
 					"type": "users",
 					"attributes": map[string]interface{}{
-						"name":  "Alice",
-						"email": "alice@example.com",
+						"full_name": "Alice",
+						"email":     "alice@example.com",
 					},
 				},
-				{
-					"id":   "sched-1",
-					"type": "on_call_schedules",
-					"attributes": map[string]interface{}{
-						"name": "Primary",
-					},
-				},
-			},
-			"meta": map[string]interface{}{
-				"current_page": 1,
-				"total_pages":  1,
-				"total_count":  1,
 			},
 		}
 		_ = json.NewEncoder(w).Encode(resp)
@@ -1257,33 +1243,42 @@ func TestListShiftsCLI(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	result, err := client.ListShiftsCLI(context.Background(), 1, 25, nil)
+	result, err := client.ListOnCallsCLI(context.Background(), OnCallsParams{
+		Include:  "user,schedule,escalation_policy",
+		Earliest: true,
+	})
 	if err != nil {
-		t.Fatalf("ListShiftsCLI returned error: %v", err)
+		t.Fatalf("ListOnCallsCLI returned error: %v", err)
 	}
 
-	if len(result.Shifts) != 1 {
-		t.Fatalf("expected 1 shift, got %d", len(result.Shifts))
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(result.Entries))
 	}
-	if result.Shifts[0].UserName != "Alice" {
-		t.Errorf("UserName = %q, want %q", result.Shifts[0].UserName, "Alice")
+	if result.Entries[0].UserName != "Alice" {
+		t.Errorf("UserName = %q, want %q", result.Entries[0].UserName, "Alice")
 	}
-	if result.Shifts[0].UserEmail != "alice@example.com" {
-		t.Errorf("UserEmail = %q, want %q", result.Shifts[0].UserEmail, "alice@example.com")
+	if result.Entries[0].UserEmail != "alice@example.com" {
+		t.Errorf("UserEmail = %q, want %q", result.Entries[0].UserEmail, "alice@example.com")
 	}
-	if result.Shifts[0].ScheduleName != "Primary" {
-		t.Errorf("ScheduleName = %q, want %q", result.Shifts[0].ScheduleName, "Primary")
+	if result.Entries[0].ScheduleName != "Primary" {
+		t.Errorf("ScheduleName = %q, want %q", result.Entries[0].ScheduleName, "Primary")
+	}
+	if result.Entries[0].EscalationPolicyName != "Default Policy" {
+		t.Errorf("EscalationPolicyName = %q, want %q", result.Entries[0].EscalationPolicyName, "Default Policy")
+	}
+	if result.Entries[0].EscalationLevel != 1 {
+		t.Errorf("EscalationLevel = %d, want 1", result.Entries[0].EscalationLevel)
 	}
 }
 
-func TestListShiftsCLIUnauthorized(t *testing.T) {
+func TestListOnCallsCLIUnauthorized(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	_, err := client.ListShiftsCLI(context.Background(), 1, 25, nil)
+	_, err := client.ListOnCallsCLI(context.Background(), OnCallsParams{})
 	if err == nil {
 		t.Fatal("expected error for 401")
 	}

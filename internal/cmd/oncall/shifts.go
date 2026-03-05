@@ -2,13 +2,14 @@ package oncall
 
 import (
 	"fmt"
-	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/printer"
 	"github.com/rootlyhq/rootly-cli/internal/timeformat"
 )
@@ -23,8 +24,8 @@ var shiftsCmd = &cobra.Command{
   # View shifts for the next 14 days
   rootly oncall shifts --days=14
 
-  # Filter by schedule name or ID
-  rootly oncall shifts --schedule="Primary On-Call"
+  # Filter by schedule ID
+  rootly oncall shifts --schedule-id=sched-123
 
   # Output as JSON
   rootly oncall shifts --format=json`,
@@ -33,93 +34,78 @@ var shiftsCmd = &cobra.Command{
 
 func init() {
 	shiftsCmd.Flags().Int("days", 7, "Number of days ahead to show shifts (default: 7)")
-	shiftsCmd.Flags().String("schedule", "", "Filter by schedule name or ID")
-	shiftsCmd.Flags().Int("page", 1, "Page number")
-	shiftsCmd.Flags().Int("page-size", 25, "Results per page (max 100)")
+	shiftsCmd.Flags().String("schedule-id", "", "Filter by schedule ID")
+	shiftsCmd.Flags().String("service-id", "", "Filter by service ID")
+	shiftsCmd.Flags().String("escalation-policy-id", "", "Filter by escalation policy ID")
+	shiftsCmd.Flags().String("user-id", "", "Filter by user ID")
+	shiftsCmd.Flags().String("time-zone", "", "Time zone (e.g. America/New_York)")
+	shiftsCmd.Flags().String("include", "user,schedule,escalation_policy", "Included resources (comma-separated)")
 
 	OncallCmd.AddCommand(shiftsCmd)
 }
 
 func runShifts(cmd *cobra.Command, args []string) error {
-	// Get API client
 	apiClient, err := getAPIClient()
 	if err != nil {
 		return err
 	}
 
-	// Read flags
 	days, _ := cmd.Flags().GetInt("days")
-	schedule, _ := cmd.Flags().GetString("schedule")
-	page, _ := cmd.Flags().GetInt("page")
-	pageSize, _ := cmd.Flags().GetInt("page-size")
+	include, _ := cmd.Flags().GetString("include")
+	scheduleID, _ := cmd.Flags().GetString("schedule-id")
+	serviceID, _ := cmd.Flags().GetString("service-id")
+	escalationPolicyID, _ := cmd.Flags().GetString("escalation-policy-id")
+	userID, _ := cmd.Flags().GetString("user-id")
+	timeZone, _ := cmd.Flags().GetString("time-zone")
 
-	// Build filters map with time range
-	filters := make(map[string]string)
+	now := time.Now().UTC()
+	until := now.AddDate(0, 0, days)
 
-	// Set time range: from now to N days ahead
-	now := time.Now()
-	endTime := now.AddDate(0, 0, days)
-
-	// Use ISO 8601 format for API filters
-	filters["starts_before"] = url.QueryEscape(endTime.Format(time.RFC3339))
-	filters["ends_after"] = url.QueryEscape(now.Format(time.RFC3339))
-
-	if schedule != "" {
-		// Try filtering by schedule name first, API will handle it
-		filters["schedule"] = url.QueryEscape(schedule)
+	params := api.OnCallsParams{
+		Include:             include,
+		Since:               now.Format(time.RFC3339),
+		Until:               until.Format(time.RFC3339),
+		TimeZone:            timeZone,
+		ScheduleIDs:         scheduleID,
+		ServiceIDs:          serviceID,
+		EscalationPolicyIDs: escalationPolicyID,
+		UserIDs:             userID,
 	}
 
-	// Call API
-	result, err := apiClient.ListShiftsCLI(cmd.Context(), page, pageSize, filters)
+	result, err := apiClient.ListOnCallsCLI(cmd.Context(), params)
 	if err != nil {
-		return fmt.Errorf("failed to list shifts: %w", err)
+		return fmt.Errorf("failed to list on-calls: %w", err)
 	}
 
-	// Get format from viper
 	format := viper.GetString("format")
 
-	// Create printer
 	p, err := printer.NewPrinter(format)
 	if err != nil {
 		return err
 	}
 
-	// For json/yaml: pass through raw API response (includes meta/pagination)
 	if format == "json" || format == "yaml" {
 		return p.PrintRawJSON(result.RawBody, os.Stdout)
 	}
 
-	// Build headers and rows
-	headers := []string{"User", "Schedule", "Starts", "Ends", "Active"}
-	rows := make([][]string, 0, len(result.Shifts))
+	headers := []string{"User", "Email", "Schedule", "Escalation Policy", "Level", "Starts", "Ends"}
+	rows := make([][]string, 0, len(result.Entries))
 
-	for _, shift := range result.Shifts {
-		active := "No"
-		if shift.IsActive {
-			active = "Yes"
-		}
-
+	for _, entry := range result.Entries {
 		row := []string{
-			shift.UserName,
-			truncateString(shift.ScheduleName, 30),
-			timeformat.FormatTime(shift.StartsAt),
-			timeformat.FormatTime(shift.EndsAt),
-			active,
+			entry.UserName,
+			entry.UserEmail,
+			truncateString(entry.ScheduleName, 30),
+			truncateString(entry.EscalationPolicyName, 30),
+			strconv.Itoa(entry.EscalationLevel),
+			timeformat.FormatTime(entry.StartsAt),
+			timeformat.FormatTime(entry.EndsAt),
 		}
 		rows = append(rows, row)
 	}
 
-	// Print list
 	if err := p.PrintList(headers, rows, os.Stdout); err != nil {
 		return fmt.Errorf("failed to print output: %w", err)
-	}
-
-	// Print pagination info to stderr if there are multiple pages
-	if result.Pagination.TotalPages > 1 {
-		fmt.Fprintf(os.Stderr, "\nPage %d of %d (%d total shifts)\n",
-			result.Pagination.CurrentPage,
-			result.Pagination.TotalPages,
-			result.Pagination.TotalCount)
 	}
 
 	return nil

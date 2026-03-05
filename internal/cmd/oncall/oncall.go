@@ -30,8 +30,9 @@ Note: Schedules are managed in the Rootly UI. This command provides read-only ac
   # See who is on-call right now
   rootly oncall who
 
-  # Filter shifts by schedule
-  rootly oncall shifts --schedule="Primary On-Call"`,
+  # Filter by schedule or service
+  rootly oncall who --schedule-id=sched-123
+  rootly oncall shifts --service-id=svc-456`,
 }
 
 // getAPIClient creates a stateless API client for CLI operations.
