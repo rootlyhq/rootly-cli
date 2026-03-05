@@ -67,7 +67,7 @@ make check      # Format, lint, and test
 
 ### Config
 
-Config stored at `~/.rootly-cli/config.yaml` or via `ROOTLY_API_TOKEN` env var:
+Config stored at `~/.rootly-cli/config.yaml` or via `ROOTLY_API_KEY` env var:
 
 ```yaml
 api_key: "your-api-key"

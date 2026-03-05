@@ -48,11 +48,11 @@ make build
 
 ## Configuration
 
-Set your API token via environment variable or config file:
+Set your API key via environment variable or config file:
 
 ```bash
 # Environment variable (recommended for CI/scripts)
-export ROOTLY_API_TOKEN="your-api-key"
+export ROOTLY_API_KEY="your-api-key"
 
 # Or config file at ~/.rootly-cli/config.yaml
 ```
