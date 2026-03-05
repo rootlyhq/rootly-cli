@@ -105,7 +105,7 @@ rootly teams update <id> --color="#FF5733"
 rootly teams delete <id>
 
 # On-Call
-rootly oncall list                          # List schedules
+rootly oncall schedules                     # List schedules
 rootly oncall who                           # Who's on-call right now
 rootly oncall who --schedule-id=sched-123   # Filter by schedule
 rootly oncall who --service-id=svc-456      # Filter by service

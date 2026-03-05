@@ -2842,7 +2842,7 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 		baseURL = "https://" + baseURL
 	}
 
-	url := fmt.Sprintf("%s/v1/on_call_schedules?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
+	url := fmt.Sprintf("%s/v1/schedules?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 
 	// Add filters (e.g., filter[name]=foo)
 	for key, value := range filters {

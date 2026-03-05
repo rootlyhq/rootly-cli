@@ -19,7 +19,7 @@ var OncallCmd = &cobra.Command{
 
 Note: Schedules are managed in the Rootly UI. This command provides read-only access.`,
 	Example: `  # List on-call schedules
-  rootly oncall list
+  rootly oncall schedules
 
   # View upcoming shifts (next 7 days)
   rootly oncall shifts

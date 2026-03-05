@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Switch `oncall who` and `oncall shifts` to unified `/v1/oncalls` endpoint with richer data (escalation policy, level, user email)
 - Add new filter flags: `--schedule-id`, `--service-id`, `--escalation-policy-id`, `--user-id`, `--time-zone`, `--earliest`
 - Table output now includes Escalation Policy, Level, and Email columns
+- Rename `oncall list` to `oncall schedules`
+
+### Fixed
+- Fix `oncall schedules` 404 error (use correct `/v1/schedules` endpoint)
 
 ### Removed
 - Removed legacy `/v1/shifts` endpoint usage and associated `Shift`/`ShiftsResult` types

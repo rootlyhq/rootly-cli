@@ -126,7 +126,7 @@ func captureStdout(t *testing.T, fn func()) string {
 
 func TestRunListTable(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/v1/on_call_schedules") {
+		if !strings.Contains(r.URL.Path, "/v1/schedules") {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")

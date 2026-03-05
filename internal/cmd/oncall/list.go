@@ -12,20 +12,20 @@ import (
 )
 
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List on-call schedules",
-	Long:  "List Rootly on-call schedules with optional pagination.",
+	Use: "schedules",
+	Short:   "List on-call schedules",
+	Long:    "List Rootly on-call schedules with optional pagination.",
 	Example: `  # List on-call schedules (default: 25 per page, newest first)
-  rootly oncall list
+  rootly oncall schedules
 
   # List with custom page size
-  rootly oncall list --page-size=50
+  rootly oncall schedules --page-size=50
 
   # Page 2 of results
-  rootly oncall list --page=2
+  rootly oncall schedules --page=2
 
   # Output as JSON (useful for piping to jq)
-  rootly oncall list --format=json`,
+  rootly oncall schedules --format=json`,
 	RunE: runList,
 }
 
