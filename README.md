@@ -105,10 +105,13 @@ rootly teams update <id> --color="#FF5733"
 rootly teams delete <id>
 
 # On-Call
-rootly oncall list              # List schedules
-rootly oncall shifts            # View upcoming shifts
-rootly oncall shifts --days=14  # Next 14 days
-rootly oncall who               # Who's on-call right now
+rootly oncall list                          # List schedules
+rootly oncall who                           # Who's on-call right now
+rootly oncall who --schedule-id=sched-123   # Filter by schedule
+rootly oncall who --service-id=svc-456      # Filter by service
+rootly oncall shifts                        # View upcoming shifts (7 days)
+rootly oncall shifts --days=14              # Next 14 days
+rootly oncall shifts --escalation-policy-id=ep-789
 ```
 
 ### Output Formats
