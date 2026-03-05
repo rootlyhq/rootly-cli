@@ -1,4 +1,6 @@
-# Rootly CLI
+<p align="center">
+  <img src="rootly-cli-logo.png" alt="Rootly CLI" />
+</p>
 
 A command-line interface for managing Rootly incidents, alerts, services, teams, and on-call schedules from the terminal.
 
