@@ -12,9 +12,9 @@ import (
 )
 
 var listCmd = &cobra.Command{
-	Use: "schedules",
-	Short:   "List on-call schedules",
-	Long:    "List Rootly on-call schedules with optional pagination.",
+	Use:   "schedules",
+	Short: "List on-call schedules",
+	Long:  "List Rootly on-call schedules with optional pagination.",
 	Example: `  # List on-call schedules (default: 25 per page, newest first)
   rootly oncall schedules
 
