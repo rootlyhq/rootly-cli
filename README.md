@@ -2,11 +2,38 @@
   <img src="rootly-cli-logo.png" alt="Rootly CLI" />
 </p>
 
-A command-line interface for managing Rootly incidents, alerts, services, teams, and on-call schedules from the terminal.
+Manage Rootly incidents, alerts, services, teams, and on-call schedules — from your terminal or through your AI coding assistant.
 
 ![Go Version](https://img.shields.io/github/go-mod/go-version/rootlyhq/rootly-cli)
 ![License](https://img.shields.io/github/license/rootlyhq/rootly-cli)
 ![Release](https://img.shields.io/github/v/release/rootlyhq/rootly-cli)
+
+## Installation
+
+```bash
+# Install the CLI
+brew install rootlyhq/tap/rootly-cli
+
+# Add the Rootly CLI skill to your AI coding assistant (skills.sh)
+npx skills add rootlyhq/rootly-cli
+```
+
+### Other Installation Methods
+
+```bash
+# Go
+go install github.com/rootlyhq/rootly-cli/cmd/rootly@latest
+
+# Binary
+# Download from https://github.com/rootlyhq/rootly-cli/releases
+# Available for Linux (amd64/arm64), macOS (Intel/Apple Silicon), and Windows (amd64)
+
+# Build from source
+git clone https://github.com/rootlyhq/rootly-cli.git
+cd rootly-cli
+make build
+./bin/rootly
+```
 
 ## Features
 
@@ -18,35 +45,6 @@ A command-line interface for managing Rootly incidents, alerts, services, teams,
 - Shell completions for bash, zsh, fish, and PowerShell
 - Confirmation prompts for destructive operations
 - Pagination and server-side filtering
-
-## Installation
-
-### Homebrew (macOS/Linux)
-
-```bash
-brew install rootlyhq/tap/rootly-cli
-```
-
-### Go Install
-
-```bash
-go install github.com/rootlyhq/rootly-cli/cmd/rootly@latest
-```
-
-### Download Binary
-
-Download the latest release from the [Releases](https://github.com/rootlyhq/rootly-cli/releases) page.
-
-Available for Linux (amd64/arm64), macOS (Intel/Apple Silicon), and Windows (amd64).
-
-### Build from Source
-
-```bash
-git clone https://github.com/rootlyhq/rootly-cli.git
-cd rootly-cli
-make build
-./bin/rootly
-```
 
 ## Configuration
 

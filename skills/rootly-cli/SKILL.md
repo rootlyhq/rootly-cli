@@ -9,23 +9,12 @@ Use the `rootly` CLI to manage Rootly resources directly from the terminal. The 
 
 ## Prerequisites
 
-The CLI must be installed and configured before use:
+Install the CLI and set your API key:
 
 ```bash
-# Install via Homebrew
 brew install rootlyhq/tap/rootly-cli
-
-# Or via Go
-go install github.com/rootlyhq/rootly-cli/cmd/rootly@latest
+export ROOTLY_API_KEY="your-api-key"
 ```
-
-Configure authentication with either:
-- Environment variable: `export ROOTLY_API_KEY="your-api-key"`
-- Config file at `~/.rootly-cli/config.yaml`:
-  ```yaml
-  api_key: "your-api-key"
-  api_host: "api.rootly.com"
-  ```
 
 API keys are created in the Rootly dashboard under **Settings > API Keys**.
 
