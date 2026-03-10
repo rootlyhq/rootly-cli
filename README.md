@@ -2,7 +2,9 @@
   <img src="rootly-cli-logo.png" alt="Rootly CLI" />
 </p>
 
-A command-line interface for managing Rootly incidents, alerts, services, teams, and on-call schedules from the terminal.
+A command-line interface for managing Rootly incidents, alerts, services, teams, on-call schedules, and pulses from the terminal.
+
+> **Note**: This is the successor to [`rootlyhq/cli`](https://github.com/rootlyhq/cli) (now archived). All pulse functionality from the original CLI is included here.
 
 ![Go Version](https://img.shields.io/github/go-mod/go-version/rootlyhq/rootly-cli)
 ![License](https://img.shields.io/github/license/rootlyhq/rootly-cli)
@@ -11,6 +13,7 @@ A command-line interface for managing Rootly incidents, alerts, services, teams,
 ## Features
 
 - Full CRUD for incidents, alerts, services, and teams
+- Pulse tracking (`rootly pulse create`, `rootly pulse run`)
 - On-call schedule queries (list schedules, view shifts, who's on-call)
 - Alert action shortcuts (`rootly alerts ack`, `rootly alerts resolve`)
 - Multiple output formats: table, JSON, YAML, markdown
@@ -112,7 +115,31 @@ rootly oncall who --service-id=svc-456      # Filter by service
 rootly oncall shifts                        # View upcoming shifts (7 days)
 rootly oncall shifts --days=14              # Next 14 days
 rootly oncall shifts --escalation-policy-id=ep-789
+
+# Pulses
+rootly pulse create "Deploy v1.2.3"                      # Send a pulse
+rootly pulse create "Deploy v1.2.3" -l "version=1.2.3,team=backend"
+rootly pulse create "Deploy v1.2.3" -s api-gateway -e production
+rootly pulse create "Deploy v1.2.3" --source=ci -r "commit=abc123,pr=456"
+
+# Pulse Run (wrap a command and send pulse with timing + exit code)
+rootly pulse run -- make deploy
+rootly pulse run --summary="Deploy to prod" -- make deploy
+rootly pulse run -s api-gateway -l "env=prod" -- make deploy
 ```
+
+### Pulse Flags
+
+| Flag | Short | Env Var | Description |
+|------|-------|---------|-------------|
+| `--labels` | `-l` | `ROOTLY_LABELS` | Key=value pairs, comma-separated |
+| `--services` | `-s` | `ROOTLY_SERVICES` | Service slugs/IDs, comma-separated |
+| `--environments` | `-e` | `ROOTLY_ENVIRONMENTS` | Environment slugs/IDs, comma-separated |
+| `--source` | | `ROOTLY_SOURCE` | Source identifier (default: `cli`) |
+| `--refs` | `-r` | `ROOTLY_REFS` | Reference key=value pairs, comma-separated |
+| `--summary` | | `ROOTLY_SUMMARY` | Summary (alternative to positional arg) |
+
+`pulse run` also accepts `--summary` (defaults to the command string) and automatically adds an `exit_status` label with the command's exit code.
 
 ### Output Formats
 
@@ -135,16 +162,41 @@ rootly incidents list --format=markdown
 
 ```bash
 # Pagination
-rootly incidents list --limit=50 --page=2
+rootly incidents list --page-size=50 --page=2
 
 # Filtering
 rootly incidents list --status=started --severity=critical
 rootly alerts list --source=datadog
 rootly services list --name=api
 
-# Sorting
-rootly incidents list --sort=created_at --order=desc
+# Sorting (prefix with - for descending)
+rootly incidents list --sort=created_at
+rootly incidents list --sort=-created_at
 ```
+
+### Global Flags
+
+| Flag | Short | Env Var | Description |
+|------|-------|---------|-------------|
+| `--api-key` | `-k` | `ROOTLY_API_KEY` | Rootly API key |
+| `--api-host` | | `ROOTLY_API_HOST` | API host (default: `api.rootly.com`) |
+| `--format` | | | Output format: `table`, `json`, `yaml`, `markdown` |
+| `--debug` | `-d` | `ROOTLY_DEBUG` | Enable debug output |
+| `--quiet` | `-q` | `ROOTLY_QUIET` | Suppress non-essential output |
+| `--no-color` | | | Disable colored output |
+
+### Command Reference
+
+| Command | Subcommands | Aliases |
+|---------|-------------|---------|
+| `rootly incidents` | `list`, `get`, `create`, `update`, `delete` | `incident`, `inc` |
+| `rootly alerts` | `list`, `get`, `create`, `update`, `ack`, `resolve` | `alert`, `alr` |
+| `rootly services` | `list`, `get`, `create`, `update`, `delete` | `service`, `svc` |
+| `rootly teams` | `list`, `get`, `create`, `update`, `delete` | `team` |
+| `rootly oncall` | `schedules`, `shifts`, `who` | `on-call` |
+| `rootly pulse` | `create`, `run` | `pulses` |
+| `rootly completion` | `bash`, `zsh`, `fish`, `powershell` | |
+| `rootly version` | | |
 
 ### Shell Completions
 
