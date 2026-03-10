@@ -162,16 +162,41 @@ rootly incidents list --format=markdown
 
 ```bash
 # Pagination
-rootly incidents list --limit=50 --page=2
+rootly incidents list --page-size=50 --page=2
 
 # Filtering
 rootly incidents list --status=started --severity=critical
 rootly alerts list --source=datadog
 rootly services list --name=api
 
-# Sorting
-rootly incidents list --sort=created_at --order=desc
+# Sorting (prefix with - for descending)
+rootly incidents list --sort=created_at
+rootly incidents list --sort=-created_at
 ```
+
+### Global Flags
+
+| Flag | Short | Env Var | Description |
+|------|-------|---------|-------------|
+| `--api-key` | `-k` | `ROOTLY_API_KEY` | Rootly API key |
+| `--api-host` | | `ROOTLY_API_HOST` | API host (default: `api.rootly.com`) |
+| `--format` | | | Output format: `table`, `json`, `yaml`, `markdown` |
+| `--debug` | `-d` | `ROOTLY_DEBUG` | Enable debug output |
+| `--quiet` | `-q` | `ROOTLY_QUIET` | Suppress non-essential output |
+| `--no-color` | | | Disable colored output |
+
+### Command Reference
+
+| Command | Subcommands | Aliases |
+|---------|-------------|---------|
+| `rootly incidents` | `list`, `get`, `create`, `update`, `delete` | `incident`, `inc` |
+| `rootly alerts` | `list`, `get`, `create`, `update`, `ack`, `resolve` | `alert`, `alr` |
+| `rootly services` | `list`, `get`, `create`, `update`, `delete` | `service`, `svc` |
+| `rootly teams` | `list`, `get`, `create`, `update`, `delete` | `team` |
+| `rootly oncall` | `schedules`, `shifts`, `who` | `on-call` |
+| `rootly pulse` | `create`, `run` | `pulses` |
+| `rootly completion` | `bash`, `zsh`, `fish`, `powershell` | |
+| `rootly version` | | |
 
 ### Shell Completions
 
