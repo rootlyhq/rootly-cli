@@ -741,8 +741,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	// Determine auth: use OAuth tokens only when no API key is set
 	useOAuth := false
 	if cfg.APIKey == "" {
-		if t, err := oauth.LoadTokens(); err == nil && t.AccessToken != "" {
-			_ = t
+		if tokens, err := oauth.LoadTokens(); err == nil && tokens.AccessToken != "" {
 			useOAuth = true
 		}
 	}
@@ -757,7 +756,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 
 	var httpClient *http.Client
 	if useOAuth {
-		authBaseURL := deriveAuthBaseURL(cfg.Endpoint)
+		authBaseURL := oauth.DeriveAuthBaseURL(cfg.Endpoint)
 		oauthCfg := oauth.NewConfig(authBaseURL)
 		var err error
 		httpClient, err = oauth.NewHTTPClient(oauthCfg, transport, "rootly-cli/"+Version)
@@ -812,19 +811,6 @@ func ensureScheme(url string) string {
 	return "https://" + url
 }
 
-// deriveAuthBaseURL builds the OAuth base URL from the API host.
-func deriveAuthBaseURL(apiHost string) string {
-	if strings.HasPrefix(apiHost, "http://") || strings.HasPrefix(apiHost, "https://") {
-		return apiHost
-	}
-	if strings.HasPrefix(apiHost, "localhost") || strings.HasPrefix(apiHost, "127.0.0.1") {
-		return "http://" + apiHost
-	}
-	if strings.HasPrefix(apiHost, "api.") {
-		return "https://app." + apiHost[4:]
-	}
-	return "https://" + apiHost
-}
 
 func (c *Client) ValidateAPIKey(ctx context.Context) error {
 	// Use /v1/users/me endpoint to validate the API key

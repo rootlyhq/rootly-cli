@@ -34,3 +34,27 @@ func TestNewConfig_Localhost(t *testing.T) {
 		t.Errorf("TokenURL = %q", cfg.Endpoint.TokenURL)
 	}
 }
+
+func TestDeriveAuthBaseURL(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"api.rootly.com", "https://app.rootly.com"},
+		{"api.staging.rootly.com", "https://app.staging.rootly.com"},
+		{"localhost:22166", "http://localhost:22166"},
+		{"localhost:22166/api", "http://localhost:22166/api"},
+		{"127.0.0.1:3000", "http://127.0.0.1:3000"},
+		{"http://localhost:22166", "http://localhost:22166"},
+		{"https://custom.example.com", "https://custom.example.com"},
+		{"custom.example.com", "https://custom.example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := DeriveAuthBaseURL(tt.input)
+			if got != tt.want {
+				t.Errorf("DeriveAuthBaseURL(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"strings"
 
 	"golang.org/x/oauth2"
 )
@@ -39,6 +40,22 @@ func GenerateState() (string, error) {
 // ExchangeCode exchanges an authorization code for tokens using PKCE.
 func ExchangeCode(ctx context.Context, cfg *oauth2.Config, code, codeVerifier string) (*oauth2.Token, error) {
 	return cfg.Exchange(ctx, code, oauth2.VerifierOption(codeVerifier))
+}
+
+// DeriveAuthBaseURL builds the OAuth base URL from the API host.
+// For api.rootly.com it returns https://app.rootly.com.
+// For localhost it returns http://localhost:<port>.
+func DeriveAuthBaseURL(apiHost string) string {
+	if strings.HasPrefix(apiHost, "http://") || strings.HasPrefix(apiHost, "https://") {
+		return apiHost
+	}
+	if strings.HasPrefix(apiHost, "localhost") || strings.HasPrefix(apiHost, "127.0.0.1") {
+		return "http://" + apiHost
+	}
+	if strings.HasPrefix(apiHost, "api.") {
+		return "https://app." + apiHost[4:]
+	}
+	return "https://" + apiHost
 }
 
 // TokenSourceFromStored creates a token source that auto-refreshes using stored tokens.

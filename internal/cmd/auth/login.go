@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -48,7 +47,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		apiHost = "api.rootly.com"
 	}
 
-	authBaseURL := deriveAuthBaseURL(apiHost)
+	authBaseURL := xoauth.DeriveAuthBaseURL(apiHost)
 	cfg := xoauth.NewConfig(authBaseURL)
 
 	// Allow client-id override for debugging
@@ -141,18 +140,6 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func deriveAuthBaseURL(apiHost string) string {
-	if strings.HasPrefix(apiHost, "http://") || strings.HasPrefix(apiHost, "https://") {
-		return apiHost
-	}
-	if strings.HasPrefix(apiHost, "localhost") || strings.HasPrefix(apiHost, "127.0.0.1") {
-		return "http://" + apiHost
-	}
-	if strings.HasPrefix(apiHost, "api.") {
-		return "https://app." + apiHost[4:]
-	}
-	return "https://" + apiHost
-}
 
 func openBrowser(ctx context.Context, url string) error {
 	switch runtime.GOOS {
