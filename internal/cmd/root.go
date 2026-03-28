@@ -43,9 +43,20 @@ Or use a config file at ~/.rootly-cli/config.yaml:
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Bind flags to viper
+		// Bind flags to viper (both local and inherited persistent flags)
 		if err := viper.BindPFlags(cmd.Flags()); err != nil {
 			return err
+		}
+		if err := viper.BindPFlags(cmd.InheritedFlags()); err != nil {
+			return err
+		}
+
+		// Explicitly bind hyphenated flags to underscore viper keys
+		if f := cmd.Flag("api-host"); f != nil && f.Changed {
+			viper.Set("api_host", f.Value.String())
+		}
+		if f := cmd.Flag("api-key"); f != nil && f.Changed {
+			viper.Set("api_key", f.Value.String())
 		}
 
 		// Configure config file
@@ -74,7 +85,7 @@ Or use a config file at ~/.rootly-cli/config.yaml:
 
 		// Skip auth validation for commands that don't need it
 		cmdName := cmd.Name()
-		if cmdName == "version" || cmdName == "completion" || cmdName == "help" {
+		if cmdName == "version" || cmdName == "completion" || cmdName == "help" || cmdName == "login" || cmdName == "logout" {
 			return nil
 		}
 

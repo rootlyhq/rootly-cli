@@ -383,6 +383,7 @@ func TestRunUpdateNoFlags(t *testing.T) {
 func TestRunListNoToken(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
+	t.Setenv("HOME", t.TempDir())
 
 	cmd := newTestCmd()
 	cmd.Flags().Int("page", 1, "")
@@ -395,8 +396,8 @@ func TestRunListNoToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when no API token")
 	}
-	if !strings.Contains(err.Error(), "API key required") {
-		t.Errorf("expected 'API key required' error, got: %v", err)
+	if !strings.Contains(err.Error(), "authentication required") {
+		t.Errorf("expected 'authentication required' error, got: %v", err)
 	}
 }
 
@@ -484,6 +485,7 @@ func TestRunDeleteNoConfirmNonInteractive(t *testing.T) {
 func TestRunDeleteNoToken(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
+	t.Setenv("HOME", t.TempDir())
 
 	cmd := newTestCmd()
 	cmd.Flags().BoolP("yes", "y", false, "")
@@ -493,8 +495,8 @@ func TestRunDeleteNoToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when no API token")
 	}
-	if !strings.Contains(err.Error(), "API key required") {
-		t.Errorf("expected 'API key required' error, got: %v", err)
+	if !strings.Contains(err.Error(), "authentication required") {
+		t.Errorf("expected 'authentication required' error, got: %v", err)
 	}
 }
 

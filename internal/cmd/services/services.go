@@ -8,6 +8,7 @@ import (
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/config"
+	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
 
 // ServicesCmd is the parent command for all service operations
@@ -37,7 +38,9 @@ var ServicesCmd = &cobra.Command{
 func getAPIClient() (*api.Client, error) {
 	token := viper.GetString("api_key")
 	if token == "" {
-		return nil, fmt.Errorf("API key required: set ROOTLY_API_KEY or add api_key to ~/.rootly-cli/config.yaml")
+		if _, err := oauth.LoadTokens(); err != nil {
+			return nil, fmt.Errorf("authentication required: run 'rootly login' or set ROOTLY_API_KEY")
+		}
 	}
 	endpoint := viper.GetString("api_host")
 	if endpoint == "" {
