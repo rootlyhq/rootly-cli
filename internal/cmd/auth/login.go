@@ -17,7 +17,8 @@ import (
 	xoauth "github.com/rootlyhq/rootly-cli/internal/oauth"
 )
 
-const callbackPort = "19797"
+// Use the canonical port from the oauth package
+var callbackPort = xoauth.CallbackPort
 
 var LoginCmd = &cobra.Command{
 	Use:   "login",

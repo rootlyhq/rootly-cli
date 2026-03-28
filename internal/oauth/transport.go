@@ -35,9 +35,10 @@ func NewHTTPClient(cfg *oauth2.Config, base http.RoundTripper, userAgent string)
 	}, nil
 }
 
-// persistingTokenSource wraps a TokenSource and saves new tokens to disk.
+// persistingTokenSource wraps a TokenSource and saves refreshed tokens to disk.
 type persistingTokenSource struct {
-	base oauth2.TokenSource
+	base            oauth2.TokenSource
+	lastAccessToken string
 }
 
 func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
@@ -50,8 +51,11 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 		}
 		return nil, err
 	}
-	// Save on every call — oauth2.ReuseTokenSource ensures this only happens on refresh
-	_ = SaveOAuth2Token(tok)
+	// Only save when the token was actually refreshed (new access token)
+	if tok.AccessToken != p.lastAccessToken {
+		p.lastAccessToken = tok.AccessToken
+		_ = SaveOAuth2Token(tok)
+	}
 	return tok, nil
 }
 

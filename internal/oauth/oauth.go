@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	ClientID    = "rootly-cli"
-	RedirectURI = "http://localhost:19797/callback"
+	ClientID     = "rootly-cli"
+	CallbackPort = "19797"
+	RedirectURI  = "http://localhost:" + CallbackPort + "/callback"
 )
 
 // NewConfig creates an oauth2.Config for the given auth base URL.
@@ -46,16 +47,33 @@ func ExchangeCode(ctx context.Context, cfg *oauth2.Config, code, codeVerifier st
 // For api.rootly.com it returns https://app.rootly.com.
 // For localhost it returns http://localhost:<port>.
 func DeriveAuthBaseURL(apiHost string) string {
-	if strings.HasPrefix(apiHost, "http://") || strings.HasPrefix(apiHost, "https://") {
-		return apiHost
+	// Strip scheme to normalize, then re-apply appropriate scheme
+	scheme := ""
+	host := apiHost
+	if strings.HasPrefix(apiHost, "http://") {
+		scheme = "http://"
+		host = apiHost[7:]
+	} else if strings.HasPrefix(apiHost, "https://") {
+		scheme = "https://"
+		host = apiHost[8:]
 	}
-	if strings.HasPrefix(apiHost, "localhost") || strings.HasPrefix(apiHost, "127.0.0.1") {
-		return "http://" + apiHost
+
+	// Strip /api suffix (used for localhost API endpoints, not OAuth)
+	host = strings.TrimSuffix(host, "/api")
+
+	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") {
+		if scheme == "" {
+			scheme = "http://"
+		}
+		return scheme + host
 	}
-	if strings.HasPrefix(apiHost, "api.") {
-		return "https://app." + apiHost[4:]
+	if strings.HasPrefix(host, "api.") {
+		return "https://app." + host[4:]
 	}
-	return "https://" + apiHost
+	if scheme == "" {
+		scheme = "https://"
+	}
+	return scheme + host
 }
 
 // TokenSourceFromStored creates a token source that auto-refreshes using stored tokens.

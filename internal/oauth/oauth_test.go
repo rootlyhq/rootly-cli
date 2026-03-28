@@ -42,8 +42,11 @@ func TestDeriveAuthBaseURL(t *testing.T) {
 	}{
 		{"api.rootly.com", "https://app.rootly.com"},
 		{"api.staging.rootly.com", "https://app.staging.rootly.com"},
+		{"https://api.rootly.com", "https://app.rootly.com"},
+		{"https://api.staging.rootly.com", "https://app.staging.rootly.com"},
 		{"localhost:22166", "http://localhost:22166"},
-		{"localhost:22166/api", "http://localhost:22166/api"},
+		{"localhost:22166/api", "http://localhost:22166"},
+		{"http://localhost:22166/api", "http://localhost:22166"},
 		{"127.0.0.1:3000", "http://127.0.0.1:3000"},
 		{"http://localhost:22166", "http://localhost:22166"},
 		{"https://custom.example.com", "https://custom.example.com"},
