@@ -811,7 +811,6 @@ func ensureScheme(url string) string {
 	return "https://" + url
 }
 
-
 func (c *Client) ValidateAPIKey(ctx context.Context) error {
 	// Use /v1/users/me endpoint to validate the API key
 	resp, err := c.client.GetCurrentUserWithResponse(ctx)

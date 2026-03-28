@@ -140,7 +140,6 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-
 func openBrowser(ctx context.Context, url string) error {
 	switch runtime.GOOS {
 	case "darwin":
