@@ -155,7 +155,9 @@ func TestRunListJSON(t *testing.T) {
 func TestRunListNoToken(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
-	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	cmd := newTestCmd()
 	cmd.Flags().Int("page", 1, "")
@@ -361,7 +363,9 @@ func TestRunAckSuccess(t *testing.T) {
 func TestRunAckNoToken(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
-	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	cmd := newTestCmd()
 
@@ -466,7 +470,9 @@ func TestRunResolveWithIncidents(t *testing.T) {
 func TestRunResolveNoToken(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
-	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	cmd := newTestCmd()
 	cmd.Flags().String("message", "", "")

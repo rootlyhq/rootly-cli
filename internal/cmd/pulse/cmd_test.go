@@ -192,7 +192,9 @@ func TestRunCreateNoSummary(t *testing.T) {
 func TestRunCreateNoToken(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
-	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	cmd := newTestCmd()
 	cmd.Flags().StringP("labels", "l", "", "")
@@ -499,7 +501,9 @@ func TestRunRunNoArgs(t *testing.T) {
 func TestRunRunNoAPIKey(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
-	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	cmd := newTestCmd()
 	cmd.Flags().String("summary", "", "")

@@ -14,6 +14,7 @@ import (
 func TestNewHTTPClient_SetsAuthAndUserAgent(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	tokens := &TokenData{
 		AccessToken:  "my-token",
@@ -64,6 +65,7 @@ func TestNewHTTPClient_SetsAuthAndUserAgent(t *testing.T) {
 func TestNewHTTPClient_NoTokens(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	cfg := &oauth2.Config{
 		ClientID: "test",
@@ -79,6 +81,7 @@ func TestNewHTTPClient_NoTokens(t *testing.T) {
 func TestNewHTTPClient_RefreshesExpiredToken(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	// Token server for refresh
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

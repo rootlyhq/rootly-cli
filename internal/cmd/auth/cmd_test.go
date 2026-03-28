@@ -12,6 +12,7 @@ import (
 func TestLogoutCmd(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	// Save tokens first
 	tokens := &oauth.TokenData{
@@ -40,6 +41,7 @@ func TestLogoutCmd(t *testing.T) {
 func TestLogoutCmd_NoTokens(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	var buf bytes.Buffer
 	LogoutCmd.SetOut(&buf)

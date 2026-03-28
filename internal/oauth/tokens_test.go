@@ -3,10 +3,20 @@ package oauth
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+// setTestHome sets HOME (and USERPROFILE on Windows) so os.UserHomeDir() returns tmpDir.
+func setTestHome(t *testing.T, tmpDir string) {
+	t.Helper()
+	t.Setenv("HOME", tmpDir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", tmpDir)
+	}
+}
 
 func TestIsExpired(t *testing.T) {
 	tests := []struct {
@@ -31,7 +41,7 @@ func TestIsExpired(t *testing.T) {
 
 func TestSaveAndLoadTokens(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	setTestHome(t, tmpDir)
 
 	tokens := &TokenData{
 		AccessToken:  "test-access",
@@ -44,14 +54,17 @@ func TestSaveAndLoadTokens(t *testing.T) {
 		t.Fatalf("SaveTokens: %v", err)
 	}
 
-	// Verify file permissions
+	// Verify file exists
 	path := filepath.Join(tmpDir, ".rootly-cli", "config.yaml")
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("stat config file: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0600 {
-		t.Errorf("file permissions = %o, want 0600", perm)
+	// File permission check (skip on Windows where permissions work differently)
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0600 {
+			t.Errorf("file permissions = %o, want 0600", perm)
+		}
 	}
 
 	loaded, err := LoadTokens()
@@ -68,7 +81,7 @@ func TestSaveAndLoadTokens(t *testing.T) {
 
 func TestSaveTokens_PreservesExistingConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	setTestHome(t, tmpDir)
 
 	// Write a config with an API key first
 	dir := filepath.Join(tmpDir, ".rootly-cli")
@@ -95,10 +108,9 @@ func TestSaveTokens_PreservesExistingConfig(t *testing.T) {
 	}
 }
 
-
 func TestClearTokens(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	setTestHome(t, tmpDir)
 
 	tokens := &TokenData{AccessToken: "x", RefreshToken: "y", ExpiresAt: time.Now().Add(time.Hour)}
 	_ = SaveTokens(tokens)
@@ -115,7 +127,7 @@ func TestClearTokens(t *testing.T) {
 
 func TestClearTokens_PreservesConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	setTestHome(t, tmpDir)
 
 	// Write config with API key + tokens
 	dir := filepath.Join(tmpDir, ".rootly-cli")
@@ -135,7 +147,7 @@ func TestClearTokens_PreservesConfig(t *testing.T) {
 
 func TestClearTokens_NoFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	setTestHome(t, tmpDir)
 
 	if err := ClearTokens(); err != nil {
 		t.Fatalf("ClearTokens on missing file: %v", err)
@@ -144,7 +156,7 @@ func TestClearTokens_NoFile(t *testing.T) {
 
 func TestHasTokens(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	setTestHome(t, tmpDir)
 
 	if HasTokens() {
 		t.Error("HasTokens should be false with no config")
@@ -159,7 +171,7 @@ func TestHasTokens(t *testing.T) {
 
 func TestLoadTokens_NoOAuthSection(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	setTestHome(t, tmpDir)
 
 	dir := filepath.Join(tmpDir, ".rootly-cli")
 	os.MkdirAll(dir, 0700)

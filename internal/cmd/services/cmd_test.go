@@ -152,7 +152,9 @@ func TestRunListJSON(t *testing.T) {
 func TestRunListNoToken(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
-	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	cmd := newTestCmd()
 	cmd.Flags().Int("page", 1, "")
@@ -378,7 +380,9 @@ func TestRunDeleteNoConfirmNonInteractive(t *testing.T) {
 func TestRunDeleteNoToken(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
-	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	cmd := newTestCmd()
 	cmd.Flags().BoolP("yes", "y", false, "")

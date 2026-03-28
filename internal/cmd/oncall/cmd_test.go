@@ -202,7 +202,9 @@ func TestRunListPagination(t *testing.T) {
 func TestRunListNoToken(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
-	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	cmd := newTestCmd()
 	cmd.Flags().Int("page", 1, "")
@@ -565,7 +567,9 @@ func TestRunWhoWithScheduleFilter(t *testing.T) {
 func TestRunShiftsNoToken(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
-	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	cmd := newTestCmd()
 	cmd.Flags().Int("days", 7, "")
@@ -588,7 +592,9 @@ func TestRunShiftsNoToken(t *testing.T) {
 func TestRunWhoNoToken(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
-	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	cmd := newTestCmd()
 	cmd.Flags().String("schedule-id", "", "")
