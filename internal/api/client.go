@@ -757,7 +757,8 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	var httpClient *http.Client
 	if useOAuth {
 		authBaseURL := oauth.DeriveAuthBaseURL(cfg.Endpoint)
-		oauthCfg := oauth.NewConfig(authBaseURL)
+		clientID := oauth.LoadCachedClientID()
+		oauthCfg := oauth.NewConfig(authBaseURL, clientID)
 		var err error
 		httpClient, err = oauth.NewHTTPClient(oauthCfg, transport, "rootly-cli/"+Version)
 		if err != nil {

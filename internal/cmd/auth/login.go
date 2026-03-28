@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"net"
@@ -14,11 +15,9 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/oauth2"
 
+	"github.com/rootlyhq/rootly-cli/internal/config"
 	xoauth "github.com/rootlyhq/rootly-cli/internal/oauth"
 )
-
-// Use the canonical port from the oauth package
-var callbackPort = xoauth.CallbackPort
 
 var LoginCmd = &cobra.Command{
 	Use:   "login",
@@ -41,27 +40,110 @@ func init() {
 	_ = LoginCmd.Flags().MarkHidden("client-id")
 }
 
+// resolveClientID returns a client ID, registering dynamically if needed.
+func resolveClientID(ctx context.Context, authBaseURL string, cmd *cobra.Command) (string, error) {
+	// Allow explicit override for debugging
+	if clientID, _ := cmd.Flags().GetString("client-id"); clientID != "" {
+		return clientID, nil
+	}
+
+	// Check cached client_id
+	if clientID := xoauth.LoadCachedClientID(); clientID != "" {
+		return clientID, nil
+	}
+
+	// Register dynamically
+	return registerAndCache(ctx, authBaseURL, cmd)
+}
+
+// registerAndCache calls POST /oauth/register and saves the client_id.
+func registerAndCache(ctx context.Context, authBaseURL string, cmd *cobra.Command) (string, error) {
+	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Registering OAuth client...\n")
+	clientID, err := xoauth.RegisterClient(ctx, authBaseURL)
+	if err != nil {
+		return "", err
+	}
+	if err := xoauth.SaveClientID(clientID); err != nil {
+		return "", fmt.Errorf("failed to cache client ID: %w", err)
+	}
+	return clientID, nil
+}
+
+// httpClientWithTimeout is used for pre-flight checks (HEAD) and registration.
+var httpClientWithTimeout = &http.Client{Timeout: 10 * time.Second}
+
 func runLogin(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	apiHost := viper.GetString("api_host")
 	if apiHost == "" {
-		apiHost = "api.rootly.com"
+		apiHost = config.DefaultEndpoint
 	}
 
 	authBaseURL := xoauth.DeriveAuthBaseURL(apiHost)
-	cfg := xoauth.NewConfig(authBaseURL)
 
-	// Allow client-id override for debugging
-	if clientID, _ := cmd.Flags().GetString("client-id"); clientID != "" {
-		cfg.ClientID = clientID
+	clientID, err := resolveClientID(ctx, authBaseURL, cmd)
+	if err != nil {
+		return err
 	}
+
+	tok, err := doOAuthFlow(ctx, cmd, authBaseURL, clientID)
+	if err != nil {
+		// If authorize returned 404, the cached client_id may be stale — re-register once
+		if isAuthorize404(err) {
+			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "OAuth client not found, re-registering...\n")
+			_ = xoauth.ClearClientID()
+			clientID, regErr := registerAndCache(ctx, authBaseURL, cmd)
+			if regErr != nil {
+				return regErr
+			}
+			tok, err = doOAuthFlow(ctx, cmd, authBaseURL, clientID)
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
+	if err := xoauth.SaveOAuth2Token(tok); err != nil {
+		return fmt.Errorf("failed to save tokens: %w", err)
+	}
+
+	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Login successful! Tokens saved.\n")
+	return nil
+}
+
+// errAuthorize404 is returned when the authorize endpoint returns 404.
+var errAuthorize404 = errors.New("authorization endpoint returned 404")
+
+func isAuthorize404(err error) bool {
+	return errors.Is(err, errAuthorize404)
+}
+
+func doOAuthFlow(ctx context.Context, cmd *cobra.Command, authBaseURL, clientID string) (*oauth2.Token, error) {
+	cfg := xoauth.NewConfig(authBaseURL, clientID)
 
 	verifier := oauth2.GenerateVerifier()
 
 	state, err := xoauth.GenerateState()
 	if err != nil {
-		return fmt.Errorf("failed to generate state: %w", err)
+		return nil, fmt.Errorf("failed to generate state: %w", err)
+	}
+
+	// Build authorization URL with PKCE (S256 challenge derived from verifier)
+	authURL := cfg.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier))
+
+	// Pre-check: HEAD the authorize URL to detect 404 (stale client_id)
+	// Done before starting the callback server to avoid binding a port unnecessarily.
+	headReq, headReqErr := http.NewRequestWithContext(ctx, http.MethodHead, authURL, http.NoBody)
+	if headReqErr == nil {
+		if headResp, headErr := httpClientWithTimeout.Do(headReq); headErr == nil {
+			_ = headResp.Body.Close()
+			if headResp.StatusCode == http.StatusNotFound {
+				return nil, errAuthorize404
+			}
+		}
 	}
 
 	// Channel to receive the authorization code
@@ -93,9 +175,9 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	})
 
 	lc := net.ListenConfig{}
-	listener, err := lc.Listen(ctx, "tcp", "localhost:"+callbackPort)
+	listener, err := lc.Listen(ctx, "tcp", "localhost:"+xoauth.CallbackPort)
 	if err != nil {
-		return fmt.Errorf("failed to start callback server on port %s: %w", callbackPort, err)
+		return nil, fmt.Errorf("failed to start callback server on port %s: %w", xoauth.CallbackPort, err)
 	}
 
 	server := &http.Server{Handler: mux}
@@ -105,9 +187,6 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
 	}()
-
-	// Build authorization URL with PKCE (S256 challenge derived from verifier)
-	authURL := cfg.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier))
 
 	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Opening browser for authentication...\n")
 	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "If the browser doesn't open, visit:\n%s\n\n", authURL)
@@ -123,23 +202,18 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	select {
 	case code = <-codeCh:
 	case err := <-errCh:
-		return err
+		return nil, err
 	case <-time.After(5 * time.Minute):
-		return fmt.Errorf("login timed out after 5 minutes")
+		return nil, fmt.Errorf("login timed out after 5 minutes")
 	}
 
 	// Exchange code for tokens
 	tok, err := xoauth.ExchangeCode(ctx, cfg, code, verifier)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if err := xoauth.SaveOAuth2Token(tok); err != nil {
-		return fmt.Errorf("failed to save tokens: %w", err)
-	}
-
-	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Login successful! Tokens saved.\n")
-	return nil
+	return tok, nil
 }
 
 func openBrowser(ctx context.Context, url string) error {
