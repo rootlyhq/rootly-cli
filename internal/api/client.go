@@ -748,7 +748,8 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	}
 
 	// Build base transport
-	transport := http.RoundTripper(http.DefaultTransport)
+	var transport http.RoundTripper //nolint:staticcheck // need explicit type for reassignment
+	transport = http.DefaultTransport
 
 	if cfg.Debug {
 		transport = &debugTransport{transport: transport}

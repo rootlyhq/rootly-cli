@@ -46,7 +46,7 @@ func TestNewHTTPClient_SetsAuthAndUserAgent(t *testing.T) {
 		t.Fatalf("NewHTTPClient: %v", err)
 	}
 
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, backend.URL+"/test", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, backend.URL+"/test", http.NoBody)
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
@@ -121,7 +121,7 @@ func TestNewHTTPClient_RefreshesExpiredToken(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, backend.URL+"/test", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, backend.URL+"/test", http.NoBody)
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)

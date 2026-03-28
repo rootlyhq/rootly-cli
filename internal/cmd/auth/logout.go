@@ -15,7 +15,7 @@ var LogoutCmd = &cobra.Command{
 		if err := oauth.ClearTokens(); err != nil {
 			return fmt.Errorf("failed to clear tokens: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStderr(), "Logged out. OAuth tokens cleared.\n")
+		_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Logged out. OAuth tokens cleared.\n")
 		return nil
 	},
 }
