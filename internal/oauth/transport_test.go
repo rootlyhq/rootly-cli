@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +46,8 @@ func TestNewHTTPClient_SetsAuthAndUserAgent(t *testing.T) {
 		t.Fatalf("NewHTTPClient: %v", err)
 	}
 
-	resp, err := client.Get(backend.URL + "/test")
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, backend.URL+"/test", nil)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
@@ -119,7 +121,8 @@ func TestNewHTTPClient_RefreshesExpiredToken(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	resp, err := client.Get(backend.URL + "/test")
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, backend.URL+"/test", nil)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}

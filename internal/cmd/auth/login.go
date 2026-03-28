@@ -41,6 +41,8 @@ func init() {
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+
 	apiHost := viper.GetString("api_host")
 	if apiHost == "" {
 		apiHost = "api.rootly.com"
@@ -76,7 +78,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		if errMsg := r.URL.Query().Get("error"); errMsg != "" {
 			desc := r.URL.Query().Get("error_description")
 			errCh <- fmt.Errorf("authorization error: %s — %s", errMsg, desc)
-			fmt.Fprintf(w, "<html><body><h1>Authorization Failed</h1><p>%s</p><p>You can close this window.</p></body></html>", html.EscapeString(desc))
+			_, _ = fmt.Fprintf(w, "<html><body><h1>Authorization Failed</h1><p>%s</p><p>You can close this window.</p></body></html>", html.EscapeString(desc))
 			return
 		}
 		code := r.URL.Query().Get("code")
@@ -86,10 +88,11 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			return
 		}
 		codeCh <- code
-		fmt.Fprint(w, "<html><body><h1>Login Successful!</h1><p>You can close this window and return to the terminal.</p></body></html>")
+		_, _ = fmt.Fprint(w, "<html><body><h1>Login Successful!</h1><p>You can close this window and return to the terminal.</p></body></html>")
 	})
 
-	listener, err := net.Listen("tcp", "localhost:"+callbackPort)
+	lc := net.ListenConfig{}
+	listener, err := lc.Listen(ctx, "tcp", "localhost:"+callbackPort)
 	if err != nil {
 		return fmt.Errorf("failed to start callback server on port %s: %w", callbackPort, err)
 	}
@@ -97,22 +100,22 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	server := &http.Server{Handler: mux}
 	go func() { _ = server.Serve(listener) }()
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = server.Shutdown(ctx)
+		_ = server.Shutdown(shutdownCtx)
 	}()
 
 	// Build authorization URL with PKCE (S256 challenge derived from verifier)
 	authURL := cfg.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier))
 
-	fmt.Fprintf(cmd.OutOrStderr(), "Opening browser for authentication...\n")
-	fmt.Fprintf(cmd.OutOrStderr(), "If the browser doesn't open, visit:\n%s\n\n", authURL)
+	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Opening browser for authentication...\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "If the browser doesn't open, visit:\n%s\n\n", authURL)
 
-	if err := openBrowser(authURL); err != nil {
-		fmt.Fprintf(cmd.OutOrStderr(), "Failed to open browser: %v\n", err)
+	if err := openBrowser(ctx, authURL); err != nil {
+		_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Failed to open browser: %v\n", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStderr(), "Waiting for authorization...\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Waiting for authorization...\n")
 
 	// Wait for callback
 	var code string
@@ -125,7 +128,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	// Exchange code for tokens
-	tok, err := xoauth.ExchangeCode(context.Background(), cfg, code, verifier)
+	tok, err := xoauth.ExchangeCode(ctx, cfg, code, verifier)
 	if err != nil {
 		return err
 	}
@@ -134,7 +137,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save tokens: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStderr(), "Login successful! Tokens saved.\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Login successful! Tokens saved.\n")
 	return nil
 }
 
@@ -151,14 +154,14 @@ func deriveAuthBaseURL(apiHost string) string {
 	return "https://" + apiHost
 }
 
-func openBrowser(url string) error {
+func openBrowser(ctx context.Context, url string) error {
 	switch runtime.GOOS {
 	case "darwin":
-		return exec.Command("open", url).Start()
+		return exec.CommandContext(ctx, "open", url).Start()
 	case "linux":
-		return exec.Command("xdg-open", url).Start()
+		return exec.CommandContext(ctx, "xdg-open", url).Start()
 	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		return exec.CommandContext(ctx, "rundll32", "url.dll,FileProtocolHandler", url).Start()
 	default:
 		return fmt.Errorf("unsupported platform")
 	}

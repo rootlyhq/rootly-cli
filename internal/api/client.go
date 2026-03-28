@@ -748,7 +748,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	}
 
 	// Build base transport
-	var transport http.RoundTripper = http.DefaultTransport
+	transport := http.RoundTripper(http.DefaultTransport)
 
 	if cfg.Debug {
 		transport = &debugTransport{transport: transport}
