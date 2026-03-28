@@ -1,7 +1,9 @@
 package oauth
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 
 	"golang.org/x/oauth2"
 )
@@ -41,6 +43,11 @@ type persistingTokenSource struct {
 func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 	tok, err := p.base.Token()
 	if err != nil {
+		// Surface a user-friendly message when refresh fails
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "token") || strings.Contains(errMsg, "401") || strings.Contains(errMsg, "invalid_grant") {
+			return nil, fmt.Errorf("session expired — run 'rootly login' to re-authenticate: %w", err)
+		}
 		return nil, err
 	}
 	// Save on every call — oauth2.ReuseTokenSource ensures this only happens on refresh

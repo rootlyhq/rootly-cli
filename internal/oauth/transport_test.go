@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,5 +140,50 @@ func TestNewHTTPClient_RefreshesExpiredToken(t *testing.T) {
 	saved, _ := LoadTokens()
 	if saved.AccessToken != "fresh-token" {
 		t.Errorf("saved AccessToken = %q", saved.AccessToken)
+	}
+}
+
+func TestNewHTTPClient_RefreshFailsSuggestsLogin(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+
+	// Token server rejects refresh with invalid_grant
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"invalid_grant","error_description":"refresh token revoked"}`))
+	}))
+	defer tokenServer.Close()
+
+	// Save expired tokens so refresh is triggered
+	tokens := &TokenData{
+		AccessToken:  "expired-token",
+		RefreshToken: "revoked-refresh",
+		ExpiresAt:    time.Now().Add(-1 * time.Hour),
+		TokenType:    "Bearer",
+	}
+	SaveTokens(tokens)
+
+	cfg := &oauth2.Config{
+		ClientID: "test",
+		Endpoint: oauth2.Endpoint{
+			TokenURL:  tokenServer.URL,
+			AuthStyle: oauth2.AuthStyleInParams,
+		},
+	}
+
+	client, err := NewHTTPClient(cfg, http.DefaultTransport, "")
+	if err != nil {
+		t.Fatalf("NewHTTPClient: %v", err)
+	}
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, tokenServer.URL+"/test", http.NoBody)
+	_, err = client.Do(req)
+	if err == nil {
+		t.Fatal("expected error when refresh token is revoked")
+	}
+	if !strings.Contains(err.Error(), "rootly login") {
+		t.Errorf("error should suggest 'rootly login', got: %v", err)
 	}
 }
