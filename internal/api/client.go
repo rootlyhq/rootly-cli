@@ -801,14 +801,21 @@ func NewClient(cfg *config.Config) (*Client, error) {
 }
 
 // ensureScheme adds a scheme if missing, using http for localhost/127.0.0.1.
-func ensureScheme(url string) string {
-	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
-		return url
+// For localhost without an explicit path, it also appends /api since the
+// Rails monolith serves the API under /api/v1 rather than /v1.
+func ensureScheme(endpoint string) string {
+	if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
+		return endpoint
 	}
-	if strings.HasPrefix(url, "localhost") || strings.HasPrefix(url, "127.0.0.1") {
-		return "http://" + url
+	if strings.HasPrefix(endpoint, "localhost") || strings.HasPrefix(endpoint, "127.0.0.1") {
+		result := "http://" + endpoint
+		// Auto-append /api for localhost if no path is present
+		if !strings.Contains(endpoint, "/") {
+			result += "/api"
+		}
+		return result
 	}
-	return "https://" + url
+	return "https://" + endpoint
 }
 
 func (c *Client) ValidateAPIKey(ctx context.Context) error {
