@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestTokenData_IsExpired(t *testing.T) {
+func TestIsExpired(t *testing.T) {
 	tests := []struct {
 		name    string
 		expires time.Time
@@ -21,7 +21,7 @@ func TestTokenData_IsExpired(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			td := &TokenData{ExpiresAt: tt.expires}
-			if got := td.IsExpired(); got != tt.want {
+			if got := IsExpired(td); got != tt.want {
 				t.Errorf("IsExpired() = %v, want %v", got, tt.want)
 			}
 		})
@@ -29,11 +29,8 @@ func TestTokenData_IsExpired(t *testing.T) {
 }
 
 func TestSaveAndLoadTokens(t *testing.T) {
-	// Use temp dir to avoid touching real config
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
 
 	tokens := &TokenData{
 		AccessToken:  "test-access",
@@ -47,10 +44,10 @@ func TestSaveAndLoadTokens(t *testing.T) {
 	}
 
 	// Verify file permissions
-	path := filepath.Join(tmpDir, tokenDir, tokenFile)
+	path := filepath.Join(tmpDir, ".rootly-cli", "config.yaml")
 	info, err := os.Stat(path)
 	if err != nil {
-		t.Fatalf("stat token file: %v", err)
+		t.Fatalf("stat config file: %v", err)
 	}
 	if perm := info.Mode().Perm(); perm != 0600 {
 		t.Errorf("file permissions = %o, want 0600", perm)
@@ -68,11 +65,51 @@ func TestSaveAndLoadTokens(t *testing.T) {
 	}
 }
 
+func TestSaveTokens_PreservesExistingConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Write a config with an API key first
+	dir := filepath.Join(tmpDir, ".rootly-cli")
+	os.MkdirAll(dir, 0700)
+	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("api_key: my-key\napi_host: custom.rootly.com\n"), 0600)
+
+	// Save tokens
+	tokens := &TokenData{AccessToken: "tok", RefreshToken: "ref", ExpiresAt: time.Now().Add(time.Hour)}
+	if err := SaveTokens(tokens); err != nil {
+		t.Fatalf("SaveTokens: %v", err)
+	}
+
+	// Verify existing fields preserved
+	data, _ := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	content := string(data)
+	if !contains(content, "api_key: my-key") {
+		t.Errorf("api_key not preserved in config:\n%s", content)
+	}
+	if !contains(content, "api_host: custom.rootly.com") {
+		t.Errorf("api_host not preserved in config:\n%s", content)
+	}
+	if !contains(content, "access_token: tok") {
+		t.Errorf("oauth tokens not written:\n%s", content)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
+}
+
+func containsSubstring(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
 func TestClearTokens(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
 
 	tokens := &TokenData{AccessToken: "x", RefreshToken: "y", ExpiresAt: time.Now().Add(time.Hour)}
 	_ = SaveTokens(tokens)
@@ -87,26 +124,60 @@ func TestClearTokens(t *testing.T) {
 	}
 }
 
+func TestClearTokens_PreservesConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Write config with API key + tokens
+	dir := filepath.Join(tmpDir, ".rootly-cli")
+	os.MkdirAll(dir, 0700)
+	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("api_key: my-key\noauth:\n  access_token: tok\n  refresh_token: ref\n"), 0600)
+
+	if err := ClearTokens(); err != nil {
+		t.Fatalf("ClearTokens: %v", err)
+	}
+
+	// API key should still be there
+	data, _ := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	if !contains(string(data), "api_key: my-key") {
+		t.Errorf("api_key not preserved after clear:\n%s", string(data))
+	}
+}
+
 func TestClearTokens_NoFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
-	// Should not error when file doesn't exist
 	if err := ClearTokens(); err != nil {
 		t.Fatalf("ClearTokens on missing file: %v", err)
 	}
 }
 
-func TestLoadTokens_InvalidYAML(t *testing.T) {
+func TestHasTokens(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
-	dir := filepath.Join(tmpDir, tokenDir)
+	if HasTokens() {
+		t.Error("HasTokens should be false with no config")
+	}
+
+	SaveTokens(&TokenData{AccessToken: "x", RefreshToken: "y", ExpiresAt: time.Now().Add(time.Hour)})
+
+	if !HasTokens() {
+		t.Error("HasTokens should be true after saving tokens")
+	}
+}
+
+func TestLoadTokens_NoOAuthSection(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	dir := filepath.Join(tmpDir, ".rootly-cli")
 	os.MkdirAll(dir, 0700)
-	os.WriteFile(filepath.Join(dir, tokenFile), []byte("not: [valid: yaml: {{"), 0600)
+	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("api_key: my-key\n"), 0600)
 
 	_, err := LoadTokens()
 	if err == nil {
-		t.Error("expected error for invalid YAML")
+		t.Error("expected error when no oauth section exists")
 	}
 }

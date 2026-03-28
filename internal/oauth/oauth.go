@@ -64,6 +64,6 @@ func TokenSourceFromStored(cfg *oauth2.Config) (oauth2.TokenSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	tok := stored.ToOAuth2Token()
+	tok := ToOAuth2Token(stored)
 	return cfg.TokenSource(context.Background(), tok), nil
 }
