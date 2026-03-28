@@ -907,7 +907,6 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 	// Build URL with query parameters
 	baseURL := c.endpoint
 
-
 	url := fmt.Sprintf("%s/v1/incidents?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
 		url += fmt.Sprintf("&sort=%s", sort)
@@ -1323,7 +1322,6 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-
 
 	url := fmt.Sprintf("%s/v1/alerts?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
@@ -1896,7 +1894,6 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 	// Build URL with query parameters
 	baseURL := c.endpoint
 
-
 	url := fmt.Sprintf("%s/v1/services?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
 		url += fmt.Sprintf("&sort=%s", sort)
@@ -2338,7 +2335,6 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-
 
 	url := fmt.Sprintf("%s/v1/teams?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
@@ -2838,7 +2834,6 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 	// Build URL with query parameters
 	baseURL := c.endpoint
 
-
 	url := fmt.Sprintf("%s/v1/schedules?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 
 	// Add filters (e.g., filter[name]=foo)
@@ -2926,7 +2921,6 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 // ListOnCallsCLI lists on-call entries using the unified /v1/oncalls endpoint.
 func (c *Client) ListOnCallsCLI(ctx context.Context, params OnCallsParams) (*OnCallsResult, error) {
 	baseURL := c.endpoint
-
 
 	url := fmt.Sprintf("%s/v1/oncalls?", baseURL)
 

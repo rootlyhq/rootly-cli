@@ -3,6 +3,7 @@ package oauth
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,29 +84,17 @@ func TestSaveTokens_PreservesExistingConfig(t *testing.T) {
 	// Verify existing fields preserved
 	data, _ := os.ReadFile(filepath.Join(dir, "config.yaml"))
 	content := string(data)
-	if !contains(content, "api_key: my-key") {
+	if !strings.Contains(content, "api_key: my-key") {
 		t.Errorf("api_key not preserved in config:\n%s", content)
 	}
-	if !contains(content, "api_host: custom.rootly.com") {
+	if !strings.Contains(content, "api_host: custom.rootly.com") {
 		t.Errorf("api_host not preserved in config:\n%s", content)
 	}
-	if !contains(content, "access_token: tok") {
+	if !strings.Contains(content, "access_token: tok") {
 		t.Errorf("oauth tokens not written:\n%s", content)
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
 
 func TestClearTokens(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -139,7 +128,7 @@ func TestClearTokens_PreservesConfig(t *testing.T) {
 
 	// API key should still be there
 	data, _ := os.ReadFile(filepath.Join(dir, "config.yaml"))
-	if !contains(string(data), "api_key: my-key") {
+	if !strings.Contains(string(data), "api_key: my-key") {
 		t.Errorf("api_key not preserved after clear:\n%s", string(data))
 	}
 }
