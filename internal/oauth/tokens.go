@@ -58,6 +58,12 @@ func SaveOAuth2Token(tok *oauth2.Token) error {
 	return SaveTokens(TokenDataFromOAuth2(tok))
 }
 
+// HasTokens returns true if a token file exists (cheap stat, no parsing).
+func HasTokens() bool {
+	_, err := os.Stat(tokenPath())
+	return err == nil
+}
+
 func ClearTokens() error {
 	path := tokenPath()
 	if _, err := os.Stat(path); os.IsNotExist(err) {

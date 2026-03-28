@@ -906,7 +906,7 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 
 	url := fmt.Sprintf("%s/v1/incidents?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
@@ -1006,7 +1006,7 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 func (c *Client) GetIncidentByID(ctx context.Context, id string) (*Incident, error) {
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/incidents/%s?include=roles,causes,incident_types,functionalities,services,environments,groups,user", baseURL, id)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
@@ -1079,7 +1079,7 @@ func (c *Client) CreateIncident(ctx context.Context, title string, opts map[stri
 
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/incidents", baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
@@ -1155,7 +1155,7 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/incidents/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(bodyBytes)))
@@ -1206,7 +1206,7 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 func (c *Client) DeleteIncident(ctx context.Context, id string) error {
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/incidents/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, http.NoBody)
@@ -1323,7 +1323,7 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 
 	url := fmt.Sprintf("%s/v1/alerts?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
@@ -1423,7 +1423,7 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 func (c *Client) GetAlertByID(ctx context.Context, id string) (*Alert, error) {
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/alerts/%s?include=services,environments,groups,responders,alert_urgency", baseURL, id)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
@@ -1659,7 +1659,7 @@ func (c *Client) CreateAlertCLI(ctx context.Context, summary string, opts map[st
 
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/alerts", baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
@@ -1738,7 +1738,7 @@ func (c *Client) UpdateAlertCLI(ctx context.Context, id string, opts map[string]
 
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/alerts/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(bodyBytes)))
@@ -1789,7 +1789,7 @@ func (c *Client) UpdateAlertCLI(ctx context.Context, id string, opts map[string]
 func (c *Client) AcknowledgeAlertCLI(ctx context.Context, id string) error {
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/alerts/%s/acknowledge", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, http.NoBody)
@@ -1825,7 +1825,7 @@ func (c *Client) AcknowledgeAlertCLI(ctx context.Context, id string) error {
 func (c *Client) ResolveAlertCLI(ctx context.Context, id, resolutionMessage string, resolveIncidents bool) error {
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/alerts/%s/resolve", baseURL, id)
 
 	var reqBody io.Reader = http.NoBody
@@ -1895,7 +1895,7 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 
 	url := fmt.Sprintf("%s/v1/services?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
@@ -1998,7 +1998,7 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 func (c *Client) GetServiceByID(ctx context.Context, id string) (*Service, error) {
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/services/%s?include=owner_group", baseURL, id)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
@@ -2122,7 +2122,7 @@ func (c *Client) CreateService(ctx context.Context, name string, opts map[string
 
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/services", baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
@@ -2219,7 +2219,7 @@ func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]s
 
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/services/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(bodyBytes)))
@@ -2294,7 +2294,7 @@ func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]s
 func (c *Client) DeleteService(ctx context.Context, id string) error {
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/services/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, http.NoBody)
@@ -2338,7 +2338,7 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 
 	url := fmt.Sprintf("%s/v1/teams?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
@@ -2443,7 +2443,7 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 func (c *Client) GetTeamByID(ctx context.Context, id string) (*Team, error) {
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/teams/%s?include=users", baseURL, id)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
@@ -2568,7 +2568,7 @@ func (c *Client) CreateTeam(ctx context.Context, name string, opts map[string]st
 
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/teams", baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
@@ -2658,7 +2658,7 @@ func (c *Client) UpdateTeam(ctx context.Context, id string, opts map[string]stri
 
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/teams/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "PATCH", url, strings.NewReader(string(bodyBytes)))
@@ -2737,7 +2737,7 @@ func (c *Client) UpdateTeam(ctx context.Context, id string, opts map[string]stri
 func (c *Client) DeleteTeam(ctx context.Context, id string) error {
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/teams/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, http.NoBody)
@@ -2837,7 +2837,7 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 
 	url := fmt.Sprintf("%s/v1/schedules?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 
@@ -2926,7 +2926,7 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 // ListOnCallsCLI lists on-call entries using the unified /v1/oncalls endpoint.
 func (c *Client) ListOnCallsCLI(ctx context.Context, params OnCallsParams) (*OnCallsResult, error) {
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 
 	url := fmt.Sprintf("%s/v1/oncalls?", baseURL)
 
@@ -3121,7 +3121,7 @@ func (c *Client) CreatePulseCLI(ctx context.Context, summary string, opts PulseO
 
 	// Build URL
 	baseURL := c.endpoint
-	baseURL = ensureScheme(baseURL)
+
 	url := fmt.Sprintf("%s/v1/pulses", baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))

@@ -41,7 +41,7 @@ var AlertsCmd = &cobra.Command{
 func getAPIClient() (*api.Client, error) {
 	token := viper.GetString("api_key")
 	if token == "" {
-		if _, err := oauth.LoadTokens(); err != nil {
+		if !oauth.HasTokens() {
 			return nil, fmt.Errorf("authentication required: run 'rootly login' or set ROOTLY_API_KEY")
 		}
 	}

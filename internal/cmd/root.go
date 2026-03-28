@@ -83,9 +83,8 @@ Or use a config file at ~/.rootly-cli/config.yaml:
 			// Config file not found is OK - we'll use flags/env vars
 		}
 
-		// Skip auth validation for commands that don't need it
-		cmdName := cmd.Name()
-		if cmdName == "version" || cmdName == "completion" || cmdName == "help" || cmdName == "login" || cmdName == "logout" {
+		// Skip auth validation for commands that opt out
+		if cmd.Annotations["skipAuth"] == "true" {
 			return nil
 		}
 

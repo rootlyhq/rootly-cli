@@ -31,7 +31,8 @@ By default, connects to api.rootly.com. Use --api-host to target a different env
 
   # Login to a local dev server
   rootly login --api-host=localhost:22166`,
-	RunE: runLogin,
+	Annotations: map[string]string{"skipAuth": "true"},
+	RunE:        runLogin,
 }
 
 func init() {
