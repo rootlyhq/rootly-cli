@@ -179,7 +179,10 @@ func TestNewHTTPClient_RefreshFailsSuggestsLogin(t *testing.T) {
 	}
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, tokenServer.URL+"/test", http.NoBody)
-	_, err = client.Do(req)
+	resp, err := client.Do(req)
+	if resp != nil {
+		resp.Body.Close()
+	}
 	if err == nil {
 		t.Fatal("expected error when refresh token is revoked")
 	}
