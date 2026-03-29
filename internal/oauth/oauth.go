@@ -135,7 +135,7 @@ func ExchangeCode(ctx context.Context, cfg *oauth2.Config, code, codeVerifier st
 }
 
 // DeriveAuthBaseURL builds the OAuth base URL from the API host.
-// For api.rootly.com it returns https://app.rootly.com.
+// For api.rootly.com it returns https://rootly.com.
 // For localhost it returns http://localhost:<port>.
 func DeriveAuthBaseURL(apiHost string) string {
 	// Strip scheme to normalize, then re-apply appropriate scheme
@@ -159,7 +159,7 @@ func DeriveAuthBaseURL(apiHost string) string {
 		return scheme + host
 	}
 	if strings.HasPrefix(host, "api.") {
-		return "https://app." + host[4:]
+		return "https://" + host[4:]
 	}
 	if scheme == "" {
 		scheme = "https://"

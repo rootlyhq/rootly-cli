@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewConfig(t *testing.T) {
-	cfg := NewConfig("https://app.rootly.com", "test-client-id")
+	cfg := NewConfig("https://rootly.com", "test-client-id")
 
 	if cfg.ClientID != "test-client-id" {
 		t.Errorf("ClientID = %q, want %q", cfg.ClientID, "test-client-id")
@@ -18,10 +18,10 @@ func TestNewConfig(t *testing.T) {
 	if cfg.RedirectURL != "http://localhost:19797/callback" {
 		t.Errorf("RedirectURL = %q", cfg.RedirectURL)
 	}
-	if cfg.Endpoint.AuthURL != "https://app.rootly.com/oauth/authorize" {
+	if cfg.Endpoint.AuthURL != "https://rootly.com/oauth/authorize" {
 		t.Errorf("AuthURL = %q", cfg.Endpoint.AuthURL)
 	}
-	if cfg.Endpoint.TokenURL != "https://app.rootly.com/oauth/token" {
+	if cfg.Endpoint.TokenURL != "https://rootly.com/oauth/token" {
 		t.Errorf("TokenURL = %q", cfg.Endpoint.TokenURL)
 	}
 	if len(cfg.Scopes) != 4 {
@@ -45,10 +45,10 @@ func TestDeriveAuthBaseURL(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"api.rootly.com", "https://app.rootly.com"},
-		{"api.staging.rootly.com", "https://app.staging.rootly.com"},
-		{"https://api.rootly.com", "https://app.rootly.com"},
-		{"https://api.staging.rootly.com", "https://app.staging.rootly.com"},
+		{"api.rootly.com", "https://rootly.com"},
+		{"api.staging.rootly.com", "https://staging.rootly.com"},
+		{"https://api.rootly.com", "https://rootly.com"},
+		{"https://api.staging.rootly.com", "https://staging.rootly.com"},
 		{"localhost:22166", "http://localhost:22166"},
 		{"localhost:22166/api", "http://localhost:22166"},
 		{"http://localhost:22166/api", "http://localhost:22166"},
