@@ -58,7 +58,7 @@ jobs:
 
       - name: Upload coverage
         if: matrix.os == 'blacksmith-2vcpu-ubuntu-2404'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: ./coverage.out
           flags: unittests
