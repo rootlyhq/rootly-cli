@@ -1,16 +1,22 @@
 version: 2
+
 updates:
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 20
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
     groups:
       minor-and-patch:
-        patterns:
-          - "*"
+        applies-to: version-updates
         update-types:
           - "minor"
           - "patch"
+        patterns:
+          - "*"
     commit-message:
       prefix: "chore(deps)"
 
@@ -18,12 +24,16 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 20
+    cooldown:
+      default-days: 3
     groups:
       minor-and-patch:
-        patterns:
-          - "*"
+        applies-to: version-updates
         update-types:
           - "minor"
           - "patch"
+        patterns:
+          - "*"
     commit-message:
       prefix: "chore(deps)"
