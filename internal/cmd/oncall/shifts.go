@@ -24,8 +24,14 @@ var shiftsCmd = &cobra.Command{
   # View shifts for the next 14 days
   rootly oncall shifts --days=14
 
-  # Filter by schedule ID
+  # Filter by schedule name or ID
+  rootly oncall shifts --schedule="Primary On-Call"
   rootly oncall shifts --schedule-id=sched-123
+
+  # Filter by service, team, or user
+  rootly oncall shifts --service="API Gateway"
+  rootly oncall shifts --team="Platform Engineering"
+  rootly oncall shifts --user="alice@example.com"
 
   # Output as JSON
   rootly oncall shifts --format=json`,
@@ -35,9 +41,14 @@ var shiftsCmd = &cobra.Command{
 func init() {
 	shiftsCmd.Flags().Int("days", 7, "Number of days ahead to show shifts (default: 7)")
 	shiftsCmd.Flags().String("schedule-id", "", "Filter by schedule ID")
+	shiftsCmd.Flags().String("schedule", "", "Filter by schedule name (looked up automatically)")
 	shiftsCmd.Flags().String("service-id", "", "Filter by service ID")
+	shiftsCmd.Flags().String("service", "", "Filter by service name (looked up automatically)")
 	shiftsCmd.Flags().String("escalation-policy-id", "", "Filter by escalation policy ID")
 	shiftsCmd.Flags().String("user-id", "", "Filter by user ID")
+	shiftsCmd.Flags().String("user", "", "Filter by user name or email (looked up automatically)")
+	shiftsCmd.Flags().String("team-id", "", "Filter by team ID")
+	shiftsCmd.Flags().String("team", "", "Filter by team name (looked up automatically)")
 	shiftsCmd.Flags().String("time-zone", "", "Time zone (e.g. America/New_York)")
 	shiftsCmd.Flags().String("include", "user,schedule,escalation_policy", "Included resources (comma-separated)")
 
@@ -50,13 +61,28 @@ func runShifts(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	ctx := cmd.Context()
 	days, _ := cmd.Flags().GetInt("days")
 	include, _ := cmd.Flags().GetString("include")
-	scheduleID, _ := cmd.Flags().GetString("schedule-id")
-	serviceID, _ := cmd.Flags().GetString("service-id")
 	escalationPolicyID, _ := cmd.Flags().GetString("escalation-policy-id")
-	userID, _ := cmd.Flags().GetString("user-id")
 	timeZone, _ := cmd.Flags().GetString("time-zone")
+
+	scheduleID, err := resolveScheduleID(ctx, apiClient, cmd)
+	if err != nil {
+		return err
+	}
+	serviceID, err := resolveServiceID(ctx, apiClient, cmd)
+	if err != nil {
+		return err
+	}
+	userID, err := resolveUserID(ctx, apiClient, cmd)
+	if err != nil {
+		return err
+	}
+	teamID, err := resolveTeamID(ctx, apiClient, cmd)
+	if err != nil {
+		return err
+	}
 
 	now := time.Now().UTC()
 	until := now.AddDate(0, 0, days)
@@ -70,6 +96,7 @@ func runShifts(cmd *cobra.Command, args []string) error {
 		ServiceIDs:          serviceID,
 		EscalationPolicyIDs: escalationPolicyID,
 		UserIDs:             userID,
+		GroupIDs:            teamID,
 	}
 
 	result, err := apiClient.ListOnCallsCLI(cmd.Context(), params)

@@ -21,11 +21,14 @@ var whoCmd = &cobra.Command{
 	Example: `  # See who is on-call right now
   rootly oncall who
 
-  # Filter by schedule
+  # Filter by schedule name or ID
+  rootly oncall who --schedule="Primary On-Call"
   rootly oncall who --schedule-id=sched-123
 
-  # Filter by service
-  rootly oncall who --service-id=svc-456
+  # Filter by service, team, or user
+  rootly oncall who --service="API Gateway"
+  rootly oncall who --team="Platform Engineering"
+  rootly oncall who --user="alice@example.com"
 
   # Output as JSON
   rootly oncall who --format=json`,
@@ -34,9 +37,14 @@ var whoCmd = &cobra.Command{
 
 func init() {
 	whoCmd.Flags().String("schedule-id", "", "Filter by schedule ID")
+	whoCmd.Flags().String("schedule", "", "Filter by schedule name (looked up automatically)")
 	whoCmd.Flags().String("service-id", "", "Filter by service ID")
+	whoCmd.Flags().String("service", "", "Filter by service name (looked up automatically)")
 	whoCmd.Flags().String("escalation-policy-id", "", "Filter by escalation policy ID")
 	whoCmd.Flags().String("user-id", "", "Filter by user ID")
+	whoCmd.Flags().String("user", "", "Filter by user name or email (looked up automatically)")
+	whoCmd.Flags().String("team-id", "", "Filter by team ID")
+	whoCmd.Flags().String("team", "", "Filter by team name (looked up automatically)")
 	whoCmd.Flags().String("time-zone", "", "Time zone (e.g. America/New_York)")
 	whoCmd.Flags().Bool("earliest", true, "Only show first on-call user per escalation level")
 	whoCmd.Flags().String("include", "user,schedule,escalation_policy", "Included resources (comma-separated)")
@@ -50,14 +58,29 @@ func runWho(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	ctx := cmd.Context()
 	now := time.Now().UTC().Format(time.RFC3339)
 	earliest, _ := cmd.Flags().GetBool("earliest")
 	include, _ := cmd.Flags().GetString("include")
-	scheduleID, _ := cmd.Flags().GetString("schedule-id")
-	serviceID, _ := cmd.Flags().GetString("service-id")
 	escalationPolicyID, _ := cmd.Flags().GetString("escalation-policy-id")
-	userID, _ := cmd.Flags().GetString("user-id")
 	timeZone, _ := cmd.Flags().GetString("time-zone")
+
+	scheduleID, err := resolveScheduleID(ctx, apiClient, cmd)
+	if err != nil {
+		return err
+	}
+	serviceID, err := resolveServiceID(ctx, apiClient, cmd)
+	if err != nil {
+		return err
+	}
+	userID, err := resolveUserID(ctx, apiClient, cmd)
+	if err != nil {
+		return err
+	}
+	teamID, err := resolveTeamID(ctx, apiClient, cmd)
+	if err != nil {
+		return err
+	}
 
 	params := api.OnCallsParams{
 		Include:             include,
@@ -69,6 +92,7 @@ func runWho(cmd *cobra.Command, args []string) error {
 		ServiceIDs:          serviceID,
 		EscalationPolicyIDs: escalationPolicyID,
 		UserIDs:             userID,
+		GroupIDs:            teamID,
 	}
 
 	result, err := apiClient.ListOnCallsCLI(cmd.Context(), params)
