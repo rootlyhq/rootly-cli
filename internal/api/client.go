@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	neturl "net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -2961,16 +2962,16 @@ func (c *Client) ListOnCallsCLI(ctx context.Context, params OnCallsParams) (*OnC
 		qp = append(qp, "time_zone="+params.TimeZone)
 	}
 	if params.ScheduleIDs != "" {
-		qp = append(qp, "filter[schedule_id]="+params.ScheduleIDs)
+		qp = append(qp, "filter[schedule_ids]="+neturl.QueryEscape(params.ScheduleIDs))
 	}
 	if params.ServiceIDs != "" {
-		qp = append(qp, "filter[service_id]="+params.ServiceIDs)
+		qp = append(qp, "filter[service_ids]="+neturl.QueryEscape(params.ServiceIDs))
 	}
 	if params.EscalationPolicyIDs != "" {
-		qp = append(qp, "filter[escalation_policy_id]="+params.EscalationPolicyIDs)
+		qp = append(qp, "filter[escalation_policy_ids]="+neturl.QueryEscape(params.EscalationPolicyIDs))
 	}
 	if params.UserIDs != "" {
-		qp = append(qp, "filter[user_id]="+params.UserIDs)
+		qp = append(qp, "filter[user_ids]="+neturl.QueryEscape(params.UserIDs))
 	}
 
 	url += strings.Join(qp, "&")

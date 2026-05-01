@@ -353,8 +353,8 @@ func TestRunShiftsJSON(t *testing.T) {
 func TestRunShiftsWithScheduleFilter(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.RawQuery
-		if !strings.Contains(query, "filter[schedule_id]=sched-1") {
-			t.Errorf("expected schedule_id filter in query, got: %s", query)
+		if !strings.Contains(query, "filter[schedule_ids]=sched-1") {
+			t.Errorf("expected schedule_ids filter in query, got: %s", query)
 		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		w.Write([]byte(oncallsResponse()))
@@ -455,8 +455,8 @@ func TestRunWhoEarliestFalse(t *testing.T) {
 func TestRunWhoWithServiceFilter(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.RawQuery
-		if !strings.Contains(query, "filter[service_id]=svc-1") {
-			t.Errorf("expected service_id filter in query, got: %s", query)
+		if !strings.Contains(query, "filter[service_ids]=svc-1") {
+			t.Errorf("expected service_ids filter in query, got: %s", query)
 		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		w.Write([]byte(oncallsResponse()))
@@ -538,8 +538,8 @@ func TestRunWhoNoActiveShifts(t *testing.T) {
 func TestRunWhoWithScheduleFilter(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.RawQuery
-		if !strings.Contains(query, "filter[schedule_id]=sched-1") {
-			t.Errorf("expected schedule_id filter in query, got: %s", query)
+		if !strings.Contains(query, "filter[schedule_ids]=sched-1") {
+			t.Errorf("expected schedule_ids filter in query, got: %s", query)
 		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		w.Write([]byte(oncallsResponse()))
