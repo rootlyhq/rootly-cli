@@ -40,6 +40,27 @@ func TestNewConfig_Localhost(t *testing.T) {
 	}
 }
 
+func TestDeriveAPIBaseURL(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"api.rootly.com", "https://api.rootly.com"},
+		{"https://api.rootly.com", "https://api.rootly.com"},
+		{"localhost:22166", "http://localhost:22166"},
+		{"http://localhost:22166", "http://localhost:22166"},
+		{"custom.example.com", "https://custom.example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := DeriveAPIBaseURL(tt.input)
+			if got != tt.want {
+				t.Errorf("DeriveAPIBaseURL(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDeriveAuthBaseURL(t *testing.T) {
 	tests := []struct {
 		input string

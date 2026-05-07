@@ -41,25 +41,20 @@ func init() {
 }
 
 // resolveClientID returns a client ID, registering dynamically if needed.
-func resolveClientID(ctx context.Context, authBaseURL string, cmd *cobra.Command) (string, error) {
-	// Allow explicit override for debugging
+func resolveClientID(ctx context.Context, apiBaseURL string, cmd *cobra.Command) (string, error) {
 	if clientID, _ := cmd.Flags().GetString("client-id"); clientID != "" {
 		return clientID, nil
 	}
-
-	// Check cached client_id
 	if clientID := xoauth.LoadCachedClientID(); clientID != "" {
 		return clientID, nil
 	}
-
-	// Register dynamically
-	return registerAndCache(ctx, authBaseURL, cmd)
+	return registerAndCache(ctx, apiBaseURL, cmd)
 }
 
 // registerAndCache calls POST /oauth/register and saves the client_id.
-func registerAndCache(ctx context.Context, authBaseURL string, cmd *cobra.Command) (string, error) {
+func registerAndCache(ctx context.Context, apiBaseURL string, cmd *cobra.Command) (string, error) {
 	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Registering OAuth client...\n")
-	clientID, err := xoauth.RegisterClient(ctx, authBaseURL)
+	clientID, err := xoauth.RegisterClient(ctx, apiBaseURL)
 	if err != nil {
 		return "", err
 	}
@@ -80,9 +75,10 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		apiHost = config.DefaultEndpoint
 	}
 
+	apiBaseURL := xoauth.DeriveAPIBaseURL(apiHost)
 	authBaseURL := xoauth.DeriveAuthBaseURL(apiHost)
 
-	clientID, err := resolveClientID(ctx, authBaseURL, cmd)
+	clientID, err := resolveClientID(ctx, apiBaseURL, cmd)
 	if err != nil {
 		return err
 	}
@@ -93,7 +89,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		if isAuthorize404(err) {
 			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "OAuth client not found, re-registering...\n")
 			_ = xoauth.ClearClientID()
-			clientID, regErr := registerAndCache(ctx, authBaseURL, cmd)
+			clientID, regErr := registerAndCache(ctx, apiBaseURL, cmd)
 			if regErr != nil {
 				return regErr
 			}

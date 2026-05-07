@@ -49,7 +49,7 @@ type registrationResponse struct {
 }
 
 // RegisterClient dynamically registers an OAuth client and returns the client_id.
-func RegisterClient(ctx context.Context, authBaseURL string) (string, error) {
+func RegisterClient(ctx context.Context, apiBaseURL string) (string, error) {
 	reqBody := registrationRequest{
 		ClientName:              "Rootly CLI",
 		RedirectURIs:            []string{RedirectURI},
@@ -63,7 +63,7 @@ func RegisterClient(ctx context.Context, authBaseURL string) (string, error) {
 		return "", fmt.Errorf("failed to marshal registration request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, authBaseURL+"/oauth/register", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBaseURL+"/oauth/register", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("failed to create registration request: %w", err)
 	}
@@ -132,6 +132,29 @@ func GenerateState() (string, error) {
 // ExchangeCode exchanges an authorization code for tokens using PKCE.
 func ExchangeCode(ctx context.Context, cfg *oauth2.Config, code, codeVerifier string) (*oauth2.Token, error) {
 	return cfg.Exchange(ctx, code, oauth2.VerifierOption(codeVerifier))
+}
+
+// DeriveAPIBaseURL builds the API base URL (with scheme) from the api_host config value.
+func DeriveAPIBaseURL(apiHost string) string {
+	host := apiHost
+	scheme := ""
+	if strings.HasPrefix(apiHost, "http://") {
+		scheme = "http://"
+		host = apiHost[7:]
+	} else if strings.HasPrefix(apiHost, "https://") {
+		scheme = "https://"
+		host = apiHost[8:]
+	}
+	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") {
+		if scheme == "" {
+			scheme = "http://"
+		}
+		return scheme + host
+	}
+	if scheme == "" {
+		scheme = "https://"
+	}
+	return scheme + host
 }
 
 // DeriveAuthBaseURL builds the OAuth base URL from the API host.
