@@ -10,7 +10,8 @@ import (
 )
 
 func TestNewConfig(t *testing.T) {
-	cfg := NewConfig("https://rootly.com", "test-client-id")
+	scopes := []string{"openid", "profile", "email"}
+	cfg := NewConfig("https://rootly.com", "test-client-id", scopes)
 
 	if cfg.ClientID != "test-client-id" {
 		t.Errorf("ClientID = %q, want %q", cfg.ClientID, "test-client-id")
@@ -24,40 +25,19 @@ func TestNewConfig(t *testing.T) {
 	if cfg.Endpoint.TokenURL != "https://rootly.com/oauth/token" {
 		t.Errorf("TokenURL = %q", cfg.Endpoint.TokenURL)
 	}
-	if len(cfg.Scopes) != 4 {
+	if len(cfg.Scopes) != 3 {
 		t.Errorf("Scopes = %v", cfg.Scopes)
 	}
 }
 
 func TestNewConfig_Localhost(t *testing.T) {
-	cfg := NewConfig("http://localhost:22166", "my-client")
+	cfg := NewConfig("http://localhost:22166", "my-client", nil)
 
 	if cfg.Endpoint.AuthURL != "http://localhost:22166/oauth/authorize" {
 		t.Errorf("AuthURL = %q", cfg.Endpoint.AuthURL)
 	}
 	if cfg.Endpoint.TokenURL != "http://localhost:22166/oauth/token" {
 		t.Errorf("TokenURL = %q", cfg.Endpoint.TokenURL)
-	}
-}
-
-func TestDeriveAPIBaseURL(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"api.rootly.com", "https://api.rootly.com"},
-		{"https://api.rootly.com", "https://api.rootly.com"},
-		{"localhost:22166", "http://localhost:22166"},
-		{"http://localhost:22166", "http://localhost:22166"},
-		{"custom.example.com", "https://custom.example.com"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := DeriveAPIBaseURL(tt.input)
-			if got != tt.want {
-				t.Errorf("DeriveAPIBaseURL(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
 	}
 }
 
@@ -109,16 +89,19 @@ func TestRegisterClient(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(registrationResponse{ClientID: "dynamic-id-123"})
+		_ = json.NewEncoder(w).Encode(registrationResponse{ClientID: "dynamic-id-123", Scope: "openid profile email"})
 	}))
 	defer srv.Close()
 
-	clientID, err := RegisterClient(context.Background(), srv.URL)
+	clientID, scopes, err := RegisterClient(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("RegisterClient() error: %v", err)
 	}
 	if clientID != "dynamic-id-123" {
 		t.Errorf("clientID = %q, want %q", clientID, "dynamic-id-123")
+	}
+	if len(scopes) != 3 || scopes[0] != "openid" {
+		t.Errorf("scopes = %v", scopes)
 	}
 }
 
@@ -128,42 +111,45 @@ func TestRegisterClient_NonCreated(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := RegisterClient(context.Background(), srv.URL)
+	_, _, err := RegisterClient(context.Background(), srv.URL)
 	if err == nil {
 		t.Fatal("expected error for non-201 status")
 	}
 }
 
-func TestLoadSaveClearClientID(t *testing.T) {
+func TestLoadSaveClearRegistration(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 	t.Setenv("USERPROFILE", tmpDir)
 
 	// Initially empty
-	if id := LoadCachedClientID(); id != "" {
+	if id, _ := LoadCachedRegistration(); id != "" {
 		t.Errorf("expected empty, got %q", id)
 	}
 
 	// Save
-	if err := SaveClientID("cached-id"); err != nil {
-		t.Fatalf("SaveClientID: %v", err)
+	if err := SaveRegistration("cached-id", []string{"openid", "profile"}); err != nil {
+		t.Fatalf("SaveRegistration: %v", err)
 	}
-	if id := LoadCachedClientID(); id != "cached-id" {
+	id, scopes := LoadCachedRegistration()
+	if id != "cached-id" {
 		t.Errorf("got %q, want %q", id, "cached-id")
+	}
+	if len(scopes) != 2 {
+		t.Errorf("scopes = %v", scopes)
 	}
 
 	// Clear
-	if err := ClearClientID(); err != nil {
-		t.Fatalf("ClearClientID: %v", err)
+	if err := ClearRegistration(); err != nil {
+		t.Fatalf("ClearRegistration: %v", err)
 	}
 
-	// Verify cleared — load raw config to check
+	// Verify cleared
 	data, err := os.ReadFile(configPathForTest(tmpDir))
 	if err != nil {
-		// File may not exist after clear, that's ok
 		return
 	}
-	if id := LoadCachedClientID(); id != "" {
+	if id, _ := LoadCachedRegistration(); id != "" {
 		t.Errorf("expected empty after clear, got %q (raw: %s)", id, string(data))
 	}
 }

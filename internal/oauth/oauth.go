@@ -20,12 +20,12 @@ const (
 	RedirectURI  = "http://localhost:" + CallbackPort + "/callback"
 )
 
-// NewConfig creates an oauth2.Config for the given auth base URL and client ID.
-func NewConfig(authBaseURL, clientID string) *oauth2.Config {
+// NewConfig creates an oauth2.Config for the given auth base URL, client ID, and scopes.
+func NewConfig(authBaseURL, clientID string, scopes []string) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:    clientID,
 		RedirectURL: RedirectURI,
-		Scopes:      []string{"openid", "profile", "email", "all"},
+		Scopes:      scopes,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:   authBaseURL + "/oauth/authorize",
 			TokenURL:  authBaseURL + "/oauth/token",
@@ -46,10 +46,11 @@ type registrationRequest struct {
 // registrationResponse is the response from POST /oauth/register.
 type registrationResponse struct {
 	ClientID string `json:"client_id"`
+	Scope    string `json:"scope"`
 }
 
-// RegisterClient dynamically registers an OAuth client and returns the client_id.
-func RegisterClient(ctx context.Context, apiBaseURL string) (string, error) {
+// RegisterClient dynamically registers an OAuth client and returns the client_id and granted scopes.
+func RegisterClient(ctx context.Context, authBaseURL string) (string, []string, error) {
 	reqBody := registrationRequest{
 		ClientName:              "Rootly CLI",
 		RedirectURIs:            []string{RedirectURI},
@@ -60,63 +61,66 @@ func RegisterClient(ctx context.Context, apiBaseURL string) (string, error) {
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal registration request: %w", err)
+		return "", nil, fmt.Errorf("failed to marshal registration request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBaseURL+"/oauth/register", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, authBaseURL+"/oauth/register", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("failed to create registration request: %w", err)
+		return "", nil, fmt.Errorf("failed to create registration request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to register OAuth client: %w", err)
+		return "", nil, fmt.Errorf("failed to register OAuth client: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("could not register OAuth client (status %d)", resp.StatusCode)
+		return "", nil, fmt.Errorf("could not register OAuth client (status %d)", resp.StatusCode)
 	}
 
 	var regResp registrationResponse
 	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
-		return "", fmt.Errorf("failed to parse registration response: %w", err)
+		return "", nil, fmt.Errorf("failed to parse registration response: %w", err)
 	}
 
 	if regResp.ClientID == "" {
-		return "", fmt.Errorf("registration response missing client_id")
+		return "", nil, fmt.Errorf("registration response missing client_id")
 	}
 
-	return regResp.ClientID, nil
+	scopes := strings.Fields(regResp.Scope)
+	return regResp.ClientID, scopes, nil
 }
 
-// LoadCachedClientID reads the cached OAuth client_id from config.
-func LoadCachedClientID() string {
+// LoadCachedRegistration reads the cached client_id and scopes from config.
+func LoadCachedRegistration() (clientID string, scopes []string) {
 	cfg, err := config.Load()
 	if err != nil {
-		return ""
+		return "", nil
 	}
-	return cfg.ClientID
+	return cfg.ClientID, cfg.Scopes
 }
 
-// SaveClientID persists the OAuth client_id to config, preserving other fields.
-func SaveClientID(clientID string) error {
+// SaveRegistration persists the client_id and scopes to config.
+func SaveRegistration(clientID string, scopes []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		cfg = &config.Config{}
 	}
 	cfg.ClientID = clientID
+	cfg.Scopes = scopes
 	return config.Save(cfg)
 }
 
-// ClearClientID removes the cached client_id from config.
-func ClearClientID() error {
+// ClearRegistration removes the cached client_id and scopes from config.
+func ClearRegistration() error {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil // No config file means nothing to clear
+		return nil
 	}
 	cfg.ClientID = ""
+	cfg.Scopes = nil
 	return config.Save(cfg)
 }
 
@@ -132,29 +136,6 @@ func GenerateState() (string, error) {
 // ExchangeCode exchanges an authorization code for tokens using PKCE.
 func ExchangeCode(ctx context.Context, cfg *oauth2.Config, code, codeVerifier string) (*oauth2.Token, error) {
 	return cfg.Exchange(ctx, code, oauth2.VerifierOption(codeVerifier))
-}
-
-// DeriveAPIBaseURL builds the API base URL (with scheme) from the api_host config value.
-func DeriveAPIBaseURL(apiHost string) string {
-	host := apiHost
-	scheme := ""
-	if strings.HasPrefix(apiHost, "http://") {
-		scheme = "http://"
-		host = apiHost[7:]
-	} else if strings.HasPrefix(apiHost, "https://") {
-		scheme = "https://"
-		host = apiHost[8:]
-	}
-	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") {
-		if scheme == "" {
-			scheme = "http://"
-		}
-		return scheme + host
-	}
-	if scheme == "" {
-		scheme = "https://"
-	}
-	return scheme + host
 }
 
 // DeriveAuthBaseURL builds the OAuth base URL from the API host.

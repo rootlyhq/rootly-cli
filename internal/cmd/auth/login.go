@@ -40,28 +40,28 @@ func init() {
 	_ = LoginCmd.Flags().MarkHidden("client-id")
 }
 
-// resolveClientID returns a client ID, registering dynamically if needed.
-func resolveClientID(ctx context.Context, apiBaseURL string, cmd *cobra.Command) (string, error) {
+// resolveRegistration returns a client ID and scopes, registering dynamically if needed.
+func resolveRegistration(ctx context.Context, authBaseURL string, cmd *cobra.Command) (string, []string, error) {
 	if clientID, _ := cmd.Flags().GetString("client-id"); clientID != "" {
-		return clientID, nil
+		return clientID, nil, nil
 	}
-	if clientID := xoauth.LoadCachedClientID(); clientID != "" {
-		return clientID, nil
+	if clientID, scopes := xoauth.LoadCachedRegistration(); clientID != "" {
+		return clientID, scopes, nil
 	}
-	return registerAndCache(ctx, apiBaseURL, cmd)
+	return registerAndCache(ctx, authBaseURL, cmd)
 }
 
-// registerAndCache calls POST /oauth/register and saves the client_id.
-func registerAndCache(ctx context.Context, apiBaseURL string, cmd *cobra.Command) (string, error) {
+// registerAndCache calls POST /oauth/register and saves the client_id and scopes.
+func registerAndCache(ctx context.Context, authBaseURL string, cmd *cobra.Command) (string, []string, error) {
 	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Registering OAuth client...\n")
-	clientID, err := xoauth.RegisterClient(ctx, apiBaseURL)
+	clientID, scopes, err := xoauth.RegisterClient(ctx, authBaseURL)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	if err := xoauth.SaveClientID(clientID); err != nil {
-		return "", fmt.Errorf("failed to cache client ID: %w", err)
+	if err := xoauth.SaveRegistration(clientID, scopes); err != nil {
+		return "", nil, fmt.Errorf("failed to cache registration: %w", err)
 	}
-	return clientID, nil
+	return clientID, scopes, nil
 }
 
 // httpClientWithTimeout is used for pre-flight checks (HEAD) and registration.
@@ -75,25 +75,24 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		apiHost = config.DefaultEndpoint
 	}
 
-	apiBaseURL := xoauth.DeriveAPIBaseURL(apiHost)
 	authBaseURL := xoauth.DeriveAuthBaseURL(apiHost)
 
-	clientID, err := resolveClientID(ctx, apiBaseURL, cmd)
+	clientID, scopes, err := resolveRegistration(ctx, authBaseURL, cmd)
 	if err != nil {
 		return err
 	}
 
-	tok, err := doOAuthFlow(ctx, cmd, authBaseURL, clientID)
+	tok, err := doOAuthFlow(ctx, cmd, authBaseURL, clientID, scopes)
 	if err != nil {
 		// If authorize returned 404, the cached client_id may be stale — re-register once
 		if isAuthorize404(err) {
 			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "OAuth client not found, re-registering...\n")
-			_ = xoauth.ClearClientID()
-			clientID, regErr := registerAndCache(ctx, apiBaseURL, cmd)
+			_ = xoauth.ClearRegistration()
+			clientID, scopes, regErr := registerAndCache(ctx, authBaseURL, cmd)
 			if regErr != nil {
 				return regErr
 			}
-			tok, err = doOAuthFlow(ctx, cmd, authBaseURL, clientID)
+			tok, err = doOAuthFlow(ctx, cmd, authBaseURL, clientID, scopes)
 			if err != nil {
 				return err
 			}
@@ -117,8 +116,8 @@ func isAuthorize404(err error) bool {
 	return errors.Is(err, errAuthorize404)
 }
 
-func doOAuthFlow(ctx context.Context, cmd *cobra.Command, authBaseURL, clientID string) (*oauth2.Token, error) {
-	cfg := xoauth.NewConfig(authBaseURL, clientID)
+func doOAuthFlow(ctx context.Context, cmd *cobra.Command, authBaseURL, clientID string, scopes []string) (*oauth2.Token, error) {
+	cfg := xoauth.NewConfig(authBaseURL, clientID, scopes)
 
 	verifier := oauth2.GenerateVerifier()
 
