@@ -41,7 +41,7 @@ func init() {
 }
 
 // resolveRegistration returns a client ID and scopes, registering dynamically if needed.
-func resolveRegistration(ctx context.Context, authBaseURL string, cmd *cobra.Command) (string, []string, error) {
+func resolveRegistration(ctx context.Context, authBaseURL string, cmd *cobra.Command) (clientID string, scopes []string, err error) {
 	if clientID, _ := cmd.Flags().GetString("client-id"); clientID != "" {
 		return clientID, nil, nil
 	}
@@ -52,14 +52,14 @@ func resolveRegistration(ctx context.Context, authBaseURL string, cmd *cobra.Com
 }
 
 // registerAndCache calls POST /oauth/register and saves the client_id and scopes.
-func registerAndCache(ctx context.Context, authBaseURL string, cmd *cobra.Command) (string, []string, error) {
+func registerAndCache(ctx context.Context, authBaseURL string, cmd *cobra.Command) (clientID string, scopes []string, err error) {
 	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Registering OAuth client...\n")
-	clientID, scopes, err := xoauth.RegisterClient(ctx, authBaseURL)
+	clientID, scopes, err = xoauth.RegisterClient(ctx, authBaseURL)
 	if err != nil {
 		return "", nil, err
 	}
-	if err := xoauth.SaveRegistration(clientID, scopes); err != nil {
-		return "", nil, fmt.Errorf("failed to cache registration: %w", err)
+	if saveErr := xoauth.SaveRegistration(clientID, scopes); saveErr != nil {
+		return "", nil, fmt.Errorf("failed to cache registration: %w", saveErr)
 	}
 	return clientID, scopes, nil
 }

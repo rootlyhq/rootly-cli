@@ -50,7 +50,7 @@ type registrationResponse struct {
 }
 
 // RegisterClient dynamically registers an OAuth client and returns the client_id and granted scopes.
-func RegisterClient(ctx context.Context, authBaseURL string) (string, []string, error) {
+func RegisterClient(ctx context.Context, authBaseURL string) (clientID string, scopes []string, err error) {
 	reqBody := registrationRequest{
 		ClientName:              "Rootly CLI",
 		RedirectURIs:            []string{RedirectURI},
@@ -89,8 +89,9 @@ func RegisterClient(ctx context.Context, authBaseURL string) (string, []string, 
 		return "", nil, fmt.Errorf("registration response missing client_id")
 	}
 
-	scopes := strings.Fields(regResp.Scope)
-	return regResp.ClientID, scopes, nil
+	clientID = regResp.ClientID
+	scopes = strings.Fields(regResp.Scope)
+	return clientID, scopes, nil
 }
 
 // LoadCachedRegistration reads the cached client_id and scopes from config.
