@@ -3,8 +3,8 @@ module github.com/rootlyhq/rootly-cli
 go 1.24.2
 
 require (
-	github.com/jedib0t/go-pretty/v6 v6.7.9
-	github.com/mattn/go-isatty v0.0.21
+	github.com/jedib0t/go-pretty/v6 v6.7.10
+	github.com/mattn/go-isatty v0.0.22
 	github.com/rootlyhq/rootly-go v0.9.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
