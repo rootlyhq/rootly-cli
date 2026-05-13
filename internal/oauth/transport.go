@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"golang.org/x/oauth2"
 )
@@ -37,6 +38,7 @@ func NewHTTPClient(cfg *oauth2.Config, base http.RoundTripper, userAgent string)
 
 // persistingTokenSource wraps a TokenSource and saves refreshed tokens to disk.
 type persistingTokenSource struct {
+	mu              sync.Mutex
 	base            oauth2.TokenSource
 	lastAccessToken string
 }
@@ -44,16 +46,19 @@ type persistingTokenSource struct {
 func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 	tok, err := p.base.Token()
 	if err != nil {
-		// Surface a user-friendly message when refresh fails
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "token") || strings.Contains(errMsg, "401") || strings.Contains(errMsg, "invalid_grant") {
 			return nil, fmt.Errorf("session expired — run 'rootly login' to re-authenticate: %w", err)
 		}
 		return nil, err
 	}
-	// Only save when the token was actually refreshed (new access token)
-	if tok.AccessToken != p.lastAccessToken {
+	p.mu.Lock()
+	changed := tok.AccessToken != p.lastAccessToken
+	if changed {
 		p.lastAccessToken = tok.AccessToken
+	}
+	p.mu.Unlock()
+	if changed {
 		_ = SaveOAuth2Token(tok)
 	}
 	return tok, nil
