@@ -18,12 +18,23 @@ const (
 )
 
 type Config struct {
-	APIKey   string `yaml:"api_key"`
-	Endpoint string `yaml:"api_host"`
-	Timezone string `yaml:"timezone"` // TUI-specific
-	Language string `yaml:"language"` // TUI-specific
-	Layout   string `yaml:"layout"`   // TUI-specific
-	Debug    bool   `yaml:"-"`        // Runtime only, not persisted
+	APIKey   string     `yaml:"api_key"`
+	Endpoint string     `yaml:"api_host"`
+	Timezone string     `yaml:"timezone"` // TUI-specific
+	Language string     `yaml:"language"` // TUI-specific
+	Layout   string     `yaml:"layout"`   // TUI-specific
+	OAuth    *OAuthData `yaml:"oauth,omitempty"`
+	ClientID string     `yaml:"client_id,omitempty"`   // Dynamically registered OAuth client ID
+	Scopes   []string   `yaml:"scopes,omitempty,flow"` // Granted OAuth scopes from registration
+	Debug    bool       `yaml:"-"`                     // Runtime only, not persisted
+}
+
+// OAuthData holds OAuth2 token data within the config file.
+type OAuthData struct {
+	AccessToken  string    `yaml:"access_token"`
+	RefreshToken string    `yaml:"refresh_token"`
+	ExpiresAt    time.Time `yaml:"expires_at"`
+	TokenType    string    `yaml:"token_type"`
 }
 
 const DefaultTimezone = "UTC"

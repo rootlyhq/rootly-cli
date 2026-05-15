@@ -14,6 +14,7 @@ import (
 	rootly "github.com/rootlyhq/rootly-go"
 
 	"github.com/rootlyhq/rootly-cli/internal/config"
+	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
 
 // Version is set by the main package to include in User-Agent
@@ -733,30 +734,60 @@ func parseIncidentDetailRelationships(incident *Incident, a *incidentDetailAttri
 // NewClient creates a stateless API client for CLI usage.
 func NewClient(cfg *config.Config) (*Client, error) {
 	endpoint := cfg.Endpoint
-	if endpoint != "" && !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
-		endpoint = "https://" + endpoint
+	if endpoint != "" {
+		endpoint = ensureScheme(endpoint)
 	}
 
-	// Build HTTP client with optional debug transport
-	httpClient := http.DefaultClient
-	if cfg.Debug {
-		transport := http.DefaultTransport
-		if httpClient.Transport != nil {
-			transport = httpClient.Transport
+	// Determine auth: use OAuth tokens only when no API key is set
+	useOAuth := false
+	if cfg.APIKey == "" {
+		if tokens, err := oauth.LoadTokens(); err == nil && tokens.AccessToken != "" {
+			useOAuth = true
 		}
-		httpClient = &http.Client{
-			Transport: &debugTransport{transport: transport},
+	}
+
+	// Build base transport
+	var transport http.RoundTripper
+	transport = http.DefaultTransport
+
+	if cfg.Debug {
+		transport = &debugTransport{transport: transport}
+	}
+
+	var httpClient *http.Client
+	if useOAuth {
+		authBaseURL := oauth.DeriveAuthBaseURL(cfg.Endpoint)
+		clientID, scopes := oauth.LoadCachedRegistration()
+		oauthCfg := oauth.NewConfig(authBaseURL, clientID, scopes)
+		var err error
+		httpClient, err = oauth.NewHTTPClient(oauthCfg, transport, "rootly-cli/"+Version)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create OAuth client: %w", err)
+		}
+	} else {
+		httpClient = &http.Client{Transport: transport}
+	}
+
+	var reqEditorFn rootly.RequestEditorFn
+	if useOAuth {
+		// OAuth transport handles Authorization header
+		reqEditorFn = func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("Content-Type", "application/vnd.api+json")
+			req.Header.Set("User-Agent", "rootly-cli/"+Version)
+			return nil
+		}
+	} else {
+		reqEditorFn = func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+			req.Header.Set("Content-Type", "application/vnd.api+json")
+			req.Header.Set("User-Agent", "rootly-cli/"+Version)
+			return nil
 		}
 	}
 
 	client, err := rootly.NewClientWithResponses(endpoint,
 		rootly.WithHTTPClient(httpClient),
-		rootly.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
-			req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-			req.Header.Set("Content-Type", "application/vnd.api+json")
-			req.Header.Set("User-Agent", "rootly-cli/"+Version)
-			return nil
-		}),
+		rootly.WithRequestEditorFn(reqEditorFn),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rootly client: %w", err)
@@ -764,10 +795,28 @@ func NewClient(cfg *config.Config) (*Client, error) {
 
 	return &Client{
 		client:     client,
-		endpoint:   cfg.Endpoint,
+		endpoint:   endpoint,
 		apiKey:     cfg.APIKey,
 		httpClient: httpClient,
 	}, nil
+}
+
+// ensureScheme adds a scheme if missing, using http for localhost/127.0.0.1.
+// For localhost without an explicit path, it also appends /api since the
+// Rails monolith serves the API under /api/v1 rather than /v1.
+func ensureScheme(endpoint string) string {
+	if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
+		return endpoint
+	}
+	if strings.HasPrefix(endpoint, "localhost") || strings.HasPrefix(endpoint, "127.0.0.1") {
+		result := "http://" + endpoint
+		// Auto-append /api for localhost if no path is present
+		if !strings.Contains(endpoint, "/") {
+			result += "/api"
+		}
+		return result
+	}
+	return "https://" + endpoint
 }
 
 func (c *Client) ValidateAPIKey(ctx context.Context) error {
@@ -865,9 +914,6 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
 
 	url := fmt.Sprintf("%s/v1/incidents?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
@@ -967,9 +1013,7 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 func (c *Client) GetIncidentByID(ctx context.Context, id string) (*Incident, error) {
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/incidents/%s?include=roles,causes,incident_types,functionalities,services,environments,groups,user", baseURL, id)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
@@ -1042,9 +1086,7 @@ func (c *Client) CreateIncident(ctx context.Context, title string, opts map[stri
 
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/incidents", baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
@@ -1120,9 +1162,7 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/incidents/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(bodyBytes)))
@@ -1173,9 +1213,7 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 func (c *Client) DeleteIncident(ctx context.Context, id string) error {
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/incidents/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, http.NoBody)
@@ -1292,9 +1330,6 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
 
 	url := fmt.Sprintf("%s/v1/alerts?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
@@ -1394,9 +1429,7 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 func (c *Client) GetAlertByID(ctx context.Context, id string) (*Alert, error) {
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/alerts/%s?include=services,environments,groups,responders,alert_urgency", baseURL, id)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
@@ -1632,9 +1665,7 @@ func (c *Client) CreateAlertCLI(ctx context.Context, summary string, opts map[st
 
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/alerts", baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
@@ -1713,9 +1744,7 @@ func (c *Client) UpdateAlertCLI(ctx context.Context, id string, opts map[string]
 
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/alerts/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(bodyBytes)))
@@ -1766,9 +1795,7 @@ func (c *Client) UpdateAlertCLI(ctx context.Context, id string, opts map[string]
 func (c *Client) AcknowledgeAlertCLI(ctx context.Context, id string) error {
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/alerts/%s/acknowledge", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, http.NoBody)
@@ -1804,9 +1831,7 @@ func (c *Client) AcknowledgeAlertCLI(ctx context.Context, id string) error {
 func (c *Client) ResolveAlertCLI(ctx context.Context, id, resolutionMessage string, resolveIncidents bool) error {
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/alerts/%s/resolve", baseURL, id)
 
 	var reqBody io.Reader = http.NoBody
@@ -1876,9 +1901,6 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
 
 	url := fmt.Sprintf("%s/v1/services?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
@@ -1981,9 +2003,7 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 func (c *Client) GetServiceByID(ctx context.Context, id string) (*Service, error) {
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/services/%s?include=owner_group", baseURL, id)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
@@ -2107,9 +2127,7 @@ func (c *Client) CreateService(ctx context.Context, name string, opts map[string
 
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/services", baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
@@ -2206,9 +2224,7 @@ func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]s
 
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/services/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(bodyBytes)))
@@ -2283,9 +2299,7 @@ func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]s
 func (c *Client) DeleteService(ctx context.Context, id string) error {
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/services/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, http.NoBody)
@@ -2329,9 +2343,6 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
 
 	url := fmt.Sprintf("%s/v1/teams?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 	if sort != "" {
@@ -2436,9 +2447,7 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 func (c *Client) GetTeamByID(ctx context.Context, id string) (*Team, error) {
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/teams/%s?include=users", baseURL, id)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
@@ -2563,9 +2572,7 @@ func (c *Client) CreateTeam(ctx context.Context, name string, opts map[string]st
 
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/teams", baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
@@ -2655,9 +2662,7 @@ func (c *Client) UpdateTeam(ctx context.Context, id string, opts map[string]stri
 
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/teams/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "PATCH", url, strings.NewReader(string(bodyBytes)))
@@ -2736,9 +2741,7 @@ func (c *Client) UpdateTeam(ctx context.Context, id string, opts map[string]stri
 func (c *Client) DeleteTeam(ctx context.Context, id string) error {
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/teams/%s", baseURL, id)
 
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, http.NoBody)
@@ -2838,9 +2841,6 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 
 	// Build URL with query parameters
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
 
 	url := fmt.Sprintf("%s/v1/schedules?page[number]=%d&page[size]=%d", baseURL, page, pageSize)
 
@@ -2929,9 +2929,6 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 // ListOnCallsCLI lists on-call entries using the unified /v1/oncalls endpoint.
 func (c *Client) ListOnCallsCLI(ctx context.Context, params OnCallsParams) (*OnCallsResult, error) {
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
 
 	url := fmt.Sprintf("%s/v1/oncalls?", baseURL)
 
@@ -3126,9 +3123,7 @@ func (c *Client) CreatePulseCLI(ctx context.Context, summary string, opts PulseO
 
 	// Build URL
 	baseURL := c.endpoint
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
-	}
+
 	url := fmt.Sprintf("%s/v1/pulses", baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))

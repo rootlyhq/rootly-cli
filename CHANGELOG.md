@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `rootly login` — browser-based OAuth2 authentication with PKCE (no API key needed)
+- `rootly logout` — clear stored OAuth tokens
+- OAuth2 auto-refresh transport using `golang.org/x/oauth2`
+- Auto-append `/api` for localhost endpoints (no need to pass `--api-host=localhost:22166/api`)
+- `http://` scheme auto-detection for localhost/127.0.0.1 endpoints
+
 ### Changed
+- OAuth tokens stored in `~/.rootly-cli/config.yaml` under `oauth` key (single config file)
+- API client uses OAuth Bearer tokens when available, falls back to API key
+- Auth-exempt commands use `Annotations["skipAuth"]` instead of hardcoded name list
 - Switch `oncall who` and `oncall shifts` to unified `/v1/oncalls` endpoint with richer data (escalation policy, level, user email)
 - Add new filter flags: `--schedule-id`, `--service-id`, `--escalation-policy-id`, `--user-id`, `--time-zone`, `--earliest`
 - Table output now includes Escalation Policy, Level, and Email columns
@@ -15,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Fix `oncall schedules` 404 error (use correct `/v1/schedules` endpoint)
+- Windows test compatibility (`USERPROFILE` alongside `HOME`)
 
 ### Removed
 - Removed legacy `/v1/shifts` endpoint usage and associated `Shift`/`ShiftsResult` types
@@ -54,7 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew tap distribution
 - GitHub Actions CI (lint, test, build) and release workflows
 
-[Unreleased]: https://github.com/rootlyhq/rootly-cli/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/rootlyhq/rootly-cli/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/rootlyhq/rootly-cli/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/rootlyhq/rootly-cli/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/rootlyhq/rootly-cli/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/rootlyhq/rootly-cli/releases/tag/v0.1.2

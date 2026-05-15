@@ -1,0 +1,183 @@
+package oauth
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"golang.org/x/oauth2"
+
+	"github.com/rootlyhq/rootly-cli/internal/config"
+)
+
+const (
+	CallbackPort = "19797"
+	RedirectURI  = "http://localhost:" + CallbackPort + "/callback"
+)
+
+// NewConfig creates an oauth2.Config for the given auth base URL, client ID, and scopes.
+func NewConfig(authBaseURL, clientID string, scopes []string) *oauth2.Config {
+	return &oauth2.Config{
+		ClientID:    clientID,
+		RedirectURL: RedirectURI,
+		Scopes:      scopes,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:   authBaseURL + "/oauth/authorize",
+			TokenURL:  authBaseURL + "/oauth/token",
+			AuthStyle: oauth2.AuthStyleInParams,
+		},
+	}
+}
+
+// registrationRequest is the payload for POST /oauth/register.
+type registrationRequest struct {
+	ClientName              string   `json:"client_name"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	GrantTypes              []string `json:"grant_types"`
+	ResponseTypes           []string `json:"response_types"`
+}
+
+// registrationResponse is the response from POST /oauth/register.
+type registrationResponse struct {
+	ClientID string `json:"client_id"`
+	Scope    string `json:"scope"`
+}
+
+// RegisterClient dynamically registers an OAuth client and returns the client_id and granted scopes.
+func RegisterClient(ctx context.Context, authBaseURL string) (clientID string, scopes []string, err error) {
+	reqBody := registrationRequest{
+		ClientName:              "Rootly CLI",
+		RedirectURIs:            []string{RedirectURI},
+		TokenEndpointAuthMethod: "none",
+		GrantTypes:              []string{"authorization_code"},
+		ResponseTypes:           []string{"code"},
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to marshal registration request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, authBaseURL+"/oauth/register", bytes.NewReader(body))
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create registration request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to register OAuth client: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusCreated {
+		return "", nil, fmt.Errorf("could not register OAuth client (status %d)", resp.StatusCode)
+	}
+
+	var regResp registrationResponse
+	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
+		return "", nil, fmt.Errorf("failed to parse registration response: %w", err)
+	}
+
+	if regResp.ClientID == "" {
+		return "", nil, fmt.Errorf("registration response missing client_id")
+	}
+
+	clientID = regResp.ClientID
+	scopes = strings.Fields(regResp.Scope)
+	return clientID, scopes, nil
+}
+
+// LoadCachedRegistration reads the cached client_id and scopes from config.
+func LoadCachedRegistration() (clientID string, scopes []string) {
+	cfg, err := config.Load()
+	if err != nil {
+		return "", nil
+	}
+	return cfg.ClientID, cfg.Scopes
+}
+
+// SaveRegistration persists the client_id and scopes to config.
+func SaveRegistration(clientID string, scopes []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = &config.Config{}
+	}
+	cfg.ClientID = clientID
+	cfg.Scopes = scopes
+	return config.Save(cfg)
+}
+
+// ClearRegistration removes the cached client_id and scopes from config.
+func ClearRegistration() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil
+	}
+	cfg.ClientID = ""
+	cfg.Scopes = nil
+	return config.Save(cfg)
+}
+
+// GenerateState creates a cryptographically random state parameter.
+func GenerateState() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// ExchangeCode exchanges an authorization code for tokens using PKCE.
+func ExchangeCode(ctx context.Context, cfg *oauth2.Config, code, codeVerifier string) (*oauth2.Token, error) {
+	return cfg.Exchange(ctx, code, oauth2.VerifierOption(codeVerifier))
+}
+
+// DeriveAuthBaseURL builds the OAuth base URL from the API host.
+// For api.rootly.com it returns https://rootly.com.
+// For localhost it returns http://localhost:<port>.
+func DeriveAuthBaseURL(apiHost string) string {
+	// Strip scheme to normalize, then re-apply appropriate scheme
+	scheme := ""
+	host := apiHost
+	if strings.HasPrefix(apiHost, "http://") {
+		scheme = "http://"
+		host = apiHost[7:]
+	} else if strings.HasPrefix(apiHost, "https://") {
+		scheme = "https://"
+		host = apiHost[8:]
+	}
+
+	// Strip /api suffix (used for localhost API endpoints, not OAuth)
+	host = strings.TrimSuffix(host, "/api")
+
+	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") {
+		if scheme == "" {
+			scheme = "http://"
+		}
+		return scheme + host
+	}
+	if strings.HasPrefix(host, "api.") {
+		return "https://" + host[4:]
+	}
+	if scheme == "" {
+		scheme = "https://"
+	}
+	return scheme + host
+}
+
+// TokenSourceFromStored creates a token source that auto-refreshes using stored tokens.
+func TokenSourceFromStored(cfg *oauth2.Config) (oauth2.TokenSource, error) {
+	stored, err := LoadTokens()
+	if err != nil {
+		return nil, err
+	}
+	tok := ToOAuth2Token(stored)
+	return cfg.TokenSource(context.Background(), tok), nil
+}

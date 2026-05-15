@@ -9,9 +9,10 @@ import (
 )
 
 var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print version information",
-	Long:  `Print the version, commit hash, and build date of the rootly CLI.`,
+	Use:         "version",
+	Short:       "Print version information",
+	Long:        `Print the version, commit hash, and build date of the rootly CLI.`,
+	Annotations: map[string]string{"skipAuth": "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		format := viper.GetString("format")
 
