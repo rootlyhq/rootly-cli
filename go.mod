@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/jedib0t/go-pretty/v6 v6.7.10
 	github.com/mattn/go-isatty v0.0.22
-	github.com/rootlyhq/rootly-go v0.10.1
+	github.com/rootlyhq/rootly-go v0.10.2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	golang.org/x/oauth2 v0.36.0
@@ -16,7 +16,7 @@ require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
-	github.com/getkin/kin-openapi v0.137.0 // indirect
+	github.com/getkin/kin-openapi v0.138.0 // indirect
 	github.com/go-openapi/jsonpointer v0.22.5 // indirect
 	github.com/go-openapi/swag/jsonname v0.25.5 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
