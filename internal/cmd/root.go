@@ -25,7 +25,22 @@ Authenticate via environment variable:
 
 Or use a config file at ~/.rootly-cli/config.yaml:
   api_key: your-api-key
-  api_host: api.rootly.com`,
+  api_host: api.rootly.com
+
+Start here (for AI agents):
+  All commands follow the pattern: rootly <resource> <verb> [flags]
+  Use --format=json for machine-readable output (auto-enabled when piped).
+
+  rootly incidents list --format=json     List incidents as JSON
+  rootly incidents get INC-123            Get a single incident by ID
+  rootly alerts list --format=json        List alerts as JSON
+  rootly services list --format=json      List services as JSON
+  rootly teams list --format=json         List teams as JSON
+  rootly oncall who --format=json         Who is on-call right now
+  rootly pulse create "msg" --source=ci   Send a deployment pulse
+
+  Discovery: run "rootly <resource> --help" to see available verbs and flags.
+  Resources: incidents, alerts, services, teams, oncall, pulse`,
 	Example: `  # List incidents
   rootly incidents list
 
