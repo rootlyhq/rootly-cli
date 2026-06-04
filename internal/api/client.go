@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -1006,6 +1007,17 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 		},
 		RawBody: body,
 	}, nil
+}
+
+var incidentSeqIDPattern = regexp.MustCompile(`(?i)^INC-(\d+)$`)
+
+// NormalizeIncidentID strips the "INC-" prefix from sequential IDs so the
+// bare number can be passed to the API (which accepts UUID, slug, or numeric sequential ID).
+func NormalizeIncidentID(id string) string {
+	if m := incidentSeqIDPattern.FindStringSubmatch(id); m != nil {
+		return m[1]
+	}
+	return id
 }
 
 // GetIncidentByID fetches incident detail by ID without requiring updatedAt parameter.

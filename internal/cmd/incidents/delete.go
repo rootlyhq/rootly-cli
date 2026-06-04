@@ -8,6 +8,8 @@ import (
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
+
+	"github.com/rootlyhq/rootly-cli/internal/api"
 )
 
 var deleteCmd = &cobra.Command{
@@ -55,7 +57,8 @@ func confirmDelete(prompt string, skipConfirm bool) error {
 }
 
 func runDelete(cmd *cobra.Command, args []string) error {
-	incidentID := args[0]
+	displayID := args[0]
+	incidentID := api.NormalizeIncidentID(displayID)
 
 	// Get API client
 	apiClient, err := getAPIClient()
@@ -65,7 +68,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 
 	// Handle confirmation
 	skipConfirm, _ := cmd.Flags().GetBool("yes")
-	prompt := fmt.Sprintf("Delete incident %s? This cannot be undone", incidentID)
+	prompt := fmt.Sprintf("Delete incident %s? This cannot be undone", displayID)
 	if err := confirmDelete(prompt, skipConfirm); err != nil {
 		if err.Error() == "aborted" {
 			fmt.Fprintln(os.Stderr, "Aborted.")
@@ -80,7 +83,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print success message to stdout
-	_, _ = fmt.Fprintf(os.Stdout, "Deleted incident %s\n", incidentID)
+	_, _ = fmt.Fprintf(os.Stdout, "Deleted incident %s\n", displayID)
 
 	return nil
 }

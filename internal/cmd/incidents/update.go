@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/printer"
 )
 
@@ -39,7 +40,8 @@ func init() {
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
-	incidentID := args[0]
+	displayID := args[0]
+	incidentID := api.NormalizeIncidentID(displayID)
 
 	// Get API client
 	apiClient, err := getAPIClient()
@@ -78,7 +80,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print success message to stderr
-	fmt.Fprintf(os.Stderr, "Updated incident %s\n", incidentID)
+	fmt.Fprintf(os.Stderr, "Updated incident %s\n", displayID)
 
 	// Print incident to stdout using configured format
 	format := viper.GetString("format")

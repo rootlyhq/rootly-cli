@@ -37,8 +37,7 @@ func init() {
 }
 
 func runGet(cmd *cobra.Command, args []string) error {
-	// Get incident ID from args
-	id := args[0]
+	id := api.NormalizeIncidentID(args[0])
 
 	// Get API client
 	apiClient, err := getAPIClient()

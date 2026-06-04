@@ -55,6 +55,31 @@ func TestNewClientWithHTTPS(t *testing.T) {
 	}
 }
 
+func TestNormalizeIncidentID(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"INC-42", "42"},
+		{"INC-1", "1"},
+		{"inc-99", "99"},
+		{"Inc-123", "123"},
+		{"e5923856-6fe8-4a2c-b0eb-cb783e811d06", "e5923856-6fe8-4a2c-b0eb-cb783e811d06"},
+		{"some-slug", "some-slug"},
+		{"INC-", "INC-"},
+		{"INC-abc", "INC-abc"},
+		{"42", "42"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := NormalizeIncidentID(tt.input)
+			if got != tt.want {
+				t.Errorf("NormalizeIncidentID(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestUserAgentHeader(t *testing.T) {
 	Version = "1.2.3"
 

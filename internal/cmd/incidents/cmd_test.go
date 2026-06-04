@@ -403,6 +403,51 @@ func TestRunListNoToken(t *testing.T) {
 	}
 }
 
+func TestRunGetNormalizesSequentialID(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/incidents/42" {
+			t.Errorf("expected path /v1/incidents/42, got %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.Write([]byte(getResponse()))
+	})
+
+	viper.Set("format", "table")
+	cmd := newTestCmd()
+
+	output := captureStdout(t, func() {
+		err := runGet(cmd, []string{"INC-42"})
+		if err != nil {
+			t.Fatalf("runGet returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "DB outage") {
+		t.Errorf("expected output to contain 'DB outage', got: %s", output)
+	}
+}
+
+func TestRunGetAcceptsUUID(t *testing.T) {
+	uuid := "e5923856-6fe8-4a2c-b0eb-cb783e811d06"
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/incidents/"+uuid {
+			t.Errorf("expected UUID in path, got %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.Write([]byte(getResponse()))
+	})
+
+	viper.Set("format", "table")
+	cmd := newTestCmd()
+
+	captureStdout(t, func() {
+		err := runGet(cmd, []string{uuid})
+		if err != nil {
+			t.Fatalf("runGet returned error: %v", err)
+		}
+	})
+}
+
 func TestRunGetAPIError(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
