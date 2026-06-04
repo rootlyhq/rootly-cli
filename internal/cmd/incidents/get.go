@@ -37,8 +37,8 @@ func init() {
 }
 
 func runGet(cmd *cobra.Command, args []string) error {
-	// Get incident ID from args
-	id := args[0]
+	displayID := args[0]
+	id := api.NormalizeIncidentID(displayID)
 
 	// Get API client
 	apiClient, err := getAPIClient()
@@ -49,7 +49,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	// Call API
 	incident, err := apiClient.GetIncidentByID(cmd.Context(), id)
 	if err != nil {
-		return fmt.Errorf("failed to get incident: %w", err)
+		return fmt.Errorf("failed to get incident %s: %w", displayID, err)
 	}
 
 	// Get format from viper
