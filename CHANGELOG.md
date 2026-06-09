@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fix plural filter param names for `/v1/oncalls` endpoint (`filter[schedule_ids]`, `filter[service_ids]`, etc.)
+- URL-encode filter values across all list endpoints
+
+### Added
+- Name-based filtering for `oncall shifts` and `oncall who` (`--schedule`, `--service`, `--user`, `--team` flags)
+- Team/group filtering via `--team-id` / `--team` flags
+
 ## [0.3.3] - 2026-06-04
 
 ### Added
