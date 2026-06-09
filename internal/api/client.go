@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	neturl "net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -923,7 +924,7 @@ func (c *Client) ListIncidentsCLI(ctx context.Context, page, pageSize int, sort 
 
 	// Add filters (e.g., filter[status]=started, filter[severity]=critical)
 	for key, value := range filters {
-		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+		url += fmt.Sprintf("&filter[%s]=%s", key, neturl.QueryEscape(value))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
@@ -1350,7 +1351,7 @@ func (c *Client) ListAlertsCLI(ctx context.Context, page, pageSize int, sort str
 
 	// Add filters (e.g., filter[status]=triggered, filter[source]=sentry)
 	for key, value := range filters {
-		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+		url += fmt.Sprintf("&filter[%s]=%s", key, neturl.QueryEscape(value))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
@@ -1921,7 +1922,7 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 
 	// Add filters (e.g., filter[name]=foo, filter[slug]=bar)
 	for key, value := range filters {
-		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+		url += fmt.Sprintf("&filter[%s]=%s", key, neturl.QueryEscape(value))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
@@ -2363,7 +2364,7 @@ func (c *Client) ListTeamsCLI(ctx context.Context, page, pageSize int, sort stri
 
 	// Add filters (e.g., filter[name]=foo)
 	for key, value := range filters {
-		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+		url += fmt.Sprintf("&filter[%s]=%s", key, neturl.QueryEscape(value))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
@@ -2834,10 +2835,11 @@ type OnCallsParams struct {
 	Until               string // ISO-8601 end time
 	Earliest            bool   // only first on-call user per escalation level
 	TimeZone            string // e.g. America/New_York
-	ScheduleIDs         string // filter by schedule ID
-	ServiceIDs          string // filter by service ID
-	EscalationPolicyIDs string // filter by escalation policy ID
-	UserIDs             string // filter by user ID
+	ScheduleIDs         string // filter by schedule ID(s), comma-separated
+	ServiceIDs          string // filter by service ID(s), comma-separated
+	EscalationPolicyIDs string // filter by escalation policy ID(s), comma-separated
+	UserIDs             string // filter by user ID(s), comma-separated
+	GroupIDs            string // filter by group/team ID(s), comma-separated
 }
 
 // ListSchedulesCLI lists on-call schedules (read-only).
@@ -2858,7 +2860,7 @@ func (c *Client) ListSchedulesCLI(ctx context.Context, page, pageSize int, filte
 
 	// Add filters (e.g., filter[name]=foo)
 	for key, value := range filters {
-		url += fmt.Sprintf("&filter[%s]=%s", key, value)
+		url += fmt.Sprintf("&filter[%s]=%s", key, neturl.QueryEscape(value))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
@@ -2961,16 +2963,19 @@ func (c *Client) ListOnCallsCLI(ctx context.Context, params OnCallsParams) (*OnC
 		qp = append(qp, "time_zone="+params.TimeZone)
 	}
 	if params.ScheduleIDs != "" {
-		qp = append(qp, "filter[schedule_id]="+params.ScheduleIDs)
+		qp = append(qp, "filter[schedule_ids]="+neturl.QueryEscape(params.ScheduleIDs))
 	}
 	if params.ServiceIDs != "" {
-		qp = append(qp, "filter[service_id]="+params.ServiceIDs)
+		qp = append(qp, "filter[service_ids]="+neturl.QueryEscape(params.ServiceIDs))
 	}
 	if params.EscalationPolicyIDs != "" {
-		qp = append(qp, "filter[escalation_policy_id]="+params.EscalationPolicyIDs)
+		qp = append(qp, "filter[escalation_policy_ids]="+neturl.QueryEscape(params.EscalationPolicyIDs))
 	}
 	if params.UserIDs != "" {
-		qp = append(qp, "filter[user_id]="+params.UserIDs)
+		qp = append(qp, "filter[user_ids]="+neturl.QueryEscape(params.UserIDs))
+	}
+	if params.GroupIDs != "" {
+		qp = append(qp, "filter[group_ids]="+neturl.QueryEscape(params.GroupIDs))
 	}
 
 	url += strings.Join(qp, "&")
@@ -3082,6 +3087,112 @@ func (c *Client) ListOnCallsCLI(ctx context.Context, params OnCallsParams) (*OnC
 		Entries: entries,
 		RawBody: body,
 	}, nil
+}
+
+// ResolveScheduleIDByName looks up a schedule by name and returns its ID.
+// Uses filter[name] on the schedules endpoint for an exact match.
+func (c *Client) ResolveScheduleIDByName(ctx context.Context, name string) (string, error) {
+	result, err := c.ListSchedulesCLI(ctx, 1, 25, map[string]string{"name": name})
+	if err != nil {
+		return "", fmt.Errorf("failed to look up schedule %q: %w", name, err)
+	}
+	if len(result.Schedules) == 0 {
+		return "", fmt.Errorf("no schedule found with name %q", name)
+	}
+	if len(result.Schedules) > 1 {
+		return "", fmt.Errorf("multiple schedules match name %q; use --schedule-id to specify", name)
+	}
+	return result.Schedules[0].ID, nil
+}
+
+// ResolveServiceIDByName looks up a service by name and returns its ID.
+func (c *Client) ResolveServiceIDByName(ctx context.Context, name string) (string, error) {
+	result, err := c.ListServicesCLI(ctx, 1, 25, "", map[string]string{"name": name})
+	if err != nil {
+		return "", fmt.Errorf("failed to look up service %q: %w", name, err)
+	}
+	if len(result.Services) == 0 {
+		return "", fmt.Errorf("no service found with name %q", name)
+	}
+	if len(result.Services) > 1 {
+		return "", fmt.Errorf("multiple services match name %q; use --service-id to specify", name)
+	}
+	return result.Services[0].ID, nil
+}
+
+// ResolveTeamIDByName looks up a team (group) by name and returns its ID.
+func (c *Client) ResolveTeamIDByName(ctx context.Context, name string) (string, error) {
+	result, err := c.ListTeamsCLI(ctx, 1, 25, "", map[string]string{"name": name})
+	if err != nil {
+		return "", fmt.Errorf("failed to look up team %q: %w", name, err)
+	}
+	if len(result.Teams) == 0 {
+		return "", fmt.Errorf("no team found with name %q", name)
+	}
+	if len(result.Teams) > 1 {
+		return "", fmt.Errorf("multiple teams match name %q; use --team-id to specify", name)
+	}
+	return result.Teams[0].ID, nil
+}
+
+// ResolveUserID looks up a user by email or name and returns their ID.
+// Tries filter[email] first (exact); falls back to filter[search] (fuzzy).
+func (c *Client) ResolveUserID(ctx context.Context, query string) (string, error) {
+	baseURL := c.endpoint
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+
+	filterKey := "search"
+	if strings.Contains(query, "@") {
+		filterKey = "email"
+	}
+
+	url := fmt.Sprintf("%s/v1/users?page[size]=25&filter[%s]=%s", baseURL, filterKey, neturl.QueryEscape(query))
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to look up user %q: %w", query, err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if httpResp.StatusCode != 200 {
+		return "", fmt.Errorf("user lookup returned status %d", httpResp.StatusCode)
+	}
+
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Email    string  `json:"email"`
+				FullName *string `json:"full_name"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(response.Data) == 0 {
+		return "", fmt.Errorf("no user found matching %q", query)
+	}
+	if len(response.Data) > 1 && filterKey == "search" {
+		return "", fmt.Errorf("multiple users match %q; use --user-id or an email address to be more specific", query)
+	}
+	return response.Data[0].ID, nil
 }
 
 // CreatePulseCLI creates a new pulse using raw HTTP POST.
