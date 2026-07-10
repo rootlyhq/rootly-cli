@@ -315,6 +315,56 @@ func TestRunUpdateNoFlags(t *testing.T) {
 	}
 }
 
+func TestRunUpdateEscalationPolicyID(t *testing.T) {
+	cases := []struct {
+		name     string
+		flagVal  string
+		respEPID string
+	}{
+		{"attach", "ep-123", `"ep-123"`},
+		{"detach", "", "null"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/vnd.api+json")
+				w.Write([]byte(`{
+					"data": {
+						"id": "svc-1",
+						"attributes": {
+							"name": "API Gateway",
+							"slug": "api-gateway",
+							"escalation_policy_id": ` + tc.respEPID + `,
+							"created_at": "2025-06-15T10:00:00Z",
+							"updated_at": "2025-06-15T12:00:00Z"
+						}
+					}
+				}`))
+			})
+
+			viper.Set("format", "table")
+
+			cmd := newTestCmd()
+			cmd.Flags().String("name", "", "")
+			cmd.Flags().String("description", "", "")
+			cmd.Flags().String("color", "", "")
+			cmd.Flags().String("escalation-policy-id", "", "")
+			cmd.Flags().Set("escalation-policy-id", tc.flagVal)
+
+			output := captureStdout(t, func() {
+				err := runUpdate(cmd, []string{"api-gateway"})
+				if err != nil {
+					t.Fatalf("runUpdate error: %v", err)
+				}
+			})
+
+			if output == "" {
+				t.Error("expected non-empty output")
+			}
+		})
+	}
+}
+
 // --- confirmDelete tests ---
 
 func TestConfirmDeleteSkip(t *testing.T) {

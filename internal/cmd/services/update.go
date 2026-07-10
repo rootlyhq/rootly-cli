@@ -23,8 +23,11 @@ var updateCmd = &cobra.Command{
     --description="Updated: Main API gateway" \
     --color="#00FF00"
 
-  # Update multiple fields
-  rootly services update api-gateway --name="New Name" --color="#FF0000"`,
+  # Attach escalation policy
+  rootly services update api-gateway --escalation-policy-id="ep-123"
+
+  # Detach escalation policy
+  rootly services update api-gateway --escalation-policy-id=""`,
 	Args: cobra.ExactArgs(1),
 	RunE: runUpdate,
 }
@@ -33,6 +36,7 @@ func init() {
 	updateCmd.Flags().String("name", "", "Updated service name")
 	updateCmd.Flags().String("description", "", "Updated description")
 	updateCmd.Flags().String("color", "", "Updated color (hex format, e.g., #FF5733)")
+	updateCmd.Flags().String("escalation-policy-id", "", `Escalation policy ID (use "" to detach)`)
 
 	// Register with parent command
 	ServicesCmd.AddCommand(updateCmd)
@@ -64,6 +68,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("color must be in hex format (e.g., #FF5733)")
 		}
 		opts["color"] = color
+	}
+	if cmd.Flags().Changed("escalation-policy-id") {
+		epID, _ := cmd.Flags().GetString("escalation-policy-id")
+		opts["escalation_policy_id"] = epID
 	}
 
 	// If opts is empty (no flags changed), return error

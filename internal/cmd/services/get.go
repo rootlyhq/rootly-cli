@@ -86,6 +86,9 @@ func serviceDetailRows(svc *api.Service) [][]string {
 	if svc.Color != "" {
 		rows = append(rows, []string{"Color", svc.Color})
 	}
+	if svc.EscalationPolicyID != "" {
+		rows = append(rows, []string{"Escalation Policy", svc.EscalationPolicyID})
+	}
 	if svc.OwnerTeamName != "" {
 		rows = append(rows, []string{"Owner Team", svc.OwnerTeamName})
 	}

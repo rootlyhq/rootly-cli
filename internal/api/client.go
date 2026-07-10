@@ -199,15 +199,16 @@ type AlertsResult struct {
 
 // Service represents a Rootly service
 type Service struct {
-	ID            string
-	Name          string
-	Slug          string
-	Description   string
-	Color         string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	OwnerTeamName string // Populated from included owner_group relationship
-	DetailLoaded  bool
+	ID                 string
+	Name               string
+	Slug               string
+	Description        string
+	Color              string
+	EscalationPolicyID string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	OwnerTeamName      string // Populated from included owner_group relationship
+	DetailLoaded       bool
 	// Raw API response body for JSON/YAML passthrough
 	RawBody []byte
 }
@@ -1958,12 +1959,13 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 		Data []struct {
 			ID         string `json:"id"`
 			Attributes struct {
-				Name        string  `json:"name"`
-				Slug        string  `json:"slug"`
-				Description *string `json:"description"`
-				Color       *string `json:"color"`
-				CreatedAt   string  `json:"created_at"`
-				UpdatedAt   string  `json:"updated_at"`
+				Name               string  `json:"name"`
+				Slug               string  `json:"slug"`
+				Description        *string `json:"description"`
+				Color              *string `json:"color"`
+				EscalationPolicyID *string `json:"escalation_policy_id"`
+				CreatedAt          string  `json:"created_at"`
+				UpdatedAt          string  `json:"updated_at"`
 			} `json:"attributes"`
 		} `json:"data"`
 		Meta struct {
@@ -1992,6 +1994,9 @@ func (c *Client) ListServicesCLI(ctx context.Context, page, pageSize int, sort s
 		}
 		if item.Attributes.Color != nil {
 			service.Color = *item.Attributes.Color
+		}
+		if item.Attributes.EscalationPolicyID != nil {
+			service.EscalationPolicyID = *item.Attributes.EscalationPolicyID
 		}
 		services = append(services, service)
 	}
@@ -2054,12 +2059,13 @@ func (c *Client) GetServiceByID(ctx context.Context, id string) (*Service, error
 		Data struct {
 			ID         string `json:"id"`
 			Attributes struct {
-				Name        string  `json:"name"`
-				Slug        string  `json:"slug"`
-				Description *string `json:"description"`
-				Color       *string `json:"color"`
-				CreatedAt   string  `json:"created_at"`
-				UpdatedAt   string  `json:"updated_at"`
+				Name               string  `json:"name"`
+				Slug               string  `json:"slug"`
+				Description        *string `json:"description"`
+				Color              *string `json:"color"`
+				EscalationPolicyID *string `json:"escalation_policy_id"`
+				CreatedAt          string  `json:"created_at"`
+				UpdatedAt          string  `json:"updated_at"`
 			} `json:"attributes"`
 			Relationships struct {
 				OwnerGroup struct {
@@ -2095,6 +2101,9 @@ func (c *Client) GetServiceByID(ctx context.Context, id string) (*Service, error
 	}
 	if response.Data.Attributes.Color != nil {
 		service.Color = *response.Data.Attributes.Color
+	}
+	if response.Data.Attributes.EscalationPolicyID != nil {
+		service.EscalationPolicyID = *response.Data.Attributes.EscalationPolicyID
 	}
 
 	// Parse owner_group from included relationships
@@ -2176,12 +2185,13 @@ func (c *Client) CreateService(ctx context.Context, name string, opts map[string
 		Data struct {
 			ID         string `json:"id"`
 			Attributes struct {
-				Name        string  `json:"name"`
-				Slug        string  `json:"slug"`
-				Description *string `json:"description"`
-				Color       *string `json:"color"`
-				CreatedAt   string  `json:"created_at"`
-				UpdatedAt   string  `json:"updated_at"`
+				Name               string  `json:"name"`
+				Slug               string  `json:"slug"`
+				Description        *string `json:"description"`
+				Color              *string `json:"color"`
+				EscalationPolicyID *string `json:"escalation_policy_id"`
+				CreatedAt          string  `json:"created_at"`
+				UpdatedAt          string  `json:"updated_at"`
 			} `json:"attributes"`
 		} `json:"data"`
 	}
@@ -2203,6 +2213,9 @@ func (c *Client) CreateService(ctx context.Context, name string, opts map[string
 	if response.Data.Attributes.Color != nil {
 		service.Color = *response.Data.Attributes.Color
 	}
+	if response.Data.Attributes.EscalationPolicyID != nil {
+		service.EscalationPolicyID = *response.Data.Attributes.EscalationPolicyID
+	}
 
 	service.RawBody = body
 	return service, nil
@@ -2220,6 +2233,13 @@ func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]s
 	}
 	if color, ok := opts["color"]; ok {
 		attributes["color"] = color
+	}
+	if epID, ok := opts["escalation_policy_id"]; ok {
+		if epID == "" {
+			attributes["escalation_policy_id"] = nil
+		} else {
+			attributes["escalation_policy_id"] = epID
+		}
 	}
 
 	requestBody := map[string]interface{}{
@@ -2276,12 +2296,13 @@ func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]s
 		Data struct {
 			ID         string `json:"id"`
 			Attributes struct {
-				Name        string  `json:"name"`
-				Slug        string  `json:"slug"`
-				Description *string `json:"description"`
-				Color       *string `json:"color"`
-				CreatedAt   string  `json:"created_at"`
-				UpdatedAt   string  `json:"updated_at"`
+				Name               string  `json:"name"`
+				Slug               string  `json:"slug"`
+				Description        *string `json:"description"`
+				Color              *string `json:"color"`
+				EscalationPolicyID *string `json:"escalation_policy_id"`
+				CreatedAt          string  `json:"created_at"`
+				UpdatedAt          string  `json:"updated_at"`
 			} `json:"attributes"`
 		} `json:"data"`
 	}
@@ -2302,6 +2323,9 @@ func (c *Client) UpdateService(ctx context.Context, id string, opts map[string]s
 	}
 	if response.Data.Attributes.Color != nil {
 		service.Color = *response.Data.Attributes.Color
+	}
+	if response.Data.Attributes.EscalationPolicyID != nil {
+		service.EscalationPolicyID = *response.Data.Attributes.EscalationPolicyID
 	}
 
 	service.RawBody = body

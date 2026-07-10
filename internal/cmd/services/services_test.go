@@ -34,14 +34,15 @@ func TestTruncateString(t *testing.T) {
 func TestServiceDetailRows(t *testing.T) {
 	now := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
 	svc := &api.Service{
-		ID:            "svc-123",
-		Name:          "api-gateway",
-		Slug:          "api-gateway",
-		Description:   "Main API gateway",
-		Color:         "#FF5733",
-		OwnerTeamName: "Platform",
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ID:                 "svc-123",
+		Name:               "api-gateway",
+		Slug:               "api-gateway",
+		Description:        "Main API gateway",
+		Color:              "#FF5733",
+		EscalationPolicyID: "ep-456",
+		OwnerTeamName:      "Platform",
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	rows := serviceDetailRows(svc)
@@ -58,6 +59,9 @@ func TestServiceDetailRows(t *testing.T) {
 	}
 	if findRow(rows, "Description") != "Main API gateway" {
 		t.Errorf("Description = %q, want %q", findRow(rows, "Description"), "Main API gateway")
+	}
+	if findRow(rows, "Escalation Policy") != "ep-456" {
+		t.Errorf("Escalation Policy = %q, want %q", findRow(rows, "Escalation Policy"), "ep-456")
 	}
 	if findRow(rows, "Owner Team") != "Platform" {
 		t.Errorf("Owner Team = %q, want %q", findRow(rows, "Owner Team"), "Platform")
