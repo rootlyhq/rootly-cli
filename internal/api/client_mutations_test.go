@@ -601,6 +601,62 @@ func TestUpdateServiceServerError(t *testing.T) {
 	}
 }
 
+func TestUpdateServiceEscalationPolicyID(t *testing.T) {
+	cases := []struct {
+		name       string
+		optVal     string
+		respEPID   interface{}
+		wantEPID   string
+		wantReqVal interface{}
+	}{
+		{"attach", "ep-123", "ep-123", "ep-123", "ep-123"},
+		{"detach", "", nil, "", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var receivedBody map[string]interface{}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				_ = json.Unmarshal(body, &receivedBody)
+
+				w.Header().Set("Content-Type", "application/vnd.api+json")
+				w.WriteHeader(http.StatusOK)
+				resp := map[string]interface{}{
+					"data": map[string]interface{}{
+						"id": "svc-1",
+						"attributes": map[string]interface{}{
+							"name":                 "My Service",
+							"slug":                 "my-service",
+							"escalation_policy_id": tc.respEPID,
+							"created_at":           "2025-06-15T10:00:00Z",
+							"updated_at":           "2025-06-15T14:00:00Z",
+						},
+					},
+				}
+				_ = json.NewEncoder(w).Encode(resp)
+			}))
+			defer server.Close()
+
+			client := newTestClient(t, server.URL)
+			svc, err := client.UpdateService(context.Background(), "svc-1", map[string]string{
+				"escalation_policy_id": tc.optVal,
+			})
+			if err != nil {
+				t.Fatalf("UpdateService returned error: %v", err)
+			}
+			if svc.EscalationPolicyID != tc.wantEPID {
+				t.Errorf("EscalationPolicyID = %q, want %q", svc.EscalationPolicyID, tc.wantEPID)
+			}
+
+			data := receivedBody["data"].(map[string]interface{})
+			attrs := data["attributes"].(map[string]interface{})
+			if attrs["escalation_policy_id"] != tc.wantReqVal {
+				t.Errorf("request escalation_policy_id = %v, want %v", attrs["escalation_policy_id"], tc.wantReqVal)
+			}
+		})
+	}
+}
+
 // --- CreateTeam ---
 
 func TestCreateTeam(t *testing.T) {
