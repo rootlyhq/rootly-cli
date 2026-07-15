@@ -235,7 +235,7 @@ func TestDebugTransportRedactsAuthorization(t *testing.T) {
 	var buf bytes.Buffer
 	dt := &debugTransport{transport: http.DefaultTransport}
 
-	req, err := http.NewRequest("GET", server.URL+"/v1/incidents", nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", server.URL+"/v1/incidents", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,10 +245,11 @@ func TestDebugTransportRedactsAuthorization(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
-	_, err = dt.RoundTrip(req)
+	resp, err := dt.RoundTrip(req)
 	if err != nil {
 		t.Fatalf("RoundTrip failed: %v", err)
 	}
+	resp.Body.Close()
 
 	w.Close()
 	io.Copy(&buf, r)
@@ -276,7 +277,7 @@ func TestDebugTransportPreservesActualAuthHeader(t *testing.T) {
 
 	dt := &debugTransport{transport: http.DefaultTransport}
 
-	req, err := http.NewRequest("GET", server.URL+"/v1/incidents", nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", server.URL+"/v1/incidents", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,13 +287,14 @@ func TestDebugTransportPreservesActualAuthHeader(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stderr = w
 
-	_, err = dt.RoundTrip(req)
+	resp, err := dt.RoundTrip(req)
 	w.Close()
 	os.Stderr = oldStderr
 
 	if err != nil {
 		t.Fatalf("RoundTrip failed: %v", err)
 	}
+	resp.Body.Close()
 
 	if receivedAuth != "Bearer real-token" {
 		t.Errorf("server received Authorization = %q, want %q", receivedAuth, "Bearer real-token")
@@ -308,7 +310,7 @@ func TestDebugTransportNoAuthHeader(t *testing.T) {
 	var buf bytes.Buffer
 	dt := &debugTransport{transport: http.DefaultTransport}
 
-	req, err := http.NewRequest("GET", server.URL+"/v1/incidents", nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", server.URL+"/v1/incidents", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,10 +319,11 @@ func TestDebugTransportNoAuthHeader(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
-	_, err = dt.RoundTrip(req)
+	resp, err := dt.RoundTrip(req)
 	if err != nil {
 		t.Fatalf("RoundTrip failed: %v", err)
 	}
+	resp.Body.Close()
 
 	w.Close()
 	io.Copy(&buf, r)

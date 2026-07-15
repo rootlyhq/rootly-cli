@@ -39,8 +39,8 @@ func (dt *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if auth := safeReq.Header.Get("Authorization"); auth != "" {
 		safeReq.Header.Set("Authorization", "Bearer [REDACTED]")
 	}
-	safeReq.Body = req.Body
-	dump, _ := httputil.DumpRequestOut(safeReq, true)
+	safeReq.Body = http.NoBody
+	dump, _ := httputil.DumpRequestOut(safeReq, false)
 	fmt.Fprintf(os.Stderr, "\n--- DEBUG REQUEST ---\n%s\n", dump)
 
 	resp, err := dt.transport.RoundTrip(req)
