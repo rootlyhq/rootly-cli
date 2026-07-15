@@ -35,7 +35,12 @@ type debugTransport struct {
 }
 
 func (dt *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	dump, _ := httputil.DumpRequestOut(req, true)
+	safeReq := req.Clone(req.Context())
+	if auth := safeReq.Header.Get("Authorization"); auth != "" {
+		safeReq.Header.Set("Authorization", "Bearer [REDACTED]")
+	}
+	safeReq.Body = req.Body
+	dump, _ := httputil.DumpRequestOut(safeReq, true)
 	fmt.Fprintf(os.Stderr, "\n--- DEBUG REQUEST ---\n%s\n", dump)
 
 	resp, err := dt.transport.RoundTrip(req)

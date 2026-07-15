@@ -1,10 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/rootlyhq/rootly-cli/internal/config"
@@ -220,4 +224,113 @@ func TestParseTimePtr(t *testing.T) {
 
 func strPtr(s string) *string {
 	return &s
+}
+
+func TestDebugTransportRedactsAuthorization(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	var buf bytes.Buffer
+	dt := &debugTransport{transport: http.DefaultTransport}
+
+	req, err := http.NewRequest("GET", server.URL+"/v1/incidents", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer super-secret-token-12345")
+
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	_, err = dt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+
+	w.Close()
+	io.Copy(&buf, r)
+	os.Stderr = oldStderr
+
+	output := buf.String()
+	if strings.Contains(output, "super-secret-token-12345") {
+		t.Error("debug output contains raw API token — Authorization header must be redacted")
+	}
+	if !strings.Contains(output, "Bearer [REDACTED]") {
+		t.Error("debug output should contain 'Bearer [REDACTED]'")
+	}
+	if !strings.Contains(output, "DEBUG REQUEST") {
+		t.Error("debug output should contain request dump marker")
+	}
+}
+
+func TestDebugTransportPreservesActualAuthHeader(t *testing.T) {
+	var receivedAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	dt := &debugTransport{transport: http.DefaultTransport}
+
+	req, err := http.NewRequest("GET", server.URL+"/v1/incidents", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer real-token")
+
+	oldStderr := os.Stderr
+	_, w, _ := os.Pipe()
+	os.Stderr = w
+
+	_, err = dt.RoundTrip(req)
+	w.Close()
+	os.Stderr = oldStderr
+
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+
+	if receivedAuth != "Bearer real-token" {
+		t.Errorf("server received Authorization = %q, want %q", receivedAuth, "Bearer real-token")
+	}
+}
+
+func TestDebugTransportNoAuthHeader(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	var buf bytes.Buffer
+	dt := &debugTransport{transport: http.DefaultTransport}
+
+	req, err := http.NewRequest("GET", server.URL+"/v1/incidents", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	_, err = dt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+
+	w.Close()
+	io.Copy(&buf, r)
+	os.Stderr = oldStderr
+
+	output := buf.String()
+	if strings.Contains(output, "[REDACTED]") {
+		t.Error("should not contain [REDACTED] when no Authorization header is set")
+	}
+	if !strings.Contains(output, "DEBUG REQUEST") {
+		t.Error("debug output should still contain request dump marker")
+	}
 }
