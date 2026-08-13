@@ -1566,7 +1566,7 @@ func (c *Client) RunWorkflowCLI(ctx context.Context, workflowID string, opts Wor
 	return run, nil
 }
 
-func (c *Client) doJSONAPIRequest(ctx context.Context, method, path string, requestBody interface{}) ([]byte, int, error) {
+func (c *Client) doJSONAPIRequest(ctx context.Context, method, path string, requestBody interface{}) (body []byte, statusCode int, err error) {
 	var bodyReader io.Reader = http.NoBody
 	if requestBody != nil {
 		bodyBytes, err := json.Marshal(requestBody)
@@ -1587,7 +1587,7 @@ func (c *Client) doJSONAPIRequest(ctx context.Context, method, path string, requ
 		return nil, 0, err
 	}
 	defer func() { _ = response.Body.Close() }()
-	body, err := io.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	if err != nil {
 		return nil, response.StatusCode, fmt.Errorf("failed to read response: %w", err)
 	}
