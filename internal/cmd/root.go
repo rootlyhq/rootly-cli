@@ -36,11 +36,12 @@ Start here (for AI agents):
   rootly alerts list --format=json        List alerts as JSON
   rootly services list --format=json      List services as JSON
   rootly teams list --format=json         List teams as JSON
+  rootly workflows list --format=json     List workflows as JSON
   rootly oncall who --format=json         Who is on-call right now
   rootly pulse create "msg" --source=ci   Send a deployment pulse
 
   Discovery: run "rootly <resource> --help" to see available verbs and flags.
-  Resources: incidents, alerts, services, teams, oncall, pulse`,
+  Resources: incidents, alerts, services, teams, workflows, oncall, pulse`,
 	Example: `  # List incidents
   rootly incidents list
 

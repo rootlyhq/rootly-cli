@@ -248,6 +248,36 @@ type TeamsResult struct {
 	RawBody    []byte
 }
 
+// Workflow represents a Rootly workflow.
+type Workflow struct {
+	ID          string
+	Name        string
+	Slug        string
+	Description string
+	Enabled     bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	RawBody     []byte
+}
+
+// WorkflowsResult contains workflows and pagination info.
+type WorkflowsResult struct {
+	Workflows  []Workflow
+	Pagination PaginationInfo
+	RawBody    []byte
+}
+
+// WorkflowRun represents an execution of a Rootly workflow.
+type WorkflowRun struct {
+	ID            string
+	WorkflowID    string
+	IncidentID    string
+	Status        string
+	StatusMessage string
+	TriggeredBy   string
+	RawBody       []byte `json:"-"`
+}
+
 // KeyValue represents a key-value pair for pulse labels and refs
 type KeyValue struct {
 	Key   string
@@ -1262,6 +1292,203 @@ func (c *Client) DeleteIncident(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+// ListWorkflowsCLI lists workflows with filters and pagination for CLI usage.
+func (c *Client) ListWorkflowsCLI(ctx context.Context, page, pageSize int, sort string, filters map[string]string) (*WorkflowsResult, error) {
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	url := fmt.Sprintf("%s/v1/workflows?page[number]=%d&page[size]=%d", c.endpoint, page, pageSize)
+	if sort != "" {
+		url += "&sort=" + neturl.QueryEscape(sort)
+	}
+	for key, value := range filters {
+		url += fmt.Sprintf("&filter[%s]=%s", key, neturl.QueryEscape(value))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list workflows: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	if httpResp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("access denied: API key lacks 'read workflows' permission")
+	}
+	if httpResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Name        string  `json:"name"`
+				Slug        *string `json:"slug"`
+				Description *string `json:"description"`
+				Enabled     *bool   `json:"enabled"`
+				CreatedAt   string  `json:"created_at"`
+				UpdatedAt   string  `json:"updated_at"`
+			} `json:"attributes"`
+		} `json:"data"`
+		Meta struct {
+			CurrentPage int  `json:"current_page"`
+			NextPage    *int `json:"next_page"`
+			PrevPage    *int `json:"prev_page"`
+			TotalCount  int  `json:"total_count"`
+			TotalPages  int  `json:"total_pages"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	workflows := make([]Workflow, 0, len(response.Data))
+	for _, item := range response.Data {
+		workflow := Workflow{ID: item.ID, Name: item.Attributes.Name}
+		if item.Attributes.Slug != nil {
+			workflow.Slug = *item.Attributes.Slug
+		}
+		if item.Attributes.Description != nil {
+			workflow.Description = *item.Attributes.Description
+		}
+		if item.Attributes.Enabled != nil {
+			workflow.Enabled = *item.Attributes.Enabled
+		}
+		workflow.CreatedAt, _ = time.Parse(time.RFC3339, item.Attributes.CreatedAt)
+		workflow.UpdatedAt, _ = time.Parse(time.RFC3339, item.Attributes.UpdatedAt)
+		workflows = append(workflows, workflow)
+	}
+
+	currentPage := response.Meta.CurrentPage
+	if currentPage == 0 {
+		currentPage = page
+	}
+	return &WorkflowsResult{
+		Workflows: workflows,
+		Pagination: PaginationInfo{
+			CurrentPage: currentPage,
+			TotalPages:  response.Meta.TotalPages,
+			TotalCount:  response.Meta.TotalCount,
+			HasNext:     response.Meta.NextPage != nil,
+			HasPrev:     response.Meta.PrevPage != nil,
+		},
+		RawBody: body,
+	}, nil
+}
+
+// ResolveWorkflowID resolves an exact workflow slug and otherwise returns the supplied ID.
+func (c *Client) ResolveWorkflowID(ctx context.Context, idOrSlug string) (string, error) {
+	if workflowIDPattern.MatchString(idOrSlug) {
+		return idOrSlug, nil
+	}
+	result, err := c.ListWorkflowsCLI(ctx, 1, 2, "", map[string]string{"slug][eq": idOrSlug})
+	if err != nil {
+		return "", err
+	}
+	if len(result.Workflows) == 1 && result.Workflows[0].Slug == idOrSlug {
+		return result.Workflows[0].ID, nil
+	}
+	return idOrSlug, nil
+}
+
+var workflowIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+// RunWorkflowCLI starts an incident-scoped workflow run.
+func (c *Client) RunWorkflowCLI(ctx context.Context, workflowID, incidentID string) (*WorkflowRun, error) {
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type": "workflow_runs",
+			"attributes": map[string]interface{}{
+				"incident_id": incidentID,
+			},
+		},
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/v1/workflows/%s/workflow_runs", c.endpoint, neturl.PathEscape(workflowID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to run workflow: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	if httpResp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("access denied: API key lacks permission to run workflows")
+	}
+	if httpResp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("workflow or incident not found")
+	}
+	if httpResp.StatusCode != http.StatusCreated && httpResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	var response struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				WorkflowID    string  `json:"workflow_id"`
+				IncidentID    *string `json:"incident_id"`
+				Status        string  `json:"status"`
+				StatusMessage *string `json:"status_message"`
+				TriggeredBy   string  `json:"triggered_by"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	run := &WorkflowRun{
+		ID:          response.Data.ID,
+		WorkflowID:  response.Data.Attributes.WorkflowID,
+		Status:      response.Data.Attributes.Status,
+		TriggeredBy: response.Data.Attributes.TriggeredBy,
+		RawBody:     body,
+	}
+	if response.Data.Attributes.IncidentID != nil {
+		run.IncidentID = *response.Data.Attributes.IncidentID
+	}
+	if response.Data.Attributes.StatusMessage != nil {
+		run.StatusMessage = *response.Data.Attributes.StatusMessage
+	}
+	return run, nil
 }
 
 // alertResponseData represents the structure of alert data from the API response
