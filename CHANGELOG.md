@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-12
+
+### Added
+- Workflow discovery and incident-scoped execution through `rootly workflows list` and `rootly workflows run`
+- Status-page discovery and incident event lifecycle commands for listing, creating, updating, and resolving public updates
+- Incident create/update flags for services, incident types, functionalities, environments, teams, and causes
+- Workflow execution controls for condition checking and configured wait times
+
+### Changed
+- Updated `rootly-go` to v0.12.0 and refreshed supporting dependencies
+
+## [0.4.1] - 2026-07-15
+
+### Fixed
+- Redact authorization headers from debug transport output
+
+## [0.4.0] - 2026-07-10
+
+### Added
+- Support updating a service's escalation policy with `--escalation-policy-id`
+
+### Changed
+- Dependency updates
+
+## [0.3.4] - 2026-06-09
+
 ### Fixed
 - Fix plural filter param names for `/v1/oncalls` endpoint (`filter[schedule_ids]`, `filter[service_ids]`, etc.)
 - URL-encode filter values across all list endpoints
@@ -101,7 +127,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew tap distribution
 - GitHub Actions CI (lint, test, build) and release workflows
 
-[Unreleased]: https://github.com/rootlyhq/rootly-cli/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/rootlyhq/rootly-cli/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/rootlyhq/rootly-cli/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/rootlyhq/rootly-cli/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/rootlyhq/rootly-cli/compare/v0.3.4...v0.4.0
+[0.3.4]: https://github.com/rootlyhq/rootly-cli/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/rootlyhq/rootly-cli/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/rootlyhq/rootly-cli/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/rootlyhq/rootly-cli/compare/v0.3.0...v0.3.1
