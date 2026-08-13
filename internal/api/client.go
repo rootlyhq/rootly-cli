@@ -278,6 +278,13 @@ type WorkflowRun struct {
 	RawBody       []byte `json:"-"`
 }
 
+// WorkflowRunOpts contains optional controls for an incident-scoped workflow run.
+type WorkflowRunOpts struct {
+	IncidentID      string
+	Immediate       *bool
+	CheckConditions *bool
+}
+
 // KeyValue represents a key-value pair for pulse labels and refs
 type KeyValue struct {
 	Key   string
@@ -1414,13 +1421,20 @@ func (c *Client) ResolveWorkflowID(ctx context.Context, idOrSlug string) (string
 var workflowIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 // RunWorkflowCLI starts an incident-scoped workflow run.
-func (c *Client) RunWorkflowCLI(ctx context.Context, workflowID, incidentID string) (*WorkflowRun, error) {
+func (c *Client) RunWorkflowCLI(ctx context.Context, workflowID string, opts WorkflowRunOpts) (*WorkflowRun, error) {
+	attributes := map[string]interface{}{
+		"incident_id": opts.IncidentID,
+	}
+	if opts.Immediate != nil {
+		attributes["immediate"] = *opts.Immediate
+	}
+	if opts.CheckConditions != nil {
+		attributes["check_conditions"] = *opts.CheckConditions
+	}
 	requestBody := map[string]interface{}{
 		"data": map[string]interface{}{
-			"type": "workflow_runs",
-			"attributes": map[string]interface{}{
-				"incident_id": incidentID,
-			},
+			"type":       "workflow_runs",
+			"attributes": attributes,
 		},
 	}
 	bodyBytes, err := json.Marshal(requestBody)

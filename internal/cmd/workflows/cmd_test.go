@@ -2,6 +2,7 @@ package workflows
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -76,15 +77,32 @@ func TestRunWorkflowResolvesSlugAndNormalizesIncident(t *testing.T) {
 	requestCount := 0
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
-		if r.Method == http.MethodGet {
+		if r.URL.Path == "/v1/workflows" {
 			_, _ = w.Write([]byte(`{
 				"data": [{"id": "workflow-1", "attributes": {"name": "Retrospective", "slug": "retrospective"}}],
 				"meta": {"current_page": 1, "total_pages": 1, "total_count": 1}
 			}`))
 			return
 		}
+		if r.URL.Path == "/v1/incidents/42" {
+			_, _ = w.Write([]byte(`{
+				"data": {"id": "incident-uuid", "attributes": {"sequential_id": 42, "title": "Test incident"}}
+			}`))
+			return
+		}
 		if r.URL.Path != "/v1/workflows/workflow-1/workflow_runs" {
 			t.Errorf("unexpected run path: %s", r.URL.Path)
+		}
+		var requestBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("failed to decode run request: %v", err)
+		}
+		attributes := requestBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+		if attributes["incident_id"] != "incident-uuid" {
+			t.Errorf("incident_id = %v, want incident-uuid", attributes["incident_id"])
+		}
+		if attributes["immediate"] != true {
+			t.Errorf("immediate = %v, want true", attributes["immediate"])
 		}
 		_, _ = w.Write([]byte(`{
 			"data": {"id": "run-1", "attributes": {
@@ -95,14 +113,16 @@ func TestRunWorkflowResolvesSlugAndNormalizesIncident(t *testing.T) {
 	viper.Set("format", "json")
 	cmd := newTestCmd()
 	cmd.Flags().String("incident", "INC-42", "")
+	cmd.Flags().Bool("immediate", true, "")
+	cmd.Flags().Bool("check-conditions", false, "")
 
 	output := captureStdout(t, func() {
 		if err := runWorkflow(cmd, []string{"retrospective"}); err != nil {
 			t.Fatalf("runWorkflow returned error: %v", err)
 		}
 	})
-	if requestCount != 2 {
-		t.Errorf("request count = %d, want 2", requestCount)
+	if requestCount != 3 {
+		t.Errorf("request count = %d, want 3", requestCount)
 	}
 	if !strings.Contains(output, "run-1") {
 		t.Errorf("expected run response, got: %s", output)

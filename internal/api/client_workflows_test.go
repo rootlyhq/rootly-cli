@@ -111,13 +111,25 @@ func TestRunWorkflowCLI(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	run, err := client.RunWorkflowCLI(context.Background(), "workflow-1", "42")
+	immediate := false
+	checkConditions := true
+	run, err := client.RunWorkflowCLI(context.Background(), "workflow-1", WorkflowRunOpts{
+		IncidentID:      "incident-uuid",
+		Immediate:       &immediate,
+		CheckConditions: &checkConditions,
+	})
 	if err != nil {
 		t.Fatalf("RunWorkflowCLI returned error: %v", err)
 	}
 	attributes := requestBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
-	if attributes["incident_id"] != "42" {
-		t.Errorf("incident_id = %v, want 42", attributes["incident_id"])
+	if attributes["incident_id"] != "incident-uuid" {
+		t.Errorf("incident_id = %v, want incident-uuid", attributes["incident_id"])
+	}
+	if attributes["immediate"] != false {
+		t.Errorf("immediate = %v, want false", attributes["immediate"])
+	}
+	if attributes["check_conditions"] != true {
+		t.Errorf("check_conditions = %v, want true", attributes["check_conditions"])
 	}
 	if run.ID != "run-1" || run.Status != "pending" {
 		t.Errorf("run = %+v, want run-1 pending", run)
