@@ -43,9 +43,11 @@ func TestUpdateIncident(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	inc, err := client.UpdateIncident(context.Background(), "inc-1", map[string]string{
-		"title":  "Updated Title",
-		"status": "mitigated",
+	inc, err := client.UpdateIncident(context.Background(), "inc-1", map[string]interface{}{
+		"title":             "Updated Title",
+		"status":            "mitigated",
+		"service_ids":       []string{"api-gateway", "payments"},
+		"incident_type_ids": []string{"customer-impacting"},
 	})
 	if err != nil {
 		t.Fatalf("UpdateIncident returned error: %v", err)
@@ -70,6 +72,14 @@ func TestUpdateIncident(t *testing.T) {
 	if attrs["status"] != "mitigated" {
 		t.Errorf("request status = %q, want %q", attrs["status"], "mitigated")
 	}
+	serviceIDs := attrs["service_ids"].([]interface{})
+	if len(serviceIDs) != 2 || serviceIDs[0] != "api-gateway" || serviceIDs[1] != "payments" {
+		t.Errorf("request service_ids = %v, want [api-gateway payments]", serviceIDs)
+	}
+	incidentTypeIDs := attrs["incident_type_ids"].([]interface{})
+	if len(incidentTypeIDs) != 1 || incidentTypeIDs[0] != "customer-impacting" {
+		t.Errorf("request incident_type_ids = %v, want [customer-impacting]", incidentTypeIDs)
+	}
 }
 
 func TestUpdateIncidentNotFound(t *testing.T) {
@@ -79,7 +89,7 @@ func TestUpdateIncidentNotFound(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	_, err := client.UpdateIncident(context.Background(), "nonexistent", map[string]string{"title": "x"})
+	_, err := client.UpdateIncident(context.Background(), "nonexistent", map[string]interface{}{"title": "x"})
 	if err == nil {
 		t.Fatal("expected error for 404")
 	}
@@ -95,7 +105,7 @@ func TestUpdateIncidentForbidden(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	_, err := client.UpdateIncident(context.Background(), "inc-1", map[string]string{"title": "x"})
+	_, err := client.UpdateIncident(context.Background(), "inc-1", map[string]interface{}{"title": "x"})
 	if err == nil {
 		t.Fatal("expected error for 403")
 	}

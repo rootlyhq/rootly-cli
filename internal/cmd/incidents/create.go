@@ -22,6 +22,8 @@ var createCmd = &cobra.Command{
     --title="API degradation" \
     --summary="Response times elevated above 2s p99" \
     --severity=sev0 \
+    --services=api-gateway,payments \
+    --types=customer-impacting \
     --status=started
 
   # Create and output as JSON
@@ -34,6 +36,8 @@ func init() {
 	createCmd.Flags().String("summary", "", "Incident summary/description")
 	createCmd.Flags().String("severity", "", "Severity ID")
 	createCmd.Flags().String("status", "", "Initial status (started, mitigated, resolved)")
+	createCmd.Flags().StringSlice("services", nil, "Service slugs/IDs, comma-separated")
+	createCmd.Flags().StringSlice("types", nil, "Incident type slugs/IDs, comma-separated")
 
 	// Mark title as required
 	_ = createCmd.MarkFlagRequired("title")
@@ -54,9 +58,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	summary, _ := cmd.Flags().GetString("summary")
 	severity, _ := cmd.Flags().GetString("severity")
 	status, _ := cmd.Flags().GetString("status")
+	services, _ := cmd.Flags().GetStringSlice("services")
+	incidentTypes, _ := cmd.Flags().GetStringSlice("types")
 
 	// Build opts map - only add keys where the flag was provided
-	opts := make(map[string]string)
+	opts := make(map[string]interface{})
 	if summary != "" {
 		opts["summary"] = summary
 	}
@@ -65,6 +71,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if status != "" {
 		opts["status"] = status
+	}
+	if len(services) > 0 {
+		opts["service_ids"] = services
+	}
+	if len(incidentTypes) > 0 {
+		opts["incident_type_ids"] = incidentTypes
 	}
 
 	// Call API

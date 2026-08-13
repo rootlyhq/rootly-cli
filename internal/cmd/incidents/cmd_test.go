@@ -287,6 +287,8 @@ func TestRunCreateTable(t *testing.T) {
 	cmd.Flags().String("summary", "Test summary", "")
 	cmd.Flags().String("severity", "", "")
 	cmd.Flags().String("status", "started", "")
+	cmd.Flags().StringSlice("services", []string{"api-gateway", "payments"}, "")
+	cmd.Flags().StringSlice("types", []string{"customer-impacting"}, "")
 
 	output := captureStdout(t, func() {
 		err := runCreate(cmd, nil)
@@ -315,6 +317,8 @@ func TestRunCreateJSON(t *testing.T) {
 	cmd.Flags().String("summary", "", "")
 	cmd.Flags().String("severity", "", "")
 	cmd.Flags().String("status", "", "")
+	cmd.Flags().StringSlice("services", nil, "")
+	cmd.Flags().StringSlice("types", nil, "")
 
 	output := captureStdout(t, func() {
 		err := runCreate(cmd, nil)
@@ -344,6 +348,8 @@ func TestRunUpdateTable(t *testing.T) {
 	cmd.Flags().String("summary", "", "")
 	cmd.Flags().String("severity", "", "")
 	cmd.Flags().String("status", "", "")
+	cmd.Flags().StringSlice("services", nil, "")
+	cmd.Flags().StringSlice("types", nil, "")
 
 	// Simulate the user passing --status=mitigated
 	cmd.Flags().Set("status", "mitigated")
@@ -370,6 +376,8 @@ func TestRunUpdateNoFlags(t *testing.T) {
 	cmd.Flags().String("summary", "", "")
 	cmd.Flags().String("severity", "", "")
 	cmd.Flags().String("status", "", "")
+	cmd.Flags().StringSlice("services", nil, "")
+	cmd.Flags().StringSlice("types", nil, "")
 
 	err := runUpdate(cmd, []string{"INC-42"})
 	if err == nil {

@@ -24,7 +24,12 @@ var updateCmd = &cobra.Command{
     --summary="Root cause identified: connection pool exhaustion"
 
   # Update severity
-  rootly incidents update INC-123 --severity=sev1`,
+  rootly incidents update INC-123 --severity=sev1
+
+  # Update attached services and incident types
+  rootly incidents update INC-123 \
+    --services=api-gateway,payments \
+    --types=customer-impacting`,
 	Args: cobra.ExactArgs(1),
 	RunE: runUpdate,
 }
@@ -34,6 +39,8 @@ func init() {
 	updateCmd.Flags().String("summary", "", "Updated summary")
 	updateCmd.Flags().String("severity", "", "Updated severity ID")
 	updateCmd.Flags().String("status", "", "Updated status (started, mitigated, resolved, closed, cancelled)")
+	updateCmd.Flags().StringSlice("services", nil, "Updated service slugs/IDs, comma-separated")
+	updateCmd.Flags().StringSlice("types", nil, "Updated incident type slugs/IDs, comma-separated")
 
 	// Register with parent command
 	IncidentsCmd.AddCommand(updateCmd)
@@ -50,7 +57,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build opts map using cmd.Flags().Changed() - ONLY include fields the user explicitly set
-	opts := make(map[string]string)
+	opts := make(map[string]interface{})
 	if cmd.Flags().Changed("title") {
 		title, _ := cmd.Flags().GetString("title")
 		opts["title"] = title
@@ -66,6 +73,14 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("status") {
 		status, _ := cmd.Flags().GetString("status")
 		opts["status"] = status
+	}
+	if cmd.Flags().Changed("services") {
+		services, _ := cmd.Flags().GetStringSlice("services")
+		opts["service_ids"] = services
+	}
+	if cmd.Flags().Changed("types") {
+		incidentTypes, _ := cmd.Flags().GetStringSlice("types")
+		opts["incident_type_ids"] = incidentTypes
 	}
 
 	// If opts is empty (no flags changed), return error

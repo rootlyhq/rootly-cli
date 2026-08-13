@@ -275,9 +275,11 @@ func TestCreateIncident(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	inc, err := client.CreateIncident(context.Background(), "New Incident", map[string]string{
-		"summary": "Test summary",
-		"status":  "started",
+	inc, err := client.CreateIncident(context.Background(), "New Incident", map[string]interface{}{
+		"summary":           "Test summary",
+		"status":            "started",
+		"service_ids":       []string{"api-gateway", "payments"},
+		"incident_type_ids": []string{"customer-impacting"},
 	})
 	if err != nil {
 		t.Fatalf("CreateIncident returned error: %v", err)
