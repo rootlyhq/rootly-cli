@@ -2,6 +2,7 @@ package incidents
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -287,6 +288,12 @@ func TestRunCreateTable(t *testing.T) {
 	cmd.Flags().String("summary", "Test summary", "")
 	cmd.Flags().String("severity", "", "")
 	cmd.Flags().String("status", "started", "")
+	cmd.Flags().StringSlice("services", []string{"api-gateway", "payments"}, "")
+	cmd.Flags().StringSlice("types", []string{"customer-impacting"}, "")
+	cmd.Flags().StringSlice("functionalities", []string{"checkout"}, "")
+	cmd.Flags().StringSlice("environments", []string{"production"}, "")
+	cmd.Flags().StringSlice("teams", []string{"platform"}, "")
+	cmd.Flags().StringSlice("causes", []string{"deployment"}, "")
 
 	output := captureStdout(t, func() {
 		err := runCreate(cmd, nil)
@@ -315,6 +322,12 @@ func TestRunCreateJSON(t *testing.T) {
 	cmd.Flags().String("summary", "", "")
 	cmd.Flags().String("severity", "", "")
 	cmd.Flags().String("status", "", "")
+	cmd.Flags().StringSlice("services", nil, "")
+	cmd.Flags().StringSlice("types", nil, "")
+	cmd.Flags().StringSlice("functionalities", nil, "")
+	cmd.Flags().StringSlice("environments", nil, "")
+	cmd.Flags().StringSlice("teams", nil, "")
+	cmd.Flags().StringSlice("causes", nil, "")
 
 	output := captureStdout(t, func() {
 		err := runCreate(cmd, nil)
@@ -344,6 +357,12 @@ func TestRunUpdateTable(t *testing.T) {
 	cmd.Flags().String("summary", "", "")
 	cmd.Flags().String("severity", "", "")
 	cmd.Flags().String("status", "", "")
+	cmd.Flags().StringSlice("services", nil, "")
+	cmd.Flags().StringSlice("types", nil, "")
+	cmd.Flags().StringSlice("functionalities", nil, "")
+	cmd.Flags().StringSlice("environments", nil, "")
+	cmd.Flags().StringSlice("teams", nil, "")
+	cmd.Flags().StringSlice("causes", nil, "")
 
 	// Simulate the user passing --status=mitigated
 	cmd.Flags().Set("status", "mitigated")
@@ -370,6 +389,12 @@ func TestRunUpdateNoFlags(t *testing.T) {
 	cmd.Flags().String("summary", "", "")
 	cmd.Flags().String("severity", "", "")
 	cmd.Flags().String("status", "", "")
+	cmd.Flags().StringSlice("services", nil, "")
+	cmd.Flags().StringSlice("types", nil, "")
+	cmd.Flags().StringSlice("functionalities", nil, "")
+	cmd.Flags().StringSlice("environments", nil, "")
+	cmd.Flags().StringSlice("teams", nil, "")
+	cmd.Flags().StringSlice("causes", nil, "")
 
 	err := runUpdate(cmd, []string{"INC-42"})
 	if err == nil {
@@ -377,6 +402,48 @@ func TestRunUpdateNoFlags(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "at least one field") {
 		t.Errorf("expected 'at least one field' error, got: %v", err)
+	}
+}
+
+func TestRunUpdateCanClearAssociations(t *testing.T) {
+	var attributes map[string]interface{}
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var requestBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("failed to decode request body: %v", err)
+		}
+		attributes = requestBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		_, _ = w.Write([]byte(getResponse()))
+	})
+	viper.Set("format", "table")
+
+	cmd := newTestCmd()
+	cmd.Flags().String("title", "", "")
+	cmd.Flags().String("summary", "", "")
+	cmd.Flags().String("severity", "", "")
+	cmd.Flags().String("status", "", "")
+	cmd.Flags().StringSlice("services", nil, "")
+	cmd.Flags().StringSlice("types", nil, "")
+	cmd.Flags().StringSlice("functionalities", nil, "")
+	cmd.Flags().StringSlice("environments", nil, "")
+	cmd.Flags().StringSlice("teams", nil, "")
+	cmd.Flags().StringSlice("causes", nil, "")
+	if err := cmd.Flags().Set("services", ""); err != nil {
+		t.Fatalf("failed to set empty services: %v", err)
+	}
+
+	captureStdout(t, func() {
+		if err := runUpdate(cmd, []string{"INC-42"}); err != nil {
+			t.Fatalf("runUpdate returned error: %v", err)
+		}
+	})
+	services, ok := attributes["service_ids"].([]interface{})
+	if !ok || len(services) != 0 {
+		t.Errorf("service_ids = %#v, want an explicitly empty array", attributes["service_ids"])
+	}
+	if _, ok := attributes["incident_type_ids"]; ok {
+		t.Error("incident_type_ids should be absent when --types is omitted")
 	}
 }
 

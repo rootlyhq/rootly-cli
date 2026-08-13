@@ -256,6 +256,26 @@ func TestCreateIncident(t *testing.T) {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
 
+		var requestBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("failed to decode request body: %v", err)
+		}
+		data := requestBody["data"].(map[string]interface{})
+		attrs := data["attributes"].(map[string]interface{})
+		for key, want := range map[string]string{
+			"service_ids":       "api-gateway",
+			"incident_type_ids": "customer-impacting",
+			"functionality_ids": "checkout",
+			"environment_ids":   "production",
+			"group_ids":         "platform",
+			"cause_ids":         "deployment",
+		} {
+			values := attrs[key].([]interface{})
+			if len(values) == 0 || values[0] != want {
+				t.Errorf("request %s = %v, want first value %s", key, values, want)
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		w.WriteHeader(http.StatusCreated)
 		resp := map[string]interface{}{
@@ -275,9 +295,15 @@ func TestCreateIncident(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	inc, err := client.CreateIncident(context.Background(), "New Incident", map[string]string{
-		"summary": "Test summary",
-		"status":  "started",
+	inc, err := client.CreateIncident(context.Background(), "New Incident", map[string]interface{}{
+		"summary":           "Test summary",
+		"status":            "started",
+		"service_ids":       []string{"api-gateway", "payments"},
+		"incident_type_ids": []string{"customer-impacting"},
+		"functionality_ids": []string{"checkout"},
+		"environment_ids":   []string{"production"},
+		"group_ids":         []string{"platform"},
+		"cause_ids":         []string{"deployment"},
 	})
 	if err != nil {
 		t.Fatalf("CreateIncident returned error: %v", err)

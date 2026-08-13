@@ -1075,7 +1075,7 @@ func (c *Client) GetIncidentByID(ctx context.Context, id string) (*Incident, err
 }
 
 // CreateIncident creates a new incident using raw HTTP POST.
-func (c *Client) CreateIncident(ctx context.Context, title string, opts map[string]string) (*Incident, error) {
+func (c *Client) CreateIncident(ctx context.Context, title string, opts map[string]interface{}) (*Incident, error) {
 	// Build JSON:API request body
 	requestBody := map[string]interface{}{
 		"data": map[string]interface{}{
@@ -1096,6 +1096,11 @@ func (c *Client) CreateIncident(ctx context.Context, title string, opts map[stri
 	}
 	if status, ok := opts["status"]; ok {
 		attributes["status"] = status
+	}
+	for _, key := range []string{"service_ids", "incident_type_ids", "functionality_ids", "environment_ids", "group_ids", "cause_ids"} {
+		if value, ok := opts[key]; ok {
+			attributes[key] = value
+		}
 	}
 
 	bodyBytes, err := json.Marshal(requestBody)
@@ -1150,7 +1155,7 @@ func (c *Client) CreateIncident(ctx context.Context, title string, opts map[stri
 }
 
 // UpdateIncident updates an incident using raw HTTP PUT.
-func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]string) (*Incident, error) {
+func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]interface{}) (*Incident, error) {
 	// Build JSON:API request body with only changed attributes
 	attributes := make(map[string]interface{})
 	if title, ok := opts["title"]; ok {
@@ -1164,6 +1169,11 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 	}
 	if status, ok := opts["status"]; ok {
 		attributes["status"] = status
+	}
+	for _, key := range []string{"service_ids", "incident_type_ids", "functionality_ids", "environment_ids", "group_ids", "cause_ids"} {
+		if value, ok := opts[key]; ok {
+			attributes[key] = value
+		}
 	}
 
 	requestBody := map[string]interface{}{
