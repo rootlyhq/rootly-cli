@@ -1606,6 +1606,9 @@ func (c *Client) doJSONAPIRequest(ctx context.Context, method, path string, requ
 
 // ListStatusPagesCLI lists configured status pages.
 func (c *Client) ListStatusPagesCLI(ctx context.Context, page, pageSize int, sort string, filters map[string]string) (*StatusPagesResult, error) {
+	if err := validateStatusPagePagination(page, pageSize); err != nil {
+		return nil, err
+	}
 	if pageSize == 0 {
 		pageSize = 25
 	}
@@ -1693,6 +1696,9 @@ func (c *Client) ListStatusPagesCLI(ctx context.Context, page, pageSize int, sor
 
 // ListStatusPageEventsCLI lists status-page events for an incident.
 func (c *Client) ListStatusPageEventsCLI(ctx context.Context, incidentID string, page, pageSize int) (*StatusPageEventsResult, error) {
+	if err := validateStatusPagePagination(page, pageSize); err != nil {
+		return nil, err
+	}
 	if pageSize == 0 {
 		pageSize = 25
 	}
@@ -1717,6 +1723,16 @@ func (c *Client) ListStatusPageEventsCLI(ctx context.Context, incidentID string,
 		return nil, fmt.Errorf("API returned status %d", statusCode)
 	}
 	return parseStatusPageEvents(body, page)
+}
+
+func validateStatusPagePagination(page, pageSize int) error {
+	if page < 1 {
+		return fmt.Errorf("page must be at least 1")
+	}
+	if pageSize < 0 {
+		return fmt.Errorf("page size must not be negative")
+	}
+	return nil
 }
 
 func parseStatusPageEvents(body []byte, requestedPage int) (*StatusPageEventsResult, error) {

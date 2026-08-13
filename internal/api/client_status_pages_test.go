@@ -62,6 +62,16 @@ func TestListStatusPagesCLI(t *testing.T) {
 	}
 }
 
+func TestStatusPageListsRejectNegativePagination(t *testing.T) {
+	client := &Client{}
+	if _, err := client.ListStatusPagesCLI(context.Background(), -1, 25, "", nil); err == nil || !strings.Contains(err.Error(), "page must be at least 1") {
+		t.Fatalf("status-page list error = %v, want minimum page validation", err)
+	}
+	if _, err := client.ListStatusPageEventsCLI(context.Background(), "42", 1, -1); err == nil || !strings.Contains(err.Error(), "page size must not be negative") {
+		t.Fatalf("event list error = %v, want non-negative page-size validation", err)
+	}
+}
+
 func TestListStatusPageEventsCLI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/incidents/42/status-page-events" {
