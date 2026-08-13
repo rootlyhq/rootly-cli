@@ -48,6 +48,10 @@ func TestUpdateIncident(t *testing.T) {
 		"status":            "mitigated",
 		"service_ids":       []string{"api-gateway", "payments"},
 		"incident_type_ids": []string{"customer-impacting"},
+		"functionality_ids": []string{"checkout"},
+		"environment_ids":   []string{"production"},
+		"group_ids":         []string{"platform"},
+		"cause_ids":         []string{"deployment"},
 	})
 	if err != nil {
 		t.Fatalf("UpdateIncident returned error: %v", err)
@@ -79,6 +83,17 @@ func TestUpdateIncident(t *testing.T) {
 	incidentTypeIDs := attrs["incident_type_ids"].([]interface{})
 	if len(incidentTypeIDs) != 1 || incidentTypeIDs[0] != "customer-impacting" {
 		t.Errorf("request incident_type_ids = %v, want [customer-impacting]", incidentTypeIDs)
+	}
+	for key, want := range map[string]string{
+		"functionality_ids": "checkout",
+		"environment_ids":   "production",
+		"group_ids":         "platform",
+		"cause_ids":         "deployment",
+	} {
+		values := attrs[key].([]interface{})
+		if len(values) != 1 || values[0] != want {
+			t.Errorf("request %s = %v, want [%s]", key, values, want)
+		}
 	}
 }
 

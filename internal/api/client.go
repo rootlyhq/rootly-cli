@@ -1097,11 +1097,10 @@ func (c *Client) CreateIncident(ctx context.Context, title string, opts map[stri
 	if status, ok := opts["status"]; ok {
 		attributes["status"] = status
 	}
-	if serviceIDs, ok := opts["service_ids"]; ok {
-		attributes["service_ids"] = serviceIDs
-	}
-	if incidentTypeIDs, ok := opts["incident_type_ids"]; ok {
-		attributes["incident_type_ids"] = incidentTypeIDs
+	for _, key := range []string{"service_ids", "incident_type_ids", "functionality_ids", "environment_ids", "group_ids", "cause_ids"} {
+		if value, ok := opts[key]; ok {
+			attributes[key] = value
+		}
 	}
 
 	bodyBytes, err := json.Marshal(requestBody)
@@ -1171,11 +1170,10 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 	if status, ok := opts["status"]; ok {
 		attributes["status"] = status
 	}
-	if serviceIDs, ok := opts["service_ids"]; ok {
-		attributes["service_ids"] = serviceIDs
-	}
-	if incidentTypeIDs, ok := opts["incident_type_ids"]; ok {
-		attributes["incident_type_ids"] = incidentTypeIDs
+	for _, key := range []string{"service_ids", "incident_type_ids", "functionality_ids", "environment_ids", "group_ids", "cause_ids"} {
+		if value, ok := opts[key]; ok {
+			attributes[key] = value
+		}
 	}
 
 	requestBody := map[string]interface{}{

@@ -24,6 +24,9 @@ var createCmd = &cobra.Command{
     --severity=sev0 \
     --services=api-gateway,payments \
     --types=customer-impacting \
+    --functionalities=checkout \
+    --environments=production \
+    --teams=platform \
     --status=started
 
   # Create and output as JSON
@@ -38,6 +41,10 @@ func init() {
 	createCmd.Flags().String("status", "", "Initial status (started, mitigated, resolved)")
 	createCmd.Flags().StringSlice("services", nil, "Service slugs/IDs, comma-separated")
 	createCmd.Flags().StringSlice("types", nil, "Incident type slugs/IDs, comma-separated")
+	createCmd.Flags().StringSlice("functionalities", nil, "Functionality slugs/IDs, comma-separated")
+	createCmd.Flags().StringSlice("environments", nil, "Environment slugs/IDs, comma-separated")
+	createCmd.Flags().StringSlice("teams", nil, "Team slugs/IDs, comma-separated")
+	createCmd.Flags().StringSlice("causes", nil, "Cause slugs/IDs, comma-separated")
 
 	// Mark title as required
 	_ = createCmd.MarkFlagRequired("title")
@@ -60,6 +67,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	status, _ := cmd.Flags().GetString("status")
 	services, _ := cmd.Flags().GetStringSlice("services")
 	incidentTypes, _ := cmd.Flags().GetStringSlice("types")
+	functionalities, _ := cmd.Flags().GetStringSlice("functionalities")
+	environments, _ := cmd.Flags().GetStringSlice("environments")
+	teams, _ := cmd.Flags().GetStringSlice("teams")
+	causes, _ := cmd.Flags().GetStringSlice("causes")
 
 	// Build opts map - only add keys where the flag was provided
 	opts := make(map[string]interface{})
@@ -77,6 +88,18 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if len(incidentTypes) > 0 {
 		opts["incident_type_ids"] = incidentTypes
+	}
+	if len(functionalities) > 0 {
+		opts["functionality_ids"] = functionalities
+	}
+	if len(environments) > 0 {
+		opts["environment_ids"] = environments
+	}
+	if len(teams) > 0 {
+		opts["group_ids"] = teams
+	}
+	if len(causes) > 0 {
+		opts["cause_ids"] = causes
 	}
 
 	// Call API
