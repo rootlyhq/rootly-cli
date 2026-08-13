@@ -49,6 +49,16 @@ func TestListWorkflowsCLI(t *testing.T) {
 	}
 }
 
+func TestListWorkflowsCLIRejectsNegativePagination(t *testing.T) {
+	client := &Client{}
+	if _, err := client.ListWorkflowsCLI(context.Background(), -1, 25, "", nil); err == nil || !strings.Contains(err.Error(), "page must be at least 1") {
+		t.Fatalf("page error = %v, want minimum page validation", err)
+	}
+	if _, err := client.ListWorkflowsCLI(context.Background(), 1, -1, "", nil); err == nil || !strings.Contains(err.Error(), "page size must not be negative") {
+		t.Fatalf("page-size error = %v, want non-negative validation", err)
+	}
+}
+
 func TestResolveWorkflowIDBySlug(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("filter[slug][eq]"); got != "retrospective" {

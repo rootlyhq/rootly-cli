@@ -1303,6 +1303,12 @@ func (c *Client) DeleteIncident(ctx context.Context, id string) error {
 
 // ListWorkflowsCLI lists workflows with filters and pagination for CLI usage.
 func (c *Client) ListWorkflowsCLI(ctx context.Context, page, pageSize int, sort string, filters map[string]string) (*WorkflowsResult, error) {
+	if page < 1 {
+		return nil, fmt.Errorf("page must be at least 1")
+	}
+	if pageSize < 0 {
+		return nil, fmt.Errorf("page size must not be negative")
+	}
 	if pageSize == 0 {
 		pageSize = 25
 	}
