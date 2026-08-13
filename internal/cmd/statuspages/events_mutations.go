@@ -3,6 +3,7 @@ package statuspages
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -10,11 +11,6 @@ import (
 	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/printer"
 )
-
-var validEventStatuses = map[string]bool{
-	"completed": true, "identified": true, "in_progress": true,
-	"investigating": true, "monitoring": true, "resolved": true, "scheduled": true,
-}
 
 var eventsCreateCmd = &cobra.Command{
 	Use:     "create <incident-id>",
@@ -27,7 +23,7 @@ var eventsCreateCmd = &cobra.Command{
 var eventsUpdateCmd = &cobra.Command{
 	Use:     "update <event-id>",
 	Short:   "Update a status-page event",
-	Example: `  rootly status-pages events update <event-id> --status=monitoring --message="A fix has been applied." --notify-subscribers`,
+	Example: `  rootly status-pages events update <event-id> --status=monitoring --message="A fix has been applied."`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runEventsUpdate,
 }
@@ -35,7 +31,7 @@ var eventsUpdateCmd = &cobra.Command{
 var eventsResolveCmd = &cobra.Command{
 	Use:     "resolve <event-id>",
 	Short:   "Resolve a status-page event",
-	Example: `  rootly status-pages events resolve <event-id> --message="The incident has been resolved." --notify-subscribers`,
+	Example: `  rootly status-pages events resolve <event-id> --message="The incident has been resolved."`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runEventsResolve,
 }
@@ -45,26 +41,19 @@ func init() {
 	eventsCreateCmd.Flags().String("status", "", "Event status (required)")
 	eventsCreateCmd.Flags().String("message", "", "Public update message (required)")
 	eventsCreateCmd.Flags().Bool("notify-subscribers", false, "Notify status-page subscribers")
+	eventsCreateCmd.Flags().String("started-at", "", "Event start time in RFC3339 format")
 	_ = eventsCreateCmd.MarkFlagRequired("status-page")
 	_ = eventsCreateCmd.MarkFlagRequired("status")
 	_ = eventsCreateCmd.MarkFlagRequired("message")
 
 	eventsUpdateCmd.Flags().String("status", "", "Updated event status")
 	eventsUpdateCmd.Flags().String("message", "", "Updated public message")
-	eventsUpdateCmd.Flags().Bool("notify-subscribers", false, "Notify status-page subscribers")
+	eventsUpdateCmd.Flags().String("started-at", "", "Updated event start time in RFC3339 format")
 
 	eventsResolveCmd.Flags().String("message", "", "Resolution message (required)")
-	eventsResolveCmd.Flags().Bool("notify-subscribers", false, "Notify status-page subscribers")
 	_ = eventsResolveCmd.MarkFlagRequired("message")
 
 	eventsCmd.AddCommand(eventsCreateCmd, eventsUpdateCmd, eventsResolveCmd)
-}
-
-func validateEventStatus(status string) error {
-	if !validEventStatuses[status] {
-		return fmt.Errorf("invalid status %q: expected completed, identified, in_progress, investigating, monitoring, resolved, or scheduled", status)
-	}
-	return nil
 }
 
 func runEventsCreate(cmd *cobra.Command, args []string) error {
@@ -76,10 +65,13 @@ func runEventsCreate(cmd *cobra.Command, args []string) error {
 	status, _ := cmd.Flags().GetString("status")
 	message, _ := cmd.Flags().GetString("message")
 	notify, _ := cmd.Flags().GetBool("notify-subscribers")
-	if err := validateEventStatus(status); err != nil {
+	startedAt, err := parseStartedAt(cmd)
+	if err != nil {
 		return err
 	}
-	event, err := apiClient.CreateStatusPageEventCLI(cmd.Context(), api.NormalizeIncidentID(args[0]), statusPageID, status, message, notify)
+	event, err := apiClient.CreateStatusPageEventCLI(cmd.Context(), api.NormalizeIncidentID(args[0]), api.CreateStatusPageEventOpts{
+		StatusPageID: statusPageID, Status: status, Message: message, NotifySubscribers: notify, StartedAt: startedAt,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create status-page event: %w", err)
 	}
@@ -94,20 +86,20 @@ func runEventsUpdate(cmd *cobra.Command, args []string) error {
 	opts := api.StatusPageEventOpts{}
 	if cmd.Flags().Changed("status") {
 		status, _ := cmd.Flags().GetString("status")
-		if err := validateEventStatus(status); err != nil {
-			return err
-		}
 		opts.Status = &status
 	}
 	if cmd.Flags().Changed("message") {
 		message, _ := cmd.Flags().GetString("message")
 		opts.Message = &message
 	}
-	if cmd.Flags().Changed("notify-subscribers") {
-		notify, _ := cmd.Flags().GetBool("notify-subscribers")
-		opts.NotifySubscribers = &notify
+	if cmd.Flags().Changed("started-at") {
+		startedAt, err := parseStartedAt(cmd)
+		if err != nil {
+			return err
+		}
+		opts.StartedAt = startedAt
 	}
-	if opts.Status == nil && opts.Message == nil && opts.NotifySubscribers == nil {
+	if opts.Status == nil && opts.Message == nil && opts.StartedAt == nil {
 		return fmt.Errorf("at least one field must be specified for update")
 	}
 	event, err := apiClient.UpdateStatusPageEventCLI(cmd.Context(), args[0], opts)
@@ -124,14 +116,25 @@ func runEventsResolve(cmd *cobra.Command, args []string) error {
 	}
 	status := "resolved"
 	message, _ := cmd.Flags().GetString("message")
-	notify, _ := cmd.Flags().GetBool("notify-subscribers")
 	event, err := apiClient.UpdateStatusPageEventCLI(cmd.Context(), args[0], api.StatusPageEventOpts{
-		Status: &status, Message: &message, NotifySubscribers: &notify,
+		Status: &status, Message: &message,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to resolve status-page event: %w", err)
 	}
 	return printSavedEvent(event, "Resolved")
+}
+
+func parseStartedAt(cmd *cobra.Command) (*time.Time, error) {
+	value, _ := cmd.Flags().GetString("started-at")
+	if value == "" {
+		return nil, nil
+	}
+	startedAt, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --started-at %q: expected RFC3339 timestamp", value)
+	}
+	return &startedAt, nil
 }
 
 func printSavedEvent(event *api.StatusPageEvent, verb string) error {

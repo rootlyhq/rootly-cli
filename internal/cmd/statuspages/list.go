@@ -16,7 +16,7 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List status pages",
 	Example: `  rootly status-pages list
-  rootly status-pages list --slug=public-status --format=json`,
+  rootly status-pages list --name=public --format=json`,
 	RunE: runList,
 }
 
@@ -24,7 +24,7 @@ func init() {
 	listCmd.Flags().Int("page", 1, "Page number")
 	listCmd.Flags().Int("page-size", 25, "Results per page (max 100)")
 	listCmd.Flags().String("sort", "-created_at", "Sort order")
-	listCmd.Flags().String("search", "", "Filter by title or description")
+	listCmd.Flags().String("name", "", "Filter by title (partial match)")
 	listCmd.Flags().String("slug", "", "Filter by slug")
 	StatusPagesCmd.AddCommand(listCmd)
 }
@@ -37,11 +37,11 @@ func runList(cmd *cobra.Command, args []string) error {
 	page, _ := cmd.Flags().GetInt("page")
 	pageSize, _ := cmd.Flags().GetInt("page-size")
 	sort, _ := cmd.Flags().GetString("sort")
-	search, _ := cmd.Flags().GetString("search")
+	name, _ := cmd.Flags().GetString("name")
 	slug, _ := cmd.Flags().GetString("slug")
 	filters := make(map[string]string)
-	if search != "" {
-		filters["search"] = search
+	if name != "" {
+		filters["name"] = name
 	}
 	if slug != "" {
 		filters["slug"] = slug

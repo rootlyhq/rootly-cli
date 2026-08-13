@@ -70,7 +70,7 @@ func TestRunList(t *testing.T) {
 	cmd.Flags().Int("page", 1, "")
 	cmd.Flags().Int("page-size", 25, "")
 	cmd.Flags().String("sort", "-created_at", "")
-	cmd.Flags().String("search", "", "")
+	cmd.Flags().String("name", "", "")
 	cmd.Flags().String("slug", "", "")
 
 	output := captureStdout(t, func() {
@@ -125,6 +125,7 @@ func TestRunEventsCreate(t *testing.T) {
 	cmd.Flags().String("status", "investigating", "")
 	cmd.Flags().String("message", "We are investigating.", "")
 	cmd.Flags().Bool("notify-subscribers", true, "")
+	cmd.Flags().String("started-at", "", "")
 
 	output := captureStdout(t, func() {
 		if err := runEventsCreate(cmd, []string{"INC-42"}); err != nil {
@@ -143,7 +144,7 @@ func TestRunEventsUpdateRequiresChange(t *testing.T) {
 	cmd := newTestCmd()
 	cmd.Flags().String("status", "", "")
 	cmd.Flags().String("message", "", "")
-	cmd.Flags().Bool("notify-subscribers", false, "")
+	cmd.Flags().String("started-at", "", "")
 
 	err := runEventsUpdate(cmd, []string{"event-1"})
 	if err == nil || !strings.Contains(err.Error(), "at least one field") {
@@ -161,7 +162,6 @@ func TestRunEventsResolveSetsResolvedStatus(t *testing.T) {
 	viper.Set("format", "json")
 	cmd := newTestCmd()
 	cmd.Flags().String("message", "Resolved.", "")
-	cmd.Flags().Bool("notify-subscribers", true, "")
 
 	captureStdout(t, func() {
 		if err := runEventsResolve(cmd, []string{"event-1"}); err != nil {
@@ -174,11 +174,10 @@ func TestRunEventsResolveSetsResolvedStatus(t *testing.T) {
 	}
 }
 
-func TestValidateEventStatus(t *testing.T) {
-	if err := validateEventStatus("monitoring"); err != nil {
-		t.Fatalf("monitoring should be valid: %v", err)
-	}
-	if err := validateEventStatus("unknown"); err == nil {
-		t.Fatal("unknown status should be rejected")
+func TestParseStartedAtRejectsInvalidTimestamp(t *testing.T) {
+	cmd := newTestCmd()
+	cmd.Flags().String("started-at", "tomorrow", "")
+	if _, err := parseStartedAt(cmd); err == nil || !strings.Contains(err.Error(), "RFC3339") {
+		t.Fatalf("error = %v, want RFC3339 validation error", err)
 	}
 }

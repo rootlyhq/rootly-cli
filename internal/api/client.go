@@ -328,6 +328,16 @@ type StatusPageEventOpts struct {
 	Message           *string
 	Status            *string
 	NotifySubscribers *bool
+	StartedAt         *time.Time
+}
+
+// CreateStatusPageEventOpts contains fields for a new incident status-page event.
+type CreateStatusPageEventOpts struct {
+	StatusPageID      string
+	Status            string
+	Message           string
+	NotifySubscribers bool
+	StartedAt         *time.Time
 }
 
 // KeyValue represents a key-value pair for pulse labels and refs
@@ -1775,16 +1785,20 @@ func parseStatusPageEvent(data statusPageEventResponseData, rawBody []byte) Stat
 }
 
 // CreateStatusPageEventCLI creates a status-page event for an incident.
-func (c *Client) CreateStatusPageEventCLI(ctx context.Context, incidentID, statusPageID, status, message string, notifySubscribers bool) (*StatusPageEvent, error) {
+func (c *Client) CreateStatusPageEventCLI(ctx context.Context, incidentID string, opts CreateStatusPageEventOpts) (*StatusPageEvent, error) {
+	attributes := map[string]interface{}{
+		"status_page_id":     opts.StatusPageID,
+		"status":             opts.Status,
+		"event":              opts.Message,
+		"notify_subscribers": opts.NotifySubscribers,
+	}
+	if opts.StartedAt != nil {
+		attributes["started_at"] = opts.StartedAt.Format(time.RFC3339)
+	}
 	requestBody := map[string]interface{}{
 		"data": map[string]interface{}{
-			"type": "incident_status_page_events",
-			"attributes": map[string]interface{}{
-				"status_page_id":     statusPageID,
-				"status":             status,
-				"event":              message,
-				"notify_subscribers": notifySubscribers,
-			},
+			"type":       "incident_status_page_events",
+			"attributes": attributes,
 		},
 	}
 	path := fmt.Sprintf("/v1/incidents/%s/status-page-events", neturl.PathEscape(incidentID))
@@ -1802,6 +1816,9 @@ func (c *Client) UpdateStatusPageEventCLI(ctx context.Context, eventID string, o
 	}
 	if opts.NotifySubscribers != nil {
 		attributes["notify_subscribers"] = *opts.NotifySubscribers
+	}
+	if opts.StartedAt != nil {
+		attributes["started_at"] = opts.StartedAt.Format(time.RFC3339)
 	}
 	requestBody := map[string]interface{}{
 		"data": map[string]interface{}{
@@ -1825,6 +1842,16 @@ func (c *Client) mutateStatusPageEvent(ctx context.Context, method, path string,
 	}
 	if statusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("incident, status page, or event not found")
+	}
+	if statusCode == http.StatusUnprocessableEntity {
+		var response struct {
+			Errors []struct {
+				Title string `json:"title"`
+			} `json:"errors"`
+		}
+		if json.Unmarshal(body, &response) == nil && len(response.Errors) > 0 && response.Errors[0].Title != "" {
+			return nil, fmt.Errorf("API rejected status-page event: %s", response.Errors[0].Title)
+		}
 	}
 	if statusCode != http.StatusOK && statusCode != http.StatusCreated {
 		return nil, fmt.Errorf("API returned status %d", statusCode)

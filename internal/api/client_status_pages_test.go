@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func statusPageEventResponse() string {
@@ -34,6 +36,9 @@ func TestListStatusPagesCLI(t *testing.T) {
 		if got := r.URL.Query().Get("filter[slug]"); got != "public-status" {
 			t.Errorf("slug filter = %q, want public-status", got)
 		}
+		if got := r.URL.Query().Get("filter[name]"); got != "Public" {
+			t.Errorf("name filter = %q, want Public", got)
+		}
 		_, _ = w.Write([]byte(`{
 			"data": [{"id": "page-1", "attributes": {
 				"title": "Public Status", "slug": "public-status", "description": "Customer updates",
@@ -45,7 +50,7 @@ func TestListStatusPagesCLI(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	result, err := client.ListStatusPagesCLI(context.Background(), 1, 25, "-created_at", map[string]string{"slug": "public-status"})
+	result, err := client.ListStatusPagesCLI(context.Background(), 1, 25, "-created_at", map[string]string{"name": "Public", "slug": "public-status"})
 	if err != nil {
 		t.Fatalf("ListStatusPagesCLI returned error: %v", err)
 	}
@@ -96,12 +101,15 @@ func TestCreateStatusPageEventCLI(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	event, err := client.CreateStatusPageEventCLI(context.Background(), "42", "page-1", "investigating", "We are investigating.", true)
+	startedAt := time.Date(2026, time.August, 12, 11, 30, 0, 0, time.UTC)
+	event, err := client.CreateStatusPageEventCLI(context.Background(), "42", CreateStatusPageEventOpts{
+		StatusPageID: "page-1", Status: "investigating", Message: "We are investigating.", NotifySubscribers: true, StartedAt: &startedAt,
+	})
 	if err != nil {
 		t.Fatalf("CreateStatusPageEventCLI returned error: %v", err)
 	}
 	attributes := requestBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
-	if attributes["status_page_id"] != "page-1" || attributes["status"] != "investigating" || attributes["notify_subscribers"] != true {
+	if attributes["status_page_id"] != "page-1" || attributes["status"] != "investigating" || attributes["notify_subscribers"] != true || attributes["started_at"] != "2026-08-12T11:30:00Z" {
 		t.Errorf("unexpected attributes: %+v", attributes)
 	}
 	if event.ID != "event-1" {
@@ -123,16 +131,30 @@ func TestUpdateStatusPageEventCLI(t *testing.T) {
 
 	status := "resolved"
 	message := "Resolved."
-	notify := true
+	startedAt := time.Date(2026, time.August, 12, 12, 15, 0, 0, time.UTC)
 	client := newTestClient(t, server.URL)
 	_, err := client.UpdateStatusPageEventCLI(context.Background(), "event-1", StatusPageEventOpts{
-		Status: &status, Message: &message, NotifySubscribers: &notify,
+		Status: &status, Message: &message, StartedAt: &startedAt,
 	})
 	if err != nil {
 		t.Fatalf("UpdateStatusPageEventCLI returned error: %v", err)
 	}
 	attributes := requestBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
-	if attributes["status"] != "resolved" || attributes["event"] != "Resolved." || attributes["notify_subscribers"] != true {
+	if attributes["status"] != "resolved" || attributes["event"] != "Resolved." || attributes["started_at"] != "2026-08-12T12:15:00Z" {
 		t.Errorf("unexpected attributes: %+v", attributes)
+	}
+}
+
+func TestStatusPageEventValidationError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"errors":[{"title":"Status is not valid for this incident","status":"422"}]}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.UpdateStatusPageEventCLI(context.Background(), "event-1", StatusPageEventOpts{})
+	if err == nil || !strings.Contains(err.Error(), "Status is not valid for this incident") {
+		t.Fatalf("error = %v, want server validation title", err)
 	}
 }
