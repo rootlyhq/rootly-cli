@@ -285,6 +285,51 @@ type WorkflowRunOpts struct {
 	CheckConditions *bool
 }
 
+// StatusPage represents a Rootly status page.
+type StatusPage struct {
+	ID          string
+	Title       string
+	Slug        string
+	Description string
+	Enabled     bool
+	Public      bool
+	CreatedAt   time.Time
+}
+
+// StatusPagesResult contains status pages and pagination info.
+type StatusPagesResult struct {
+	StatusPages []StatusPage
+	Pagination  PaginationInfo
+	RawBody     []byte
+}
+
+// StatusPageEvent represents a public incident update on a status page.
+type StatusPageEvent struct {
+	ID                string
+	Event             string
+	Status            string
+	StatusPageID      string
+	NotifySubscribers bool
+	StartedAt         time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	RawBody           []byte `json:"-"`
+}
+
+// StatusPageEventsResult contains incident status-page events and pagination info.
+type StatusPageEventsResult struct {
+	Events     []StatusPageEvent
+	Pagination PaginationInfo
+	RawBody    []byte
+}
+
+// StatusPageEventOpts contains fields that can be changed on an event.
+type StatusPageEventOpts struct {
+	Message           *string
+	Status            *string
+	NotifySubscribers *bool
+}
+
 // KeyValue represents a key-value pair for pulse labels and refs
 type KeyValue struct {
 	Key   string
@@ -1519,6 +1564,279 @@ func (c *Client) RunWorkflowCLI(ctx context.Context, workflowID string, opts Wor
 		run.StatusMessage = *response.Data.Attributes.StatusMessage
 	}
 	return run, nil
+}
+
+func (c *Client) doJSONAPIRequest(ctx context.Context, method, path string, requestBody interface{}) ([]byte, int, error) {
+	var bodyReader io.Reader = http.NoBody
+	if requestBody != nil {
+		bodyBytes, err := json.Marshal(requestBody)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		bodyReader = strings.NewReader(string(bodyBytes))
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.endpoint+path, bodyReader)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	response, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, response.StatusCode, fmt.Errorf("failed to read response: %w", err)
+	}
+	return body, response.StatusCode, nil
+}
+
+// ListStatusPagesCLI lists configured status pages.
+func (c *Client) ListStatusPagesCLI(ctx context.Context, page, pageSize int, sort string, filters map[string]string) (*StatusPagesResult, error) {
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	path := fmt.Sprintf("/v1/status-pages?page[number]=%d&page[size]=%d", page, pageSize)
+	if sort != "" {
+		path += "&sort=" + neturl.QueryEscape(sort)
+	}
+	for key, value := range filters {
+		path += fmt.Sprintf("&filter[%s]=%s", key, neturl.QueryEscape(value))
+	}
+	body, statusCode, err := c.doJSONAPIRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list status pages: %w", err)
+	}
+	if statusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if statusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("access denied: API key lacks 'read status pages' permission")
+	}
+	if statusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d", statusCode)
+	}
+
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Title       string  `json:"title"`
+				Slug        *string `json:"slug"`
+				Description *string `json:"description"`
+				Enabled     *bool   `json:"enabled"`
+				Public      *bool   `json:"public"`
+				CreatedAt   string  `json:"created_at"`
+			} `json:"attributes"`
+		} `json:"data"`
+		Meta struct {
+			CurrentPage int  `json:"current_page"`
+			NextPage    *int `json:"next_page"`
+			PrevPage    *int `json:"prev_page"`
+			TotalCount  int  `json:"total_count"`
+			TotalPages  int  `json:"total_pages"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	pages := make([]StatusPage, 0, len(response.Data))
+	for _, item := range response.Data {
+		page := StatusPage{ID: item.ID, Title: item.Attributes.Title}
+		if item.Attributes.Slug != nil {
+			page.Slug = *item.Attributes.Slug
+		}
+		if item.Attributes.Description != nil {
+			page.Description = *item.Attributes.Description
+		}
+		if item.Attributes.Enabled != nil {
+			page.Enabled = *item.Attributes.Enabled
+		}
+		if item.Attributes.Public != nil {
+			page.Public = *item.Attributes.Public
+		}
+		page.CreatedAt, _ = time.Parse(time.RFC3339, item.Attributes.CreatedAt)
+		pages = append(pages, page)
+	}
+	currentPage := response.Meta.CurrentPage
+	if currentPage == 0 {
+		currentPage = page
+	}
+	return &StatusPagesResult{
+		StatusPages: pages,
+		Pagination: PaginationInfo{
+			CurrentPage: currentPage,
+			TotalPages:  response.Meta.TotalPages,
+			TotalCount:  response.Meta.TotalCount,
+			HasNext:     response.Meta.NextPage != nil,
+			HasPrev:     response.Meta.PrevPage != nil,
+		},
+		RawBody: body,
+	}, nil
+}
+
+// ListStatusPageEventsCLI lists status-page events for an incident.
+func (c *Client) ListStatusPageEventsCLI(ctx context.Context, incidentID string, page, pageSize int) (*StatusPageEventsResult, error) {
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	path := fmt.Sprintf("/v1/incidents/%s/status-page-events?page[number]=%d&page[size]=%d", neturl.PathEscape(incidentID), page, pageSize)
+	body, statusCode, err := c.doJSONAPIRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list status-page events: %w", err)
+	}
+	if statusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if statusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("access denied: API key lacks 'read status page events' permission")
+	}
+	if statusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("incident not found: %s", incidentID)
+	}
+	if statusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d", statusCode)
+	}
+	return parseStatusPageEvents(body, page)
+}
+
+func parseStatusPageEvents(body []byte, requestedPage int) (*StatusPageEventsResult, error) {
+	var response struct {
+		Data []statusPageEventResponseData `json:"data"`
+		Meta struct {
+			CurrentPage int  `json:"current_page"`
+			NextPage    *int `json:"next_page"`
+			PrevPage    *int `json:"prev_page"`
+			TotalCount  int  `json:"total_count"`
+			TotalPages  int  `json:"total_pages"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	events := make([]StatusPageEvent, 0, len(response.Data))
+	for _, data := range response.Data {
+		events = append(events, parseStatusPageEvent(data, nil))
+	}
+	currentPage := response.Meta.CurrentPage
+	if currentPage == 0 {
+		currentPage = requestedPage
+	}
+	return &StatusPageEventsResult{
+		Events: events,
+		Pagination: PaginationInfo{
+			CurrentPage: currentPage,
+			TotalPages:  response.Meta.TotalPages,
+			TotalCount:  response.Meta.TotalCount,
+			HasNext:     response.Meta.NextPage != nil,
+			HasPrev:     response.Meta.PrevPage != nil,
+		},
+		RawBody: body,
+	}, nil
+}
+
+type statusPageEventResponseData struct {
+	ID         string `json:"id"`
+	Attributes struct {
+		Event             string  `json:"event"`
+		Status            *string `json:"status"`
+		StatusPageID      *string `json:"status_page_id"`
+		NotifySubscribers *bool   `json:"notify_subscribers"`
+		StartedAt         string  `json:"started_at"`
+		CreatedAt         string  `json:"created_at"`
+		UpdatedAt         string  `json:"updated_at"`
+	} `json:"attributes"`
+}
+
+func parseStatusPageEvent(data statusPageEventResponseData, rawBody []byte) StatusPageEvent {
+	event := StatusPageEvent{ID: data.ID, Event: data.Attributes.Event, RawBody: rawBody}
+	if data.Attributes.Status != nil {
+		event.Status = *data.Attributes.Status
+	}
+	if data.Attributes.StatusPageID != nil {
+		event.StatusPageID = *data.Attributes.StatusPageID
+	}
+	if data.Attributes.NotifySubscribers != nil {
+		event.NotifySubscribers = *data.Attributes.NotifySubscribers
+	}
+	event.StartedAt, _ = time.Parse(time.RFC3339, data.Attributes.StartedAt)
+	event.CreatedAt, _ = time.Parse(time.RFC3339, data.Attributes.CreatedAt)
+	event.UpdatedAt, _ = time.Parse(time.RFC3339, data.Attributes.UpdatedAt)
+	return event
+}
+
+// CreateStatusPageEventCLI creates a status-page event for an incident.
+func (c *Client) CreateStatusPageEventCLI(ctx context.Context, incidentID, statusPageID, status, message string, notifySubscribers bool) (*StatusPageEvent, error) {
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type": "incident_status_page_events",
+			"attributes": map[string]interface{}{
+				"status_page_id":     statusPageID,
+				"status":             status,
+				"event":              message,
+				"notify_subscribers": notifySubscribers,
+			},
+		},
+	}
+	path := fmt.Sprintf("/v1/incidents/%s/status-page-events", neturl.PathEscape(incidentID))
+	return c.mutateStatusPageEvent(ctx, http.MethodPost, path, requestBody)
+}
+
+// UpdateStatusPageEventCLI updates a status-page event.
+func (c *Client) UpdateStatusPageEventCLI(ctx context.Context, eventID string, opts StatusPageEventOpts) (*StatusPageEvent, error) {
+	attributes := make(map[string]interface{})
+	if opts.Message != nil {
+		attributes["event"] = *opts.Message
+	}
+	if opts.Status != nil {
+		attributes["status"] = *opts.Status
+	}
+	if opts.NotifySubscribers != nil {
+		attributes["notify_subscribers"] = *opts.NotifySubscribers
+	}
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type":       "incident_status_page_events",
+			"attributes": attributes,
+		},
+	}
+	return c.mutateStatusPageEvent(ctx, http.MethodPut, "/v1/status-page-events/"+neturl.PathEscape(eventID), requestBody)
+}
+
+func (c *Client) mutateStatusPageEvent(ctx context.Context, method, path string, requestBody interface{}) (*StatusPageEvent, error) {
+	body, statusCode, err := c.doJSONAPIRequest(ctx, method, path, requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save status-page event: %w", err)
+	}
+	if statusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if statusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("access denied: API key lacks permission to update status pages")
+	}
+	if statusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("incident, status page, or event not found")
+	}
+	if statusCode != http.StatusOK && statusCode != http.StatusCreated {
+		return nil, fmt.Errorf("API returned status %d", statusCode)
+	}
+	var response struct {
+		Data statusPageEventResponseData `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	event := parseStatusPageEvent(response.Data, body)
+	return &event, nil
 }
 
 // alertResponseData represents the structure of alert data from the API response
