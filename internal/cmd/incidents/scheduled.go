@@ -17,5 +17,5 @@ func parseScheduledTimestamp(cmd *cobra.Command, flag string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid --%s value %q: expected an RFC3339 timestamp", flag, value)
 	}
-	return parsed.Format(time.RFC3339), nil
+	return parsed.Format(time.RFC3339Nano), nil
 }

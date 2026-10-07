@@ -410,26 +410,56 @@ func incidentFormFieldsResponse() string {
 }
 
 func TestParseScheduledTimestamp(t *testing.T) {
-	cmd := newTestCmd()
-	cmd.Flags().String("scheduled-for", "", "")
-	if err := cmd.Flags().Set("scheduled-for", "2025-06-20T12:30:45+02:00"); err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			name:  "fractional seconds",
+			input: "2025-06-20T10:00:00.500Z",
+			want:  "2025-06-20T10:00:00.5Z",
+		},
+		{
+			name:  "whole seconds",
+			input: "2025-06-20T10:00:00Z",
+			want:  "2025-06-20T10:00:00Z",
+		},
+		{
+			name:  "offset",
+			input: "2025-06-20T10:00:00+02:00",
+			want:  "2025-06-20T10:00:00+02:00",
+		},
+		{
+			name:    "invalid timestamp",
+			input:   "not-a-timestamp",
+			wantErr: true,
+		},
 	}
 
-	got, err := parseScheduledTimestamp(cmd, "scheduled-for")
-	if err != nil {
-		t.Fatalf("parseScheduledTimestamp returned error: %v", err)
-	}
-	if got != "2025-06-20T12:30:45+02:00" {
-		t.Errorf("scheduled timestamp = %q, want RFC3339 value", got)
-	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := newTestCmd()
+			cmd.Flags().String("scheduled-for", "", "")
+			if err := cmd.Flags().Set("scheduled-for", test.input); err != nil {
+				t.Fatal(err)
+			}
 
-	if err := cmd.Flags().Set("scheduled-for", "not-a-timestamp"); err != nil {
-		t.Fatal(err)
-	}
-	_, err = parseScheduledTimestamp(cmd, "scheduled-for")
-	if err == nil || !strings.Contains(err.Error(), "expected an RFC3339 timestamp") {
-		t.Errorf("invalid timestamp error = %v, want clear RFC3339 error", err)
+			got, err := parseScheduledTimestamp(cmd, "scheduled-for")
+			if test.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "expected an RFC3339 timestamp") {
+					t.Errorf("parseScheduledTimestamp error = %v, want clear RFC3339 error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseScheduledTimestamp returned error: %v", err)
+			}
+			if got != test.want {
+				t.Errorf("scheduled timestamp = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 
