@@ -58,12 +58,6 @@ func init() {
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
-	// Get API client
-	apiClient, err := getAPIClient()
-	if err != nil {
-		return err
-	}
-
 	// Read flags
 	title, _ := cmd.Flags().GetString("title")
 	summary, _ := cmd.Flags().GetString("summary")
@@ -83,6 +77,25 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	scheduledUntil, err := parseScheduledTimestamp(cmd, "scheduled-until")
 	if err != nil {
 		return err
+	}
+	fieldInputs, _ := cmd.Flags().GetStringArray("field")
+
+	// Get API client
+	apiClient, err := getAPIClient()
+	if err != nil {
+		return err
+	}
+
+	var formFieldSelections []map[string]interface{}
+	if len(fieldInputs) > 0 {
+		fields, err := apiClient.ListAllFormFieldsCLI(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("failed to list form fields: %w", err)
+		}
+		formFieldSelections, err = resolveFormFieldSelections(fields, fieldInputs)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Build opts map - only add keys where the flag was provided
@@ -104,6 +117,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if scheduledUntil != "" {
 		opts["scheduled_until"] = scheduledUntil
+	}
+	if len(formFieldSelections) > 0 {
+		opts["form_field_selections"] = formFieldSelections
 	}
 	if len(services) > 0 {
 		opts["service_ids"] = services

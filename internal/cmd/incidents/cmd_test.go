@@ -196,6 +196,253 @@ func TestRunListWithFilters(t *testing.T) {
 	})
 }
 
+func TestRunCreateScheduledMaintenance(t *testing.T) {
+	var attributes map[string]interface{}
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/incidents" {
+			t.Errorf("request = %s %s, want POST /v1/incidents", r.Method, r.URL.Path)
+		}
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("failed to decode request: %v", err)
+			return
+		}
+		attributes = body["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(createResponse()))
+	})
+	viper.Set("format", "json")
+
+	cmd := newTestCmd()
+	cmd.Flags().String("title", "", "")
+	cmd.Flags().String("kind", "", "")
+	cmd.Flags().String("scheduled-for", "", "")
+	cmd.Flags().String("scheduled-until", "", "")
+	for flag, value := range map[string]string{
+		"title":           "Maintenance",
+		"kind":            "scheduled",
+		"scheduled-for":   "2025-06-20T10:00:00+02:00",
+		"scheduled-until": "2025-06-20T12:00:00+02:00",
+	} {
+		if err := cmd.Flags().Set(flag, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	captureStdout(t, func() {
+		if err := runCreate(cmd, nil); err != nil {
+			t.Fatalf("runCreate returned error: %v", err)
+		}
+	})
+
+	if attributes["kind"] != "scheduled" || attributes["scheduled_for"] != "2025-06-20T10:00:00+02:00" || attributes["scheduled_until"] != "2025-06-20T12:00:00+02:00" {
+		t.Errorf("scheduled attributes = %#v", attributes)
+	}
+}
+
+func TestRunUpdateScheduledMaintenance(t *testing.T) {
+	var attributes map[string]interface{}
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/v1/incidents/42" {
+			t.Errorf("request = %s %s, want PUT /v1/incidents/42", r.Method, r.URL.Path)
+		}
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("failed to decode request: %v", err)
+			return
+		}
+		attributes = body["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(getResponse()))
+	})
+	viper.Set("format", "json")
+
+	cmd := newTestCmd()
+	cmd.Flags().String("kind", "", "")
+	cmd.Flags().String("scheduled-until", "", "")
+	if err := cmd.Flags().Set("kind", "scheduled"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("scheduled-until", "2025-06-20T12:00:00+02:00"); err != nil {
+		t.Fatal(err)
+	}
+
+	captureStdout(t, func() {
+		if err := runUpdate(cmd, []string{"INC-42"}); err != nil {
+			t.Fatalf("runUpdate returned error: %v", err)
+		}
+	})
+
+	if attributes["kind"] != "scheduled" || attributes["scheduled_until"] != "2025-06-20T12:00:00+02:00" {
+		t.Errorf("scheduled attributes = %#v", attributes)
+	}
+}
+
+func TestRunCreateWithFormFields(t *testing.T) {
+	var selections []interface{}
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/form_fields":
+			if r.URL.Query().Get("include") != "options" {
+				t.Errorf("form-fields include = %q, want options", r.URL.Query().Get("include"))
+			}
+			_, _ = w.Write([]byte(incidentFormFieldsResponse()))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/incidents":
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("failed to decode create request: %v", err)
+				return
+			}
+			attributes := body["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+			selections = attributes["form_field_selections"].([]interface{})
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(createResponse()))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})
+	viper.Set("format", "json")
+
+	cmd := newTestCmd()
+	cmd.Flags().String("title", "", "")
+	cmd.Flags().StringArray("field", nil, "")
+	if err := cmd.Flags().Set("title", "Custom fields"); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"description=Cache, database", "priority=p2"} {
+		if err := cmd.Flags().Set("field", value); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	captureStdout(t, func() {
+		if err := runCreate(cmd, nil); err != nil {
+			t.Fatalf("runCreate returned error: %v", err)
+		}
+	})
+
+	if len(selections) != 2 {
+		t.Fatalf("form field selections = %#v, want 2 selections", selections)
+	}
+	textSelection := selections[0].(map[string]interface{})
+	if textSelection["form_field_id"] != "text-id" || textSelection["value"] != "Cache, database" {
+		t.Errorf("text selection = %#v", textSelection)
+	}
+	optionSelection := selections[1].(map[string]interface{})
+	optionIDs := optionSelection["selected_option_ids"].([]interface{})
+	if optionSelection["form_field_id"] != "select-id" || len(optionIDs) != 1 || optionIDs[0] != "p2-id" {
+		t.Errorf("option selection = %#v", optionSelection)
+	}
+}
+
+func TestRunUpdateWithFormField(t *testing.T) {
+	var selection map[string]interface{}
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/form_fields":
+			_, _ = w.Write([]byte(incidentFormFieldsResponse()))
+		case r.Method == http.MethodPut && r.URL.Path == "/v1/incidents/42":
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("failed to decode update request: %v", err)
+				return
+			}
+			attributes := body["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+			selection = attributes["form_field_selections"].([]interface{})[0].(map[string]interface{})
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(getResponse()))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})
+	viper.Set("format", "json")
+
+	cmd := newTestCmd()
+	cmd.Flags().StringArray("field", nil, "")
+	if err := cmd.Flags().Set("field", "description=Updated value"); err != nil {
+		t.Fatal(err)
+	}
+	captureStdout(t, func() {
+		if err := runUpdate(cmd, []string{"INC-42"}); err != nil {
+			t.Fatalf("runUpdate returned error: %v", err)
+		}
+	})
+	if selection["form_field_id"] != "text-id" || selection["value"] != "Updated value" {
+		t.Errorf("form field selection = %#v", selection)
+	}
+}
+
+func TestRunCreateUnknownFormFieldDoesNotCreateIncident(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/form_fields" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(incidentFormFieldsResponse()))
+	})
+	cmd := newTestCmd()
+	cmd.Flags().String("title", "Unknown field", "")
+	cmd.Flags().StringArray("field", nil, "")
+	if err := cmd.Flags().Set("field", "missing=value"); err != nil {
+		t.Fatal(err)
+	}
+	err := runCreate(cmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "rootly form-fields list") {
+		t.Fatalf("error = %v, want form-fields suggestion", err)
+	}
+}
+
+func incidentFormFieldsResponse() string {
+	return `{
+		"data": [{
+			"id": "text-id",
+			"attributes": {"slug": "description", "name": "Description", "kind": "custom_field", "input_kind": "text", "value_kind": "inherit", "enabled": true}
+		}, {
+			"id": "select-id",
+			"attributes": {"slug": "priority", "name": "Priority", "kind": "custom_field", "input_kind": "select", "value_kind": "inherit", "enabled": true}
+		}],
+		"included": [{
+			"id": "p1-id", "type": "form_field_options", "attributes": {"form_field_id": "select-id", "value": "P1"}
+		}, {
+			"id": "p2-id", "type": "form_field_options", "attributes": {"form_field_id": "select-id", "value": "P2"}
+		}],
+		"meta": {"current_page": 1, "total_pages": 1, "total_count": 2}
+	}`
+}
+
+func TestParseScheduledTimestamp(t *testing.T) {
+	cmd := newTestCmd()
+	cmd.Flags().String("scheduled-for", "", "")
+	if err := cmd.Flags().Set("scheduled-for", "2025-06-20T12:30:45+02:00"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := parseScheduledTimestamp(cmd, "scheduled-for")
+	if err != nil {
+		t.Fatalf("parseScheduledTimestamp returned error: %v", err)
+	}
+	if got != "2025-06-20T12:30:45+02:00" {
+		t.Errorf("scheduled timestamp = %q, want RFC3339 value", got)
+	}
+
+	if err := cmd.Flags().Set("scheduled-for", "not-a-timestamp"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = parseScheduledTimestamp(cmd, "scheduled-for")
+	if err == nil || !strings.Contains(err.Error(), "expected an RFC3339 timestamp") {
+		t.Errorf("invalid timestamp error = %v, want clear RFC3339 error", err)
+	}
+}
+
+func TestIncidentKindHelpIsConsistent(t *testing.T) {
+	want := "Incident kind: normal, test, scheduled, backfilled, example"
+	for _, command := range []*cobra.Command{createCmd, updateCmd} {
+		flag := command.Flags().Lookup("kind")
+		if flag == nil || flag.Usage != want {
+			t.Errorf("%s --kind help = %q, want %q", command.Name(), flag.Usage, want)
+		}
+	}
+}
+
 func TestRunListPagination(t *testing.T) {
 	resp := `{
 		"data": [{"id": "inc-1", "attributes": {"title": "Test", "status": "started", "kind": "normal", "created_at": "2025-01-01T00:00:00Z"}}],

@@ -83,6 +83,19 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	fieldInputs, _ := cmd.Flags().GetStringArray("field")
+	var formFieldSelections []map[string]interface{}
+	if len(fieldInputs) > 0 {
+		fields, err := apiClient.ListAllFormFieldsCLI(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("failed to list form fields: %w", err)
+		}
+		formFieldSelections, err = resolveFormFieldSelections(fields, fieldInputs)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Build opts map using cmd.Flags().Changed() - ONLY include fields the user explicitly set
 	opts := make(map[string]interface{})
 	if cmd.Flags().Changed("title") {
@@ -110,6 +123,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 	if cmd.Flags().Changed("scheduled-until") {
 		opts["scheduled_until"] = scheduledUntil
+	}
+	if len(fieldInputs) > 0 {
+		opts["form_field_selections"] = formFieldSelections
 	}
 	if cmd.Flags().Changed("services") {
 		services, _ := cmd.Flags().GetStringSlice("services")

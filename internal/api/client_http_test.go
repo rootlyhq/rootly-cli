@@ -191,6 +191,9 @@ func TestGetIncidentByID(t *testing.T) {
 		if !strings.Contains(r.URL.Path, "/v1/incidents/inc-123") {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
+		if !strings.Contains(r.URL.Query().Get("include"), "custom_field_selections") {
+			t.Errorf("include = %q, want custom_field_selections", r.URL.Query().Get("include"))
+		}
 
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		w.WriteHeader(http.StatusOK)
