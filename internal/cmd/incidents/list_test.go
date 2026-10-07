@@ -38,6 +38,8 @@ func TestIncidentDetailRows(t *testing.T) {
 	now := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
 	started := now.Add(-2 * time.Hour)
 	resolved := now.Add(-1 * time.Hour)
+	scheduledFor := now.Add(24 * time.Hour)
+	scheduledUntil := now.Add(26 * time.Hour)
 	inc := &api.Incident{
 		ID:              "inc-raw",
 		SequentialID:    "INC-42",
@@ -45,7 +47,9 @@ func TestIncidentDetailRows(t *testing.T) {
 		Status:          "resolved",
 		Severity:        "sev0",
 		Summary:         "Major DB failure",
-		Kind:            "normal",
+		Kind:            "scheduled",
+		ScheduledFor:    &scheduledFor,
+		ScheduledUntil:  &scheduledUntil,
 		URL:             "https://rootly.com/incidents/42",
 		CreatedAt:       now,
 		StartedAt:       &started,
@@ -72,6 +76,9 @@ func TestIncidentDetailRows(t *testing.T) {
 	if findRow(rows, "Title") != "Database Outage" {
 		t.Errorf("Title = %q, want %q", findRow(rows, "Title"), "Database Outage")
 	}
+	if findRow(rows, "Kind") != "scheduled" {
+		t.Errorf("Kind = %q, want scheduled", findRow(rows, "Kind"))
+	}
 	if findRow(rows, "Commander") != "Alice" {
 		t.Errorf("Commander = %q, want %q", findRow(rows, "Commander"), "Alice")
 	}
@@ -80,6 +87,9 @@ func TestIncidentDetailRows(t *testing.T) {
 	}
 	if findRow(rows, "Private") != "true" {
 		t.Errorf("Private = %q, want %q", findRow(rows, "Private"), "true")
+	}
+	if findRow(rows, "Scheduled For") == "" || findRow(rows, "Scheduled Until") == "" {
+		t.Error("scheduled maintenance timestamps should be included in incident details")
 	}
 	// Labels should contain env=prod
 	labels := findRow(rows, "Labels")

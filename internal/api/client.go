@@ -1189,6 +1189,14 @@ func (c *Client) CreateIncident(ctx context.Context, title string, opts map[stri
 	if status, ok := opts["status"]; ok {
 		attributes["status"] = status
 	}
+	for _, key := range []string{"kind", "scheduled_for", "scheduled_until"} {
+		if value, ok := opts[key]; ok {
+			attributes[key] = value
+		}
+	}
+	if selections, ok := opts["form_field_selections"]; ok {
+		attributes["form_field_selections"] = selections
+	}
 	for _, key := range []string{"service_ids", "incident_type_ids", "functionality_ids", "environment_ids", "group_ids", "cause_ids"} {
 		if value, ok := opts[key]; ok {
 			attributes[key] = value
@@ -1261,6 +1269,14 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 	}
 	if status, ok := opts["status"]; ok {
 		attributes["status"] = status
+	}
+	for _, key := range []string{"kind", "scheduled_for", "scheduled_until"} {
+		if value, ok := opts[key]; ok {
+			attributes[key] = value
+		}
+	}
+	if selections, ok := opts["form_field_selections"]; ok {
+		attributes["form_field_selections"] = selections
 	}
 	for _, key := range []string{"service_ids", "incident_type_ids", "functionality_ids", "environment_ids", "group_ids", "cause_ids"} {
 		if value, ok := opts[key]; ok {

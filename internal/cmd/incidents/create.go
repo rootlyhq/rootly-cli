@@ -39,6 +39,10 @@ func init() {
 	createCmd.Flags().String("summary", "", "Incident summary/description")
 	createCmd.Flags().String("severity", "", "Severity ID")
 	createCmd.Flags().String("status", "", "Initial status (started, mitigated, resolved)")
+	createCmd.Flags().String("kind", "", "Incident kind: normal, test, scheduled, backfilled, example")
+	createCmd.Flags().String("scheduled-for", "", "Scheduled maintenance start time (RFC3339)")
+	createCmd.Flags().String("scheduled-until", "", "Scheduled maintenance end time (RFC3339)")
+	createCmd.Flags().StringArray("field", nil, "Custom form field value (repeatable, slug=value)")
 	createCmd.Flags().StringSlice("services", nil, "Service slugs/IDs, comma-separated")
 	createCmd.Flags().StringSlice("types", nil, "Incident type slugs/IDs, comma-separated")
 	createCmd.Flags().StringSlice("functionalities", nil, "Functionality slugs/IDs, comma-separated")
@@ -65,12 +69,21 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	summary, _ := cmd.Flags().GetString("summary")
 	severity, _ := cmd.Flags().GetString("severity")
 	status, _ := cmd.Flags().GetString("status")
+	kind, _ := cmd.Flags().GetString("kind")
 	services, _ := cmd.Flags().GetStringSlice("services")
 	incidentTypes, _ := cmd.Flags().GetStringSlice("types")
 	functionalities, _ := cmd.Flags().GetStringSlice("functionalities")
 	environments, _ := cmd.Flags().GetStringSlice("environments")
 	teams, _ := cmd.Flags().GetStringSlice("teams")
 	causes, _ := cmd.Flags().GetStringSlice("causes")
+	scheduledFor, err := parseScheduledTimestamp(cmd, "scheduled-for")
+	if err != nil {
+		return err
+	}
+	scheduledUntil, err := parseScheduledTimestamp(cmd, "scheduled-until")
+	if err != nil {
+		return err
+	}
 
 	// Build opts map - only add keys where the flag was provided
 	opts := make(map[string]interface{})
@@ -82,6 +95,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if status != "" {
 		opts["status"] = status
+	}
+	if kind != "" {
+		opts["kind"] = kind
+	}
+	if scheduledFor != "" {
+		opts["scheduled_for"] = scheduledFor
+	}
+	if scheduledUntil != "" {
+		opts["scheduled_until"] = scheduledUntil
 	}
 	if len(services) > 0 {
 		opts["service_ids"] = services

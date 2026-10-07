@@ -252,8 +252,8 @@ func TestGetIncidentByIDNotFound(t *testing.T) {
 
 func TestCreateIncident(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			t.Errorf("expected POST, got %s", r.Method)
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/incidents" {
+			t.Errorf("request = %s %s, want POST /v1/incidents", r.Method, r.URL.Path)
 		}
 
 		var requestBody map[string]interface{}
@@ -269,11 +269,25 @@ func TestCreateIncident(t *testing.T) {
 			"environment_ids":   "production",
 			"group_ids":         "platform",
 			"cause_ids":         "deployment",
+			"kind":              "scheduled",
+			"scheduled_for":     "2025-06-20T10:00:00Z",
+			"scheduled_until":   "2025-06-20T12:00:00Z",
 		} {
+			if key == "kind" || key == "scheduled_for" || key == "scheduled_until" {
+				if attrs[key] != want {
+					t.Errorf("request %s = %v, want %s", key, attrs[key], want)
+				}
+				continue
+			}
 			values := attrs[key].([]interface{})
 			if len(values) == 0 || values[0] != want {
 				t.Errorf("request %s = %v, want first value %s", key, values, want)
 			}
+		}
+		selections := attrs["form_field_selections"].([]interface{})
+		textSelection := selections[0].(map[string]interface{})
+		if textSelection["form_field_id"] != "field-text" || textSelection["value"] != "custom text" {
+			t.Errorf("form field selection = %+v", textSelection)
 		}
 
 		w.Header().Set("Content-Type", "application/vnd.api+json")
@@ -296,8 +310,14 @@ func TestCreateIncident(t *testing.T) {
 
 	client := newTestClient(t, server.URL)
 	inc, err := client.CreateIncident(context.Background(), "New Incident", map[string]interface{}{
-		"summary":           "Test summary",
-		"status":            "started",
+		"summary":         "Test summary",
+		"status":          "started",
+		"kind":            "scheduled",
+		"scheduled_for":   "2025-06-20T10:00:00Z",
+		"scheduled_until": "2025-06-20T12:00:00Z",
+		"form_field_selections": []map[string]interface{}{
+			{"form_field_id": "field-text", "value": "custom text"},
+		},
 		"service_ids":       []string{"api-gateway", "payments"},
 		"incident_type_ids": []string{"customer-impacting"},
 		"functionality_ids": []string{"checkout"},
