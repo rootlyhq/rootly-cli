@@ -2609,6 +2609,58 @@ func (c *Client) AcknowledgeAlertCLI(ctx context.Context, id string) error {
 	return nil
 }
 
+func (c *Client) EscalateAlertCLI(ctx context.Context, id string, escalationPolicyID *string, level *int) error {
+	attributes := make(map[string]interface{})
+	if escalationPolicyID != nil {
+		attributes["escalation_policy_id"] = *escalationPolicyID
+	}
+	if level != nil {
+		attributes["escalation_policy_level"] = *level
+	}
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type":       "alerts",
+			"attributes": attributes,
+		},
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+	path := fmt.Sprintf("/v1/alerts/%s/escalate", neturl.PathEscape(id))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+path, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to escalate alert: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+	if httpResp.StatusCode >= http.StatusBadRequest && httpResp.StatusCode < http.StatusInternalServerError {
+		var response struct {
+			Errors []struct {
+				Title string `json:"title"`
+			} `json:"errors"`
+		}
+		if json.Unmarshal(body, &response) == nil && len(response.Errors) > 0 && response.Errors[0].Title != "" {
+			return fmt.Errorf("%s", response.Errors[0].Title)
+		}
+		return fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+	return nil
+}
+
 // ResolveAlertCLI resolves an alert using raw HTTP POST.
 func (c *Client) ResolveAlertCLI(ctx context.Context, id, resolutionMessage string, resolveIncidents bool) error {
 	// Build URL

@@ -2,6 +2,7 @@ package alerts
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -392,6 +393,68 @@ func TestRunAckAPIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "failed to acknowledge alert") {
 		t.Errorf("expected 'failed to acknowledge alert' error, got: %v", err)
+	}
+}
+
+func TestRunEscalateSuccess(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/alerts/ALR-42/escalate" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+			return
+		}
+		attributes := body["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+		if attributes["escalation_policy_id"] != "policy-1" || attributes["escalation_policy_level"] != float64(3) {
+			t.Errorf("escalation attributes = %+v", attributes)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	cmd := newTestCmd()
+	cmd.Flags().String("escalation-policy", "", "")
+	cmd.Flags().Int("level", 0, "")
+	if err := cmd.Flags().Set("escalation-policy", "policy-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("level", "3"); err != nil {
+		t.Fatal(err)
+	}
+	output := captureStdout(t, func() {
+		if err := runEscalate(cmd, []string{"ALR-42"}); err != nil {
+			t.Fatalf("runEscalate returned error: %v", err)
+		}
+	})
+	if !strings.Contains(output, "Escalated alert ALR-42") {
+		t.Errorf("success output = %q", output)
+	}
+}
+
+func TestRunEscalateRejectsInvalidLevel(t *testing.T) {
+	cmd := newTestCmd()
+	cmd.Flags().String("escalation-policy", "", "")
+	cmd.Flags().Int("level", 0, "")
+	if err := cmd.Flags().Set("level", "0"); err != nil {
+		t.Fatal(err)
+	}
+	err := runEscalate(cmd, []string{"alert-1"})
+	if err == nil || !strings.Contains(err.Error(), "must be at least 1") {
+		t.Fatalf("error = %v, want level validation", err)
+	}
+}
+
+func TestRunEscalateSurfacesAPIError(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"errors":[{"title":"Alert has no escalation policy. Provide escalation_policy_id."}]}`))
+	})
+	cmd := newTestCmd()
+	cmd.Flags().String("escalation-policy", "", "")
+	cmd.Flags().Int("level", 0, "")
+	err := runEscalate(cmd, []string{"alert-1"})
+	if err == nil || !strings.Contains(err.Error(), "Alert has no escalation policy. Provide escalation_policy_id.") {
+		t.Fatalf("error = %v, want API error title", err)
 	}
 }
 
