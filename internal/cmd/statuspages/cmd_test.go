@@ -83,6 +83,65 @@ func TestRunList(t *testing.T) {
 	}
 }
 
+func TestRunTemplatesList(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/status-pages/page-1/templates" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.URL.Query().Get("page[number]") != "1" || r.URL.Query().Get("page[size]") != "25" {
+			t.Errorf("pagination query = %s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{
+			"data": [{
+				"id": "template-1",
+				"attributes": {
+					"title": "Maintenance update",
+					"kind": "maintenance",
+					"update_status": "scheduled",
+					"should_notify_subscribers": true,
+					"enabled": true
+				}
+			}],
+			"meta": {"current_page": 1, "total_pages": 1, "total_count": 1}
+		}`))
+	})
+	viper.Set("format", "table")
+
+	cmd := newTestCmd()
+	cmd.Flags().String("status-page", "page-1", "")
+	cmd.Flags().Int("page", 1, "")
+	cmd.Flags().Int("page-size", 25, "")
+	output := captureStdout(t, func() {
+		if err := runTemplatesList(cmd, nil); err != nil {
+			t.Fatalf("runTemplatesList returned error: %v", err)
+		}
+	})
+	for _, expected := range []string{"Maintenance update", "maintenance", "scheduled", "true"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("template output %q does not contain %q", output, expected)
+		}
+	}
+}
+
+func TestRunTemplatesListJSON(t *testing.T) {
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"template-1","attributes":{"title":"Maintenance update"}}]}`))
+	})
+	viper.Set("format", "json")
+	cmd := newTestCmd()
+	cmd.Flags().String("status-page", "page-1", "")
+	cmd.Flags().Int("page", 1, "")
+	cmd.Flags().Int("page-size", 25, "")
+	output := captureStdout(t, func() {
+		if err := runTemplatesList(cmd, nil); err != nil {
+			t.Fatalf("runTemplatesList returned error: %v", err)
+		}
+	})
+	if !strings.Contains(output, "template-1") {
+		t.Errorf("JSON output = %q, want template-1", output)
+	}
+}
+
 func TestRunEventsListNormalizesIncidentID(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/incidents/42/status-page-events" {
@@ -162,6 +221,7 @@ func TestRunEventsResolveSetsResolvedStatus(t *testing.T) {
 	viper.Set("format", "json")
 	cmd := newTestCmd()
 	cmd.Flags().String("message", "Resolved.", "")
+	cmd.Flags().String("status", "resolved", "")
 
 	captureStdout(t, func() {
 		if err := runEventsResolve(cmd, []string{"event-1"}); err != nil {
@@ -171,6 +231,55 @@ func TestRunEventsResolveSetsResolvedStatus(t *testing.T) {
 	attributes := requestBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
 	if attributes["status"] != "resolved" || attributes["event"] != "Resolved." {
 		t.Errorf("unexpected resolve attributes: %+v", attributes)
+	}
+}
+
+func TestRunEventsResolveAllowsCompletedStatus(t *testing.T) {
+	var requestBody map[string]interface{}
+	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &requestBody)
+		_, _ = w.Write([]byte(statusPageEventResponse()))
+	})
+	viper.Set("format", "json")
+	cmd := newTestCmd()
+	cmd.Flags().String("message", "Maintenance completed.", "")
+	cmd.Flags().String("status", "completed", "")
+
+	captureStdout(t, func() {
+		if err := runEventsResolve(cmd, []string{"event-1"}); err != nil {
+			t.Fatalf("runEventsResolve returned error: %v", err)
+		}
+	})
+	attributes := requestBody["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+	if attributes["status"] != "completed" {
+		t.Errorf("resolve status = %v, want completed", attributes["status"])
+	}
+}
+
+func TestRunEventsResolveRejectsOtherStatuses(t *testing.T) {
+	cmd := newTestCmd()
+	cmd.Flags().String("message", "Done.", "")
+	cmd.Flags().String("status", "monitoring", "")
+	err := runEventsResolve(cmd, []string{"event-1"})
+	if err == nil || !strings.Contains(err.Error(), "must be resolved or completed") {
+		t.Fatalf("error = %v, want status validation", err)
+	}
+}
+
+func TestEventsStatusFlagHelpIncludesMaintenanceStatuses(t *testing.T) {
+	for _, command := range []*cobra.Command{eventsCreateCmd, eventsUpdateCmd} {
+		flag := command.Flags().Lookup("status")
+		if flag == nil {
+			t.Fatalf("%s has no --status flag", command.Name())
+		}
+		if !strings.Contains(flag.Usage, "scheduled, in_progress, completed") || !strings.Contains(flag.Usage, "investigating, identified, monitoring, resolved") {
+			t.Errorf("%s --status help = %q", command.Name(), flag.Usage)
+		}
+	}
+	resolveStatus := eventsResolveCmd.Flags().Lookup("status")
+	if resolveStatus == nil || resolveStatus.DefValue != "resolved" || resolveStatus.Usage != "use completed for scheduled maintenance" {
+		t.Errorf("resolve --status flag = %+v", resolveStatus)
 	}
 }
 

@@ -325,6 +325,24 @@ type StatusPagesResult struct {
 	RawBody     []byte
 }
 
+type StatusPageTemplate struct {
+	ID                      string
+	Title                   string
+	Kind                    string
+	UpdateStatus            string
+	ShouldNotifySubscribers bool
+	Enabled                 bool
+	UpdateTitle             string
+	Body                    string
+	Position                int
+}
+
+type StatusPageTemplatesResult struct {
+	Templates  []StatusPageTemplate
+	Pagination PaginationInfo
+	RawBody    []byte
+}
+
 // StatusPageEvent represents a public incident update on a status page.
 type StatusPageEvent struct {
 	ID                string
@@ -1727,6 +1745,95 @@ func (c *Client) ListStatusPagesCLI(ctx context.Context, page, pageSize int, sor
 			TotalCount:  response.Meta.TotalCount,
 			HasNext:     response.Meta.NextPage != nil,
 			HasPrev:     response.Meta.PrevPage != nil,
+		},
+		RawBody: body,
+	}, nil
+}
+
+func (c *Client) ListStatusPageTemplatesCLI(ctx context.Context, statusPageID string, page, pageSize int) (*StatusPageTemplatesResult, error) {
+	if err := validateStatusPagePagination(page, pageSize); err != nil {
+		return nil, err
+	}
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	path := fmt.Sprintf("/v1/status-pages/%s/templates?page[number]=%d&page[size]=%d", neturl.PathEscape(statusPageID), page, pageSize)
+	body, statusCode, err := c.doJSONAPIRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list status-page templates: %w", err)
+	}
+	if statusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if statusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("access denied: API key lacks 'read status page templates' permission")
+	}
+	if statusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("status page not found: %s", statusPageID)
+	}
+	if statusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d", statusCode)
+	}
+
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				ID                      string `json:"id"`
+				Title                   string `json:"title"`
+				UpdateTitle             string `json:"update_title"`
+				Body                    string `json:"body"`
+				UpdateStatus            string `json:"update_status"`
+				ShouldNotifySubscribers bool   `json:"should_notify_subscribers"`
+				Enabled                 bool   `json:"enabled"`
+				Kind                    string `json:"kind"`
+				Position                int    `json:"position"`
+			} `json:"attributes"`
+		} `json:"data"`
+		Meta struct {
+			CurrentPage int  `json:"current_page"`
+			NextPage    *int `json:"next_page"`
+			PrevPage    *int `json:"prev_page"`
+			TotalCount  int  `json:"total_count"`
+			TotalPages  int  `json:"total_pages"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse status-page templates response: %w", err)
+	}
+	templates := make([]StatusPageTemplate, 0, len(response.Data))
+	for _, item := range response.Data {
+		id := item.ID
+		if id == "" {
+			id = item.Attributes.ID
+		}
+		templates = append(templates, StatusPageTemplate{
+			ID:                      id,
+			Title:                   item.Attributes.Title,
+			Kind:                    item.Attributes.Kind,
+			UpdateStatus:            item.Attributes.UpdateStatus,
+			ShouldNotifySubscribers: item.Attributes.ShouldNotifySubscribers,
+			Enabled:                 item.Attributes.Enabled,
+			UpdateTitle:             item.Attributes.UpdateTitle,
+			Body:                    item.Attributes.Body,
+			Position:                item.Attributes.Position,
+		})
+	}
+	currentPage := response.Meta.CurrentPage
+	if currentPage == 0 {
+		currentPage = page
+	}
+	return &StatusPageTemplatesResult{
+		Templates: templates,
+		Pagination: PaginationInfo{
+			CurrentPage: currentPage,
+			TotalPages:  response.Meta.TotalPages,
+			TotalCount:  response.Meta.TotalCount,
+			HasNext:     response.Meta.NextPage != nil || currentPage < response.Meta.TotalPages,
+			HasPrev:     response.Meta.PrevPage != nil || currentPage > 1,
 		},
 		RawBody: body,
 	}, nil

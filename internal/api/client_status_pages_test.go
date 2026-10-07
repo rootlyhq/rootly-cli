@@ -62,6 +62,50 @@ func TestListStatusPagesCLI(t *testing.T) {
 	}
 }
 
+func TestListStatusPageTemplatesCLI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/status-pages/page-1/templates" {
+			t.Errorf("request = %s %s, want GET /v1/status-pages/page-1/templates", r.Method, r.URL.Path)
+		}
+		if r.URL.Query().Get("page[number]") != "2" || r.URL.Query().Get("page[size]") != "10" {
+			t.Errorf("pagination query = %s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{
+			"data": [{
+				"id": "template-1",
+				"attributes": {
+					"title": "Maintenance update",
+					"update_title": "Scheduled maintenance",
+					"body": "We are performing maintenance.",
+					"update_status": "scheduled",
+					"should_notify_subscribers": true,
+					"enabled": true,
+					"kind": "maintenance",
+					"position": 1
+				}
+			}],
+			"meta": {"current_page": 2, "total_pages": 3, "total_count": 25}
+		}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	result, err := client.ListStatusPageTemplatesCLI(context.Background(), "page-1", 2, 10)
+	if err != nil {
+		t.Fatalf("ListStatusPageTemplatesCLI returned error: %v", err)
+	}
+	if len(result.Templates) != 1 {
+		t.Fatalf("templates = %d, want 1", len(result.Templates))
+	}
+	template := result.Templates[0]
+	if template.ID != "template-1" || template.Title != "Maintenance update" || template.UpdateTitle != "Scheduled maintenance" || template.Body != "We are performing maintenance." || template.UpdateStatus != "scheduled" || !template.ShouldNotifySubscribers || !template.Enabled || template.Kind != "maintenance" || template.Position != 1 {
+		t.Errorf("template = %+v", template)
+	}
+	if result.Pagination.CurrentPage != 2 || result.Pagination.TotalPages != 3 || !result.Pagination.HasNext {
+		t.Errorf("pagination = %+v", result.Pagination)
+	}
+}
+
 func TestStatusPageListsRejectNegativePagination(t *testing.T) {
 	client := &Client{}
 	if _, err := client.ListStatusPagesCLI(context.Background(), -1, 25, "", nil); err == nil || !strings.Contains(err.Error(), "page must be at least 1") {
