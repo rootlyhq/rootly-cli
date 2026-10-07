@@ -36,9 +36,11 @@ var eventsResolveCmd = &cobra.Command{
 	RunE:    runEventsResolve,
 }
 
+const eventStatusHelp = "Event status: incidents use investigating, identified, monitoring, resolved; scheduled maintenance uses scheduled, in_progress, completed"
+
 func init() {
 	eventsCreateCmd.Flags().String("status-page", "", "Status page ID (required)")
-	eventsCreateCmd.Flags().String("status", "", "Event status (required)")
+	eventsCreateCmd.Flags().String("status", "", eventStatusHelp+" (required)")
 	eventsCreateCmd.Flags().String("message", "", "Public update message (required)")
 	eventsCreateCmd.Flags().Bool("notify-subscribers", false, "Notify status-page subscribers")
 	eventsCreateCmd.Flags().String("started-at", "", "Event start time in RFC3339 format")
@@ -46,11 +48,12 @@ func init() {
 	_ = eventsCreateCmd.MarkFlagRequired("status")
 	_ = eventsCreateCmd.MarkFlagRequired("message")
 
-	eventsUpdateCmd.Flags().String("status", "", "Updated event status")
+	eventsUpdateCmd.Flags().String("status", "", eventStatusHelp)
 	eventsUpdateCmd.Flags().String("message", "", "Updated public message")
 	eventsUpdateCmd.Flags().String("started-at", "", "Updated event start time in RFC3339 format")
 
 	eventsResolveCmd.Flags().String("message", "", "Resolution message (required)")
+	eventsResolveCmd.Flags().String("status", "resolved", "use completed for scheduled maintenance")
 	_ = eventsResolveCmd.MarkFlagRequired("message")
 
 	eventsCmd.AddCommand(eventsCreateCmd, eventsUpdateCmd, eventsResolveCmd)
@@ -110,11 +113,14 @@ func runEventsUpdate(cmd *cobra.Command, args []string) error {
 }
 
 func runEventsResolve(cmd *cobra.Command, args []string) error {
+	status, _ := cmd.Flags().GetString("status")
+	if status != "resolved" && status != "completed" {
+		return fmt.Errorf("invalid --status %q: must be resolved or completed", status)
+	}
 	apiClient, err := getAPIClient()
 	if err != nil {
 		return err
 	}
-	status := "resolved"
 	message, _ := cmd.Flags().GetString("message")
 	event, err := apiClient.UpdateStatusPageEventCLI(cmd.Context(), args[0], api.StatusPageEventOpts{
 		Status: &status, Message: &message,
@@ -122,7 +128,11 @@ func runEventsResolve(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve status-page event: %w", err)
 	}
-	return printSavedEvent(event, "Resolved")
+	verb := "Resolved"
+	if status == "completed" {
+		verb = "Completed"
+	}
+	return printSavedEvent(event, verb)
 }
 
 func parseStartedAt(cmd *cobra.Command) (*time.Time, error) {

@@ -15,7 +15,9 @@ A command-line interface for managing Rootly incidents, alerts, services, teams,
 - Full CRUD for incidents, alerts, services, and teams
 - Pulse tracking (`rootly pulse create`, `rootly pulse run`)
 - On-call schedule queries (list schedules, view shifts, who's on-call)
-- Alert action shortcuts (`rootly alerts ack`, `rootly alerts resolve`)
+- Alert action shortcuts (`rootly alerts ack`, `rootly alerts resolve`, `rootly alerts escalate`)
+- Custom incident form fields (`rootly form-fields list`, `incidents create/update --field`)
+- Status-page templates and scheduled-maintenance events
 - Multiple output formats: table, JSON, YAML, markdown
 - TTY-aware output (table in terminal, JSON when piped)
 - Shell completions for bash, zsh, fish, and PowerShell
@@ -83,7 +85,11 @@ rootly incidents list
 rootly incidents list --status=started --severity=critical
 rootly incidents get <id>
 rootly incidents create --title="Database outage" --severity=critical
+rootly incidents create --title="Database maintenance" --kind=scheduled --scheduled-for=2025-06-20T10:00:00Z --scheduled-until=2025-06-20T12:00:00Z
+rootly incidents create --title="API degradation" --field="customer_impact=Checkout unavailable, retrying"
 rootly incidents update <id> --status=mitigated
+rootly incidents update <id> --scheduled-until=2025-06-20T13:00:00Z
+rootly incidents update <id> --field="customer_impact=Checkout restored"
 rootly incidents delete <id>
 
 # Alerts
@@ -92,6 +98,8 @@ rootly alerts get <id>
 rootly alerts create --summary="High CPU usage" --source=datadog
 rootly alerts ack <id>
 rootly alerts resolve <id>
+rootly alerts escalate <id>
+rootly alerts escalate <id> --escalation-policy=<uuid> --level=2
 
 # Services
 rootly services list
@@ -99,6 +107,17 @@ rootly services get <id>
 rootly services create --name="api-gateway"
 rootly services update <id> --description="Main API gateway"
 rootly services delete <id>
+
+# Custom form fields
+rootly form-fields list
+rootly form-fields list --format=json
+
+# Status pages and events
+rootly status-pages list
+rootly status-pages templates list --status-page=<id>
+rootly status-pages events create INC-123 --status-page=<id> --status=scheduled --message="Maintenance is scheduled."
+rootly status-pages events update <event-id> --status=in_progress
+rootly status-pages events resolve <event-id> --status=completed --message="Maintenance is complete."
 
 # Teams
 rootly teams list
@@ -127,6 +146,30 @@ rootly pulse run -- make deploy
 rootly pulse run --summary="Deploy to prod" -- make deploy
 rootly pulse run -s api-gateway -l "env=prod" -- make deploy
 ```
+
+### Incident Maintenance and Form Fields
+
+`incidents create` and `incidents update` accept `--kind` (`normal`, `test`, `scheduled`, `backfilled`, or `example`) and RFC3339 `--scheduled-for` / `--scheduled-until` timestamps. Scheduled timestamps are included in incident detail table and markdown output when present.
+
+Use repeatable `--field slug=value` flags for custom form fields. Text-like fields accept a value directly; select options are matched without regard to case. Repeat a `multi_select` or `checkbox` field to choose multiple options. Values can contain commas; quote the whole flag when needed. Run `rootly form-fields list` to discover field slugs and option values.
+
+```bash
+rootly incidents create --title="Release" \
+  --field="change_summary=DB migration, app deploy" \
+  --field=priority=P1 \
+  --field="regions=US East" \
+  --field="regions=EU West"
+```
+
+### Status-Page Templates and Maintenance Statuses
+
+List a status page's templates with `rootly status-pages templates list --status-page=<id>`. The command supports `--page`, `--page-size`, and the standard `--format` output flag.
+
+`status-pages events create` and `status-pages events update` accept incident statuses `investigating`, `identified`, `monitoring`, and `resolved`, plus scheduled-maintenance statuses `scheduled`, `in_progress`, and `completed`. For `status-pages events resolve`, `--status` defaults to `resolved`; use `--status=completed` to complete scheduled maintenance.
+
+### Alert Escalation
+
+`rootly alerts escalate <alert-id>` escalates an alert using its current policy. Optionally pass `--escalation-policy=<uuid>` and/or `--level=<n>` to select a policy or escalation level; levels must be at least 1. The API's error title is shown when escalation cannot proceed.
 
 ### Pulse Flags
 
@@ -190,11 +233,13 @@ rootly incidents list --sort=-created_at
 | Command | Subcommands | Aliases |
 |---------|-------------|---------|
 | `rootly incidents` | `list`, `get`, `create`, `update`, `delete` | `incident`, `inc` |
-| `rootly alerts` | `list`, `get`, `create`, `update`, `ack`, `resolve` | `alert`, `alr` |
+| `rootly alerts` | `list`, `get`, `create`, `update`, `ack`, `resolve`, `escalate` | `alert`, `alr` |
+| `rootly form-fields` | `list` | |
 | `rootly services` | `list`, `get`, `create`, `update`, `delete` | `service`, `svc` |
 | `rootly teams` | `list`, `get`, `create`, `update`, `delete` | `team` |
 | `rootly oncall` | `schedules`, `shifts`, `who` | `on-call` |
 | `rootly pulse` | `create`, `run` | `pulses` |
+| `rootly status-pages` | `list`, `templates list`, `events list`, `events create`, `events update`, `events resolve` | `status-page` |
 | `rootly completion` | `bash`, `zsh`, `fish`, `powershell` | |
 | `rootly version` | | |
 

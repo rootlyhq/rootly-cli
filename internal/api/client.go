@@ -225,6 +225,28 @@ type ServicesResult struct {
 	RawBody    []byte
 }
 
+type FormFieldOption struct {
+	ID    string
+	Value string
+}
+
+type FormField struct {
+	ID        string
+	Slug      string
+	Name      string
+	Kind      string
+	InputKind string
+	ValueKind string
+	Enabled   bool
+	Options   []FormFieldOption
+}
+
+type FormFieldsResult struct {
+	FormFields []FormField
+	Pagination PaginationInfo
+	RawBody    []byte
+}
+
 // Team represents a Rootly team
 type Team struct {
 	ID           string
@@ -301,6 +323,24 @@ type StatusPagesResult struct {
 	StatusPages []StatusPage
 	Pagination  PaginationInfo
 	RawBody     []byte
+}
+
+type StatusPageTemplate struct {
+	ID                      string
+	Title                   string
+	Kind                    string
+	UpdateStatus            string
+	ShouldNotifySubscribers bool
+	Enabled                 bool
+	UpdateTitle             string
+	Body                    string
+	Position                int
+}
+
+type StatusPageTemplatesResult struct {
+	Templates  []StatusPageTemplate
+	Pagination PaginationInfo
+	RawBody    []byte
 }
 
 // StatusPageEvent represents a public incident update on a status page.
@@ -1125,7 +1165,7 @@ func (c *Client) GetIncidentByID(ctx context.Context, id string) (*Incident, err
 	// Build URL
 	baseURL := c.endpoint
 
-	url := fmt.Sprintf("%s/v1/incidents/%s?include=roles,causes,incident_types,functionalities,services,environments,groups,user", baseURL, id)
+	url := fmt.Sprintf("%s/v1/incidents/%s?include=roles,causes,incident_types,functionalities,services,environments,groups,user,custom_field_selections", baseURL, id)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -1188,6 +1228,14 @@ func (c *Client) CreateIncident(ctx context.Context, title string, opts map[stri
 	}
 	if status, ok := opts["status"]; ok {
 		attributes["status"] = status
+	}
+	for _, key := range []string{"kind", "scheduled_for", "scheduled_until"} {
+		if value, ok := opts[key]; ok {
+			attributes[key] = value
+		}
+	}
+	if selections, ok := opts["form_field_selections"]; ok {
+		attributes["form_field_selections"] = selections
 	}
 	for _, key := range []string{"service_ids", "incident_type_ids", "functionality_ids", "environment_ids", "group_ids", "cause_ids"} {
 		if value, ok := opts[key]; ok {
@@ -1261,6 +1309,14 @@ func (c *Client) UpdateIncident(ctx context.Context, id string, opts map[string]
 	}
 	if status, ok := opts["status"]; ok {
 		attributes["status"] = status
+	}
+	for _, key := range []string{"kind", "scheduled_for", "scheduled_until"} {
+		if value, ok := opts[key]; ok {
+			attributes[key] = value
+		}
+	}
+	if selections, ok := opts["form_field_selections"]; ok {
+		attributes["form_field_selections"] = selections
 	}
 	for _, key := range []string{"service_ids", "incident_type_ids", "functionality_ids", "environment_ids", "group_ids", "cause_ids"} {
 		if value, ok := opts[key]; ok {
@@ -1689,6 +1745,95 @@ func (c *Client) ListStatusPagesCLI(ctx context.Context, page, pageSize int, sor
 			TotalCount:  response.Meta.TotalCount,
 			HasNext:     response.Meta.NextPage != nil,
 			HasPrev:     response.Meta.PrevPage != nil,
+		},
+		RawBody: body,
+	}, nil
+}
+
+func (c *Client) ListStatusPageTemplatesCLI(ctx context.Context, statusPageID string, page, pageSize int) (*StatusPageTemplatesResult, error) {
+	if err := validateStatusPagePagination(page, pageSize); err != nil {
+		return nil, err
+	}
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	path := fmt.Sprintf("/v1/status-pages/%s/templates?page[number]=%d&page[size]=%d", neturl.PathEscape(statusPageID), page, pageSize)
+	body, statusCode, err := c.doJSONAPIRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list status-page templates: %w", err)
+	}
+	if statusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if statusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("access denied: API key lacks 'read status page templates' permission")
+	}
+	if statusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("status page not found: %s", statusPageID)
+	}
+	if statusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d", statusCode)
+	}
+
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				ID                      string `json:"id"`
+				Title                   string `json:"title"`
+				UpdateTitle             string `json:"update_title"`
+				Body                    string `json:"body"`
+				UpdateStatus            string `json:"update_status"`
+				ShouldNotifySubscribers bool   `json:"should_notify_subscribers"`
+				Enabled                 bool   `json:"enabled"`
+				Kind                    string `json:"kind"`
+				Position                int    `json:"position"`
+			} `json:"attributes"`
+		} `json:"data"`
+		Meta struct {
+			CurrentPage int  `json:"current_page"`
+			NextPage    *int `json:"next_page"`
+			PrevPage    *int `json:"prev_page"`
+			TotalCount  int  `json:"total_count"`
+			TotalPages  int  `json:"total_pages"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse status-page templates response: %w", err)
+	}
+	templates := make([]StatusPageTemplate, 0, len(response.Data))
+	for _, item := range response.Data {
+		id := item.ID
+		if id == "" {
+			id = item.Attributes.ID
+		}
+		templates = append(templates, StatusPageTemplate{
+			ID:                      id,
+			Title:                   item.Attributes.Title,
+			Kind:                    item.Attributes.Kind,
+			UpdateStatus:            item.Attributes.UpdateStatus,
+			ShouldNotifySubscribers: item.Attributes.ShouldNotifySubscribers,
+			Enabled:                 item.Attributes.Enabled,
+			UpdateTitle:             item.Attributes.UpdateTitle,
+			Body:                    item.Attributes.Body,
+			Position:                item.Attributes.Position,
+		})
+	}
+	currentPage := response.Meta.CurrentPage
+	if currentPage == 0 {
+		currentPage = page
+	}
+	return &StatusPageTemplatesResult{
+		Templates: templates,
+		Pagination: PaginationInfo{
+			CurrentPage: currentPage,
+			TotalPages:  response.Meta.TotalPages,
+			TotalCount:  response.Meta.TotalCount,
+			HasNext:     response.Meta.NextPage != nil || currentPage < response.Meta.TotalPages,
+			HasPrev:     response.Meta.PrevPage != nil || currentPage > 1,
 		},
 		RawBody: body,
 	}, nil
@@ -2464,6 +2609,58 @@ func (c *Client) AcknowledgeAlertCLI(ctx context.Context, id string) error {
 	return nil
 }
 
+func (c *Client) EscalateAlertCLI(ctx context.Context, id string, escalationPolicyID *string, level *int) error {
+	attributes := make(map[string]interface{})
+	if escalationPolicyID != nil {
+		attributes["escalation_policy_id"] = *escalationPolicyID
+	}
+	if level != nil {
+		attributes["escalation_policy_level"] = *level
+	}
+	requestBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type":       "alerts",
+			"attributes": attributes,
+		},
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+	path := fmt.Sprintf("/v1/alerts/%s/escalate", neturl.PathEscape(id))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+path, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to escalate alert: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+	if httpResp.StatusCode >= http.StatusBadRequest && httpResp.StatusCode < http.StatusInternalServerError {
+		var response struct {
+			Errors []struct {
+				Title string `json:"title"`
+			} `json:"errors"`
+		}
+		if json.Unmarshal(body, &response) == nil && len(response.Errors) > 0 && response.Errors[0].Title != "" {
+			return fmt.Errorf("%s", response.Errors[0].Title)
+		}
+		return fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+	return nil
+}
+
 // ResolveAlertCLI resolves an alert using raw HTTP POST.
 func (c *Client) ResolveAlertCLI(ctx context.Context, id, resolutionMessage string, resolveIncidents bool) error {
 	// Build URL
@@ -2524,6 +2721,139 @@ func (c *Client) ResolveAlertCLI(ctx context.Context, id, resolutionMessage stri
 	}
 
 	return nil
+}
+
+// ListFormFieldsCLI fetches custom form fields and their options.
+func (c *Client) ListFormFieldsCLI(ctx context.Context, page, pageSize int) (*FormFieldsResult, error) {
+	if page < 1 {
+		return nil, fmt.Errorf("page must be at least 1")
+	}
+	if pageSize < 0 {
+		return nil, fmt.Errorf("page size must not be negative")
+	}
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	url := fmt.Sprintf("%s/v1/form_fields?page[number]=%d&page[size]=%d&include=options", c.endpoint, page, pageSize)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list form fields: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	if httpResp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("invalid API token")
+	}
+	if httpResp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("access denied: API key lacks 'read form fields' permission")
+	}
+	if httpResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	}
+
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Slug      string `json:"slug"`
+				Name      string `json:"name"`
+				Kind      string `json:"kind"`
+				InputKind string `json:"input_kind"`
+				ValueKind string `json:"value_kind"`
+				Enabled   bool   `json:"enabled"`
+			} `json:"attributes"`
+		} `json:"data"`
+		Included []struct {
+			Type       string `json:"type"`
+			ID         string `json:"id"`
+			Attributes struct {
+				FormFieldID string `json:"form_field_id"`
+				Value       string `json:"value"`
+			} `json:"attributes"`
+		} `json:"included"`
+		Meta struct {
+			CurrentPage int `json:"current_page"`
+			TotalPages  int `json:"total_pages"`
+			TotalCount  int `json:"total_count"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse form fields response: %w", err)
+	}
+
+	optionsByFieldID := make(map[string][]FormFieldOption)
+	for _, included := range response.Included {
+		if included.Type != "form_field_options" {
+			continue
+		}
+		optionsByFieldID[included.Attributes.FormFieldID] = append(
+			optionsByFieldID[included.Attributes.FormFieldID],
+			FormFieldOption{ID: included.ID, Value: included.Attributes.Value},
+		)
+	}
+
+	fields := make([]FormField, 0, len(response.Data))
+	for _, item := range response.Data {
+		fields = append(fields, FormField{
+			ID:        item.ID,
+			Slug:      item.Attributes.Slug,
+			Name:      item.Attributes.Name,
+			Kind:      item.Attributes.Kind,
+			InputKind: item.Attributes.InputKind,
+			ValueKind: item.Attributes.ValueKind,
+			Enabled:   item.Attributes.Enabled,
+			Options:   optionsByFieldID[item.ID],
+		})
+	}
+
+	return &FormFieldsResult{
+		FormFields: fields,
+		Pagination: PaginationInfo{
+			CurrentPage: response.Meta.CurrentPage,
+			TotalPages:  response.Meta.TotalPages,
+			TotalCount:  response.Meta.TotalCount,
+			HasNext:     response.Meta.CurrentPage < response.Meta.TotalPages,
+			HasPrev:     response.Meta.CurrentPage > 1,
+		},
+		RawBody: body,
+	}, nil
+}
+
+// ListAllFormFieldsCLI fetches every custom form field and its options.
+func (c *Client) ListAllFormFieldsCLI(ctx context.Context) ([]FormField, error) {
+	const pageSize = 100
+	fields := make([]FormField, 0)
+	page := 1
+	for {
+		result, err := c.ListFormFieldsCLI(ctx, page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		fields = append(fields, result.FormFields...)
+		if !result.Pagination.HasNext {
+			return fields, nil
+		}
+		if result.Pagination.CurrentPage > 0 {
+			page = result.Pagination.CurrentPage + 1
+		} else {
+			page++
+		}
+	}
 }
 
 // ListServicesCLI fetches services for CLI operations (stateless, no cache).

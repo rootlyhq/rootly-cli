@@ -42,6 +42,10 @@ func init() {
 	updateCmd.Flags().String("summary", "", "Updated summary")
 	updateCmd.Flags().String("severity", "", "Updated severity ID")
 	updateCmd.Flags().String("status", "", "Updated status (started, mitigated, resolved, closed, cancelled)")
+	updateCmd.Flags().String("kind", "", "Incident kind: normal, test, scheduled, backfilled, example")
+	updateCmd.Flags().String("scheduled-for", "", "Scheduled maintenance start time (RFC3339)")
+	updateCmd.Flags().String("scheduled-until", "", "Scheduled maintenance end time (RFC3339)")
+	updateCmd.Flags().StringArray("field", nil, "Custom form field value (repeatable, slug=value)")
 	updateCmd.Flags().StringSlice("services", nil, "Updated service slugs/IDs, comma-separated")
 	updateCmd.Flags().StringSlice("types", nil, "Updated incident type slugs/IDs, comma-separated")
 	updateCmd.Flags().StringSlice("functionalities", nil, "Updated functionality slugs/IDs, comma-separated")
@@ -57,10 +61,39 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	displayID := args[0]
 	incidentID := api.NormalizeIncidentID(displayID)
 
+	var scheduledFor, scheduledUntil string
+	if cmd.Flags().Changed("scheduled-for") {
+		parsed, err := parseScheduledTimestamp(cmd, "scheduled-for")
+		if err != nil {
+			return err
+		}
+		scheduledFor = parsed
+	}
+	if cmd.Flags().Changed("scheduled-until") {
+		parsed, err := parseScheduledTimestamp(cmd, "scheduled-until")
+		if err != nil {
+			return err
+		}
+		scheduledUntil = parsed
+	}
+
 	// Get API client
 	apiClient, err := getAPIClient()
 	if err != nil {
 		return err
+	}
+
+	fieldInputs, _ := cmd.Flags().GetStringArray("field")
+	var formFieldSelections []map[string]interface{}
+	if len(fieldInputs) > 0 {
+		fields, err := apiClient.ListAllFormFieldsCLI(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("failed to list form fields: %w", err)
+		}
+		formFieldSelections, err = resolveFormFieldSelections(fields, fieldInputs)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Build opts map using cmd.Flags().Changed() - ONLY include fields the user explicitly set
@@ -80,6 +113,19 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("status") {
 		status, _ := cmd.Flags().GetString("status")
 		opts["status"] = status
+	}
+	if cmd.Flags().Changed("kind") {
+		kind, _ := cmd.Flags().GetString("kind")
+		opts["kind"] = kind
+	}
+	if cmd.Flags().Changed("scheduled-for") {
+		opts["scheduled_for"] = scheduledFor
+	}
+	if cmd.Flags().Changed("scheduled-until") {
+		opts["scheduled_until"] = scheduledUntil
+	}
+	if len(fieldInputs) > 0 {
+		opts["form_field_selections"] = formFieldSelections
 	}
 	if cmd.Flags().Changed("services") {
 		services, _ := cmd.Flags().GetStringSlice("services")

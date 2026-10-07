@@ -44,8 +44,14 @@ func TestUpdateIncident(t *testing.T) {
 
 	client := newTestClient(t, server.URL)
 	inc, err := client.UpdateIncident(context.Background(), "inc-1", map[string]interface{}{
-		"title":             "Updated Title",
-		"status":            "mitigated",
+		"title":           "Updated Title",
+		"status":          "mitigated",
+		"kind":            "scheduled",
+		"scheduled_for":   "2025-06-20T10:00:00Z",
+		"scheduled_until": "2025-06-20T12:00:00Z",
+		"form_field_selections": []map[string]interface{}{
+			{"form_field_id": "field-text", "value": "updated custom text"},
+		},
 		"service_ids":       []string{"api-gateway", "payments"},
 		"incident_type_ids": []string{"customer-impacting"},
 		"functionality_ids": []string{"checkout"},
@@ -75,6 +81,20 @@ func TestUpdateIncident(t *testing.T) {
 	}
 	if attrs["status"] != "mitigated" {
 		t.Errorf("request status = %q, want %q", attrs["status"], "mitigated")
+	}
+	for key, want := range map[string]string{
+		"kind":            "scheduled",
+		"scheduled_for":   "2025-06-20T10:00:00Z",
+		"scheduled_until": "2025-06-20T12:00:00Z",
+	} {
+		if attrs[key] != want {
+			t.Errorf("request %s = %v, want %s", key, attrs[key], want)
+		}
+	}
+	selections := attrs["form_field_selections"].([]interface{})
+	textSelection := selections[0].(map[string]interface{})
+	if textSelection["form_field_id"] != "field-text" || textSelection["value"] != "updated custom text" {
+		t.Errorf("form field selection = %+v", textSelection)
 	}
 	serviceIDs := attrs["service_ids"].([]interface{})
 	if len(serviceIDs) != 2 || serviceIDs[0] != "api-gateway" || serviceIDs[1] != "payments" {

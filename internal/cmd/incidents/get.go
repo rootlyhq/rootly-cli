@@ -95,6 +95,8 @@ func incidentDetailRows(inc *api.Incident) [][]string {
 	addRow("Severity", inc.Severity)
 	addRow("Summary", inc.Summary)
 	addRow("Kind", inc.Kind)
+	addRow("Scheduled For", timeformat.FormatTimePtr(inc.ScheduledFor))
+	addRow("Scheduled Until", timeformat.FormatTimePtr(inc.ScheduledUntil))
 	addRow("URL", inc.URL)
 
 	// Timestamps
