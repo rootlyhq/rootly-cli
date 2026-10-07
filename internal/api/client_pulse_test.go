@@ -407,16 +407,12 @@ func TestCreatePulseCLI_WithServicesAndEnvs(t *testing.T) {
 				"attributes": {
 					"summary": "Deploy",
 					"source": "ci",
-					"services": {
-						"data": [
-							{"attributes": {"name": "API Gateway"}}
-						]
-					},
-					"environments": {
-						"data": [
-							{"attributes": {"name": "production"}}
-						]
-					}
+					"services": [
+						{"id": "service-1", "name": "API Gateway", "slug": "api-gateway"}
+					],
+					"environments": [
+						{"id": "environment-1", "name": "production", "slug": "production"}
+					]
 				}
 			}
 		}`))
@@ -437,5 +433,44 @@ func TestCreatePulseCLI_WithServicesAndEnvs(t *testing.T) {
 	}
 	if len(pulse.Environments) != 1 || pulse.Environments[0] != "production" {
 		t.Errorf("Environments = %v, want [production]", pulse.Environments)
+	}
+}
+
+func TestCreatePulseCLI_FlatServicesAndEnvironments(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{
+			"data": {
+				"id": "pulse-123",
+				"type": "pulses",
+				"attributes": {
+					"summary": "Email service deploy",
+					"source": "ci",
+					"labels": {"deploy": "production"},
+					"refs": [{"name": "commit", "value": "abc123"}],
+					"started_at": "2025-06-15T10:00:00Z",
+					"services": [
+						{"id": "service-1", "name": "Email", "slug": "email"}
+					],
+					"environments": [
+						{"id": "environment-1", "name": "Staging", "slug": "staging"}
+					]
+				}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	pulse, err := client.CreatePulseCLI(context.Background(), "Email service deploy", PulseOpts{})
+	if err != nil {
+		t.Fatalf("CreatePulseCLI returned error: %v", err)
+	}
+	if len(pulse.Services) != 1 || pulse.Services[0] != "Email" {
+		t.Errorf("Services = %v, want [Email]", pulse.Services)
+	}
+	if len(pulse.Environments) != 1 || pulse.Environments[0] != "Staging" {
+		t.Errorf("Environments = %v, want [Staging]", pulse.Environments)
 	}
 }

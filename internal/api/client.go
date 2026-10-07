@@ -3933,19 +3933,11 @@ func (c *Client) CreatePulseCLI(ctx context.Context, summary string, opts PulseO
 				Source    string  `json:"source"`
 				StartedAt *string `json:"started_at"`
 				EndedAt   *string `json:"ended_at"`
-				Services  *struct {
-					Data []struct {
-						Attributes struct {
-							Name string `json:"name"`
-						} `json:"attributes"`
-					} `json:"data"`
+				Services  []struct {
+					Name string `json:"name"`
 				} `json:"services"`
-				Environments *struct {
-					Data []struct {
-						Attributes struct {
-							Name string `json:"name"`
-						} `json:"attributes"`
-					} `json:"data"`
+				Environments []struct {
+					Name string `json:"name"`
 				} `json:"environments"`
 			} `json:"attributes"`
 		} `json:"data"`
@@ -3965,15 +3957,11 @@ func (c *Client) CreatePulseCLI(ctx context.Context, summary string, opts PulseO
 	pulse.StartedAt = parseTimePtr(resp.Data.Attributes.StartedAt)
 	pulse.EndedAt = parseTimePtr(resp.Data.Attributes.EndedAt)
 
-	if resp.Data.Attributes.Services != nil {
-		for _, s := range resp.Data.Attributes.Services.Data {
-			pulse.Services = append(pulse.Services, s.Attributes.Name)
-		}
+	for _, s := range resp.Data.Attributes.Services {
+		pulse.Services = append(pulse.Services, s.Name)
 	}
-	if resp.Data.Attributes.Environments != nil {
-		for _, e := range resp.Data.Attributes.Environments.Data {
-			pulse.Environments = append(pulse.Environments, e.Attributes.Name)
-		}
+	for _, e := range resp.Data.Attributes.Environments {
+		pulse.Environments = append(pulse.Environments, e.Name)
 	}
 
 	return pulse, nil
