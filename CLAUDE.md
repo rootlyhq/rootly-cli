@@ -23,10 +23,15 @@ internal/
     completion.go            # Shell completions (bash, zsh, fish, powershell)
     helpers.go               # Shared helpers (confirm, dry-run)
     incidents/               # Incidents CRUD subcommands
-    alerts/                  # Alerts CRUD + ack/resolve subcommands
+    alerts/                  # Alerts CRUD + ack/resolve/escalate subcommands
     services/                # Services CRUD subcommands
     teams/                   # Teams CRUD subcommands
     oncall/                  # On-call read-only subcommands (list, shifts, who)
+    auth/                    # OAuth2 login and logout commands
+    formfields/              # List custom form fields and their options
+    pulse/                   # Create pulses and wrap commands with timing
+    statuspages/             # List status pages, templates, and incident events
+    workflows/               # List workflows and run them for incidents
     *_register.go            # Wire subcommands to rootCmd
   config/config.go           # Config management (~/.rootly-cli/config.yaml)
   printer/

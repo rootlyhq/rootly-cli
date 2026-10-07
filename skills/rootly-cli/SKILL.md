@@ -1,6 +1,6 @@
 ---
 name: rootly-cli
-description: Manage Rootly incidents, alerts, services, teams, and on-call schedules from the terminal using the Rootly CLI
+description: Manage Rootly incidents, alerts, services, teams, status pages, custom form fields, and on-call schedules from the terminal using the Rootly CLI
 ---
 
 # Rootly CLI
@@ -34,23 +34,51 @@ API keys are created in the Rootly dashboard under **Settings > API Keys**.
 ### Incidents
 
 ```bash
-rootly incidents list                                          # List all incidents
-rootly incidents list --status=started --severity=critical     # Filter by status and severity
-rootly incidents get <id>                                      # Get incident details
-rootly incidents create --title="Database outage" --severity=critical  # Create incident
-rootly incidents update <id> --status=mitigated                # Update incident
-rootly incidents delete <id>                                   # Delete incident (with confirmation)
+rootly incidents list                                                                 # List all incidents
+rootly incidents list --status=started --severity=critical                            # Filter by status and severity
+rootly incidents get <id>                                                             # Get incident details
+rootly incidents create --title="Database outage" --severity=critical                 # Create incident
+rootly incidents create --title="Database maintenance" \
+  --kind=scheduled \
+  --scheduled-for=2025-06-20T10:00:00Z \
+  --scheduled-until=2025-06-20T12:00:00Z                                              # Create scheduled maintenance incident
+rootly incidents create --title="API degradation" \
+  --field="customer_impact=Checkout unavailable, retrying"                            # Create with a custom form field
+rootly incidents update <id> --status=mitigated                                       # Update incident
+rootly incidents update <id> --field="customer_impact=Checkout restored"              # Update a custom form field
+rootly incidents delete <id>                                                          # Delete incident (with confirmation)
 ```
 
 ### Alerts
 
 ```bash
-rootly alerts list                                             # List all alerts
-rootly alerts list --source=datadog                            # Filter by source
-rootly alerts get <id>                                         # Get alert details
-rootly alerts create --summary="High CPU usage" --source=datadog  # Create alert
-rootly alerts ack <id>                                         # Acknowledge alert
-rootly alerts resolve <id>                                     # Resolve alert
+rootly alerts list                                                                    # List all alerts
+rootly alerts list --source=datadog                                                   # Filter by source
+rootly alerts get <id>                                                                # Get alert details
+rootly alerts create --summary="High CPU usage" --source=datadog                      # Create alert
+rootly alerts ack <id>                                                                # Acknowledge alert
+rootly alerts resolve <id>                                                            # Resolve alert
+rootly alerts escalate <id>                                                           # Escalate an alert using its current policy
+rootly alerts escalate <id> --escalation-policy=<uuid> --level=2                      # Choose a policy and escalation level
+```
+
+### Form Fields
+
+```bash
+rootly form-fields list                           # List custom form fields
+```
+
+### Status Pages
+
+```bash
+rootly status-pages list                                                              # List status pages
+rootly status-pages templates list --status-page=<id>                                 # List templates for a status page
+rootly status-pages events create <incident-id> \
+  --status-page=<id> --status=scheduled \
+  --message="Maintenance is scheduled."                                               # Create a scheduled event
+rootly status-pages events update <event-id> --status=in_progress                     # Mark the event in progress
+rootly status-pages events resolve <event-id> --status=completed \
+  --message="Maintenance is complete."                                                # Complete scheduled maintenance
 ```
 
 ### Services
@@ -123,6 +151,20 @@ rootly alerts ack <id>
 rootly alerts resolve <id>
 ```
 
+### Schedule maintenance
+```bash
+rootly incidents create --title="Database maintenance" \
+  --kind=scheduled \
+  --scheduled-for=2025-06-20T10:00:00Z \
+  --scheduled-until=2025-06-20T12:00:00Z                                              # Create scheduled maintenance incident
+rootly status-pages events create <incident-id> \
+  --status-page=<id> --status=scheduled \
+  --message="Maintenance is scheduled."                                               # Create a scheduled status-page event
+rootly status-pages events update <event-id> --status=in_progress                     # Mark the event in progress
+rootly status-pages events resolve <event-id> --status=completed \
+  --message="Maintenance is complete."                                                # Complete scheduled maintenance
+```
+
 ### Check who's on-call
 ```bash
 rootly oncall who
@@ -138,4 +180,6 @@ rootly oncall shifts --days=7
 
 - Delete operations prompt for confirmation before executing
 - Update commands only send fields that were explicitly changed via flags
+- Custom field slugs and option values come from `rootly form-fields list`; repeat `--field` with the same slug to select multiple `multi_select` or `checkbox` options
+- `--scheduled-for` and `--scheduled-until` timestamps must be RFC3339
 - Pagination info is printed to stderr, data to stdout (safe for piping)
