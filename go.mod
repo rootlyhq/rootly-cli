@@ -1,6 +1,6 @@
 module github.com/rootlyhq/rootly-cli
 
-go 1.26.0
+go 1.26.10
 
 require (
 	github.com/jedib0t/go-pretty/v6 v6.8.3
