@@ -55,8 +55,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/rogpeppe/go-internal v1.9.0 h1:73kH8U+JUqXU8lRuOHeVHaa/SZPifC7BkcraZVejAe8=
 github.com/rogpeppe/go-internal v1.9.0/go.mod h1:WtVeX8xhTBvf0smdhujwtBcq4Qrzq/fJaraNFVN+nFs=
-github.com/rootlyhq/rootly-go v0.13.0 h1:Qv7adLbqsDUBoXIhZ3j0VwVBfsw/fSsE7TfB2pN/iss=
-github.com/rootlyhq/rootly-go v0.13.0/go.mod h1:kVBjbv7kXeDII6N8JX0MOdDjDMF6xJVLMcPzkrxjQ20=
+github.com/rootlyhq/rootly-go v0.14.0 h1:7LPXTkErGmZJpnb+eSL3nF5VKv8NiZ8CNhN2OC9ekwI=
+github.com/rootlyhq/rootly-go v0.14.0/go.mod h1:kVBjbv7kXeDII6N8JX0MOdDjDMF6xJVLMcPzkrxjQ20=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/sagikazarmark/locafero v0.12.0 h1:/NQhBAkUb4+fH1jivKHWusDYFjMOOKU88eegjfxfHb4=
 github.com/sagikazarmark/locafero v0.12.0/go.mod h1:sZh36u/YSZ918v0Io+U9ogLYQJ9tLLBmM4eneO6WwsI=
