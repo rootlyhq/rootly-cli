@@ -34,28 +34,39 @@ type streamMessage struct {
 	turn  int
 }
 
-type TUIModel struct {
-	streamer      Streamer
-	state         tuiState
-	composer      textarea.Model
-	spinner       spinner.Model
-	width         int
-	height        int
-	status        string
-	answer        strings.Builder
-	sessionID     *uuid.UUID
-	pending       *rootly.AiChatStreamConfirmationRequired
-	ctx           context.Context
-	cancel        context.CancelFunc
-	stream        chan streamMessage
-	startedAt     time.Time
-	doneStatus    string
-	idleInterrupt bool
-	currentParams *rootly.StreamAiChatParams
-	turn          int
+type TUIOptions struct {
+	NoColor bool
 }
 
-func NewTUIModel(ctx context.Context, streamer Streamer) *TUIModel {
+type TUIModel struct {
+	streamer            Streamer
+	state               tuiState
+	composer            textarea.Model
+	spinner             spinner.Model
+	width               int
+	height              int
+	status              string
+	answer              strings.Builder
+	sessionID           *uuid.UUID
+	pending             *rootly.AiChatStreamConfirmationRequired
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	stream              chan streamMessage
+	startedAt           time.Time
+	doneStatus          string
+	idleInterrupt       bool
+	currentParams       *rootly.StreamAiChatParams
+	turn                int
+	noColor             bool
+	renderer            *glamour.TermRenderer
+	rendererWidth       int
+	renderedSource      string
+	rendered            string
+	renderCount         int
+	resumeTextSeparator bool
+}
+
+func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TUIModel {
 	composer := textarea.New()
 	composer.Prompt = "> "
 	composer.Placeholder = "Ask Rootly..."
@@ -74,6 +85,7 @@ func NewTUIModel(ctx context.Context, streamer Streamer) *TUIModel {
 		ctx:      ctx,
 		width:    80,
 		height:   24,
+		noColor:  options.NoColor,
 	}
 }
 
@@ -136,6 +148,12 @@ func (m *TUIModel) handleEvent(event Event) {
 		}
 	case rootly.AiChatStreamEventText:
 		if event.Text != nil {
+			if m.resumeTextSeparator {
+				if m.answer.Len() > 0 && !strings.HasSuffix(m.answer.String(), "\n") {
+					m.answer.WriteString("\n\n")
+				}
+				m.resumeTextSeparator = false
+			}
 			m.answer.WriteString(event.Text.Content)
 		}
 	case rootly.AiChatStreamEventStatus:
@@ -208,7 +226,7 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 
 	cmds := make([]tea.Cmd, 0, 1)
 	if answer := strings.TrimSpace(m.answer.String()); answer != "" {
-		cmds = append(cmds, tea.Printf("Assistant:\n%s", renderMarkdown(answer, m.width)))
+		cmds = append(cmds, tea.Printf("Assistant:\n%s", m.renderMarkdown(answer, m.width)))
 	}
 	if m.doneStatus != "" && m.doneStatus != "complete" && m.doneStatus != "confirmed" {
 		m.status = "turn halted: " + m.doneStatus
@@ -223,9 +241,13 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
 	lines := make([]string, 0, 2)
 	if answer := strings.TrimSpace(m.answer.String()); answer != "" {
-		lines = append(lines, renderMarkdown(answer, m.width))
+		lines = append(lines, m.renderMarkdown(answer, m.width))
 	}
-	lines = append(lines, style.Render(message))
+	if m.noColor {
+		lines = append(lines, message)
+	} else {
+		lines = append(lines, style.Render(message))
+	}
 	m.answer.Reset()
 	return tea.Println(strings.Join(lines, "\n"))
 }
@@ -259,18 +281,10 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.state == tuiConfirming {
 		switch strings.ToLower(msg.String()) {
 		case "y":
-			if expired(m.pending) {
-				m.pending = nil
-				m.state = tuiIdle
-				m.status = ""
-				m.doneStatus = ""
-				cmd := m.scrollback("Confirmation expired; no action was taken.", lipgloss.NewStyle())
-				return m, cmd
-			}
-			cmd := m.resume(rootly.StreamAiChatParamsDecisionConfirm)
+			cmd := m.handleConfirmationDecision(rootly.StreamAiChatParamsDecisionConfirm)
 			return m, cmd
 		case "n", "esc":
-			cmd := m.resume(rootly.StreamAiChatParamsDecisionCancel)
+			cmd := m.handleConfirmationDecision(rootly.StreamAiChatParamsDecisionCancel)
 			return m, cmd
 		}
 		return m, nil
@@ -300,6 +314,17 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.composer, cmd = m.composer.Update(msg)
 	return m, cmd
+}
+
+func (m *TUIModel) handleConfirmationDecision(decision rootly.StreamAiChatParamsDecision) tea.Cmd {
+	if expired(m.pending) {
+		m.pending = nil
+		m.state = tuiIdle
+		m.status = ""
+		m.doneStatus = ""
+		return m.scrollback("Confirmation expired; no action was taken.", lipgloss.NewStyle())
+	}
+	return m.resume(decision)
 }
 
 func (m *TUIModel) submit() tea.Cmd {
@@ -344,6 +369,7 @@ func (m *TUIModel) beginStream(params *rootly.StreamAiChatParams) tea.Cmd {
 	m.turn++
 	turn := m.turn
 	m.state = tuiStreaming
+	m.resumeTextSeparator = params.CheckpointID != nil
 	m.pending = nil
 	m.doneStatus = ""
 	m.startedAt = time.Now()
@@ -409,7 +435,7 @@ func (m *TUIModel) View() tea.View {
 	var content strings.Builder
 	switch m.state {
 	case tuiStreaming:
-		if rendered := renderMarkdown(m.answer.String(), m.width-2); rendered != "" {
+		if rendered := m.renderMarkdown(m.answer.String(), m.width-2); rendered != "" {
 			content.WriteString(rendered)
 			content.WriteString("\n")
 		}
@@ -421,7 +447,11 @@ func (m *TUIModel) View() tea.View {
 		fmt.Fprintf(&content, "%s %s · %s\n", m.spinner.View(), status, elapsed)
 	case tuiConfirming:
 		if m.pending != nil {
-			fmt.Fprintf(&content, "%s\n", lipgloss.NewStyle().Bold(true).Render(m.pending.Question))
+			question := m.pending.Question
+			if !m.noColor {
+				question = lipgloss.NewStyle().Bold(true).Render(question)
+			}
+			fmt.Fprintf(&content, "%s\n", question)
 			if len(m.pending.Preview) > 0 {
 				var preview bytes.Buffer
 				if err := json.Indent(&preview, m.pending.Preview, "", "  "); err == nil {
@@ -441,20 +471,33 @@ func (m *TUIModel) View() tea.View {
 	return view
 }
 
-func renderMarkdown(markdown string, width int) string {
+func (m *TUIModel) renderMarkdown(markdown string, width int) string {
+	if m.noColor {
+		return markdown
+	}
 	if strings.TrimSpace(markdown) == "" {
 		return ""
 	}
 	if width < 20 {
 		width = 20
 	}
-	renderer, err := glamour.NewTermRenderer(glamour.WithEnvironmentConfig(), glamour.WithWordWrap(width))
-	if err != nil {
-		return markdown
+	if m.renderer == nil || m.rendererWidth != width {
+		renderer, err := glamour.NewTermRenderer(glamour.WithEnvironmentConfig(), glamour.WithWordWrap(width))
+		if err != nil {
+			return markdown
+		}
+		m.renderer = renderer
+		m.rendererWidth = width
+		m.renderedSource = ""
 	}
-	rendered, err := renderer.Render(markdown)
-	if err != nil {
-		return markdown
+	if m.renderedSource != markdown {
+		rendered, err := m.renderer.Render(markdown)
+		if err != nil {
+			return markdown
+		}
+		m.rendered = strings.TrimSpace(rendered)
+		m.renderedSource = markdown
+		m.renderCount++
 	}
-	return strings.TrimSpace(rendered)
+	return m.rendered
 }

@@ -43,6 +43,7 @@ func RunPrint(ctx context.Context, streamer Streamer, options PrintOptions) erro
 	var answer strings.Builder
 
 	for {
+		resumeTextSeparator := params.CheckpointID != nil
 		var confirmation *rootly.AiChatStreamConfirmationRequired
 		var doneStatus string
 		var streamError error
@@ -57,6 +58,12 @@ func RunPrint(ctx context.Context, streamer Streamer, options PrintOptions) erro
 				}
 			case rootly.AiChatStreamEventText:
 				if event.Text != nil {
+					if resumeTextSeparator {
+						if answer.Len() > 0 && !strings.HasSuffix(answer.String(), "\n") {
+							answer.WriteString("\n\n")
+						}
+						resumeTextSeparator = false
+					}
 					answer.WriteString(event.Text.Content)
 				}
 			case rootly.AiChatStreamEventStatus:
@@ -108,6 +115,9 @@ func RunPrint(ctx context.Context, streamer Streamer, options PrintOptions) erro
 			}
 			if sessionID == nil {
 				return errors.New("confirmation checkpoint did not include a session id")
+			}
+			if expired(confirmation) {
+				return finishPrintTurn(options, answer.String(), "expired")
 			}
 			params = &rootly.StreamAiChatParams{
 				SessionID:    sessionID,

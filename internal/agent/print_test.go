@@ -106,6 +106,33 @@ func TestRunPrintConfirmationResumesWithConfirm(t *testing.T) {
 	}
 }
 
+func TestRunPrintConfirmationSeparatesResumedText(t *testing.T) {
+	streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{
+		{
+			eventOf(rootly.AiChatStreamEventSessionID, `{"session_id":"`+testSessionID+`"}`),
+			eventOf(rootly.AiChatStreamEventText, `{"content":"A"}`),
+			eventOf(rootly.AiChatStreamEventConfirmationRequired, `{"checkpoint_id":"`+testCheckpointID+`","question":"Continue?","expires_at":"2099-01-01T00:00:00Z"}`),
+			eventOf(rootly.AiChatStreamEventDone, `{"status":"confirmation_required"}`),
+		},
+		{
+			eventOf(rootly.AiChatStreamEventText, `{"content":"B"}`),
+			eventOf(rootly.AiChatStreamEventDone, `{"status":"complete"}`),
+		},
+	}}
+	var stdout, stderr bytes.Buffer
+	options := newPrintOptions(&stdout, &stderr)
+	options.Stdin = strings.NewReader("y\n")
+	options.IsStdinTTY = func() bool { return true }
+	options.IsStderrTTY = func() bool { return true }
+
+	if err := RunPrint(context.Background(), streamer, options); err != nil {
+		t.Fatalf("RunPrint() error = %v", err)
+	}
+	if got := stdout.String(); got != "A\n\nB\n" {
+		t.Errorf("stdout = %q, want resumed text separated by a blank line", got)
+	}
+}
+
 func TestRunPrintConfirmationResumesWithCancel(t *testing.T) {
 	streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{
 		{
@@ -132,6 +159,29 @@ func TestRunPrintConfirmationResumesWithCancel(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Action cancelled.") || strings.Contains(stderr.String(), "turn halted") {
 		t.Errorf("stderr = %q, want cancellation note without halted status", stderr.String())
+	}
+}
+
+func TestRunPrintExpiredConfirmationDoesNotResume(t *testing.T) {
+	streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{
+		eventOf(rootly.AiChatStreamEventSessionID, `{"session_id":"`+testSessionID+`"}`),
+		eventOf(rootly.AiChatStreamEventConfirmationRequired, `{"checkpoint_id":"`+testCheckpointID+`","question":"Delete the service?","expires_at":"2000-01-01T00:00:00Z"}`),
+		eventOf(rootly.AiChatStreamEventDone, `{"status":"confirmation_required"}`),
+	}}}
+	var stdout, stderr bytes.Buffer
+	options := newPrintOptions(&stdout, &stderr)
+	options.Stdin = strings.NewReader("y\n")
+	options.IsStdinTTY = func() bool { return true }
+	options.IsStderrTTY = func() bool { return true }
+
+	if err := RunPrint(context.Background(), streamer, options); err != nil {
+		t.Fatalf("RunPrint() error = %v", err)
+	}
+	if got := len(streamer.calls); got != 1 {
+		t.Errorf("stream calls = %d, want only the original request", got)
+	}
+	if !strings.Contains(stderr.String(), "Confirmation expired; no action was taken.") {
+		t.Errorf("stderr = %q, want expiration message", stderr.String())
 	}
 }
 

@@ -24,7 +24,7 @@ func (s *blockingStreamer) StreamAiChatEvents(ctx context.Context, _ *rootly.Str
 }
 
 func TestTUIModelAccumulatesTextChunks(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{})
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 	model.state = tuiStreaming
 	model.stream = make(chan streamMessage, 1)
 
@@ -38,7 +38,7 @@ func TestTUIModelAccumulatesTextChunks(t *testing.T) {
 }
 
 func TestTUIModelDonePrintsAndReturnsIdle(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{})
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 	model.state = tuiStreaming
 	model.answer.WriteString("assistant reply")
 	model.doneStatus = "complete"
@@ -53,7 +53,7 @@ func TestTUIModelDonePrintsAndReturnsIdle(t *testing.T) {
 }
 
 func TestTUIModelCtrlCCancelsStreaming(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{})
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 	model.state = tuiStreaming
 	model.answer.WriteString("partial answer")
 	called := false
@@ -74,7 +74,7 @@ func TestTUIModelCtrlCCancelsStreaming(t *testing.T) {
 
 func TestTUIModelDropsStaleStreamMessages(t *testing.T) {
 	streamer := &blockingStreamer{started: make(chan struct{}, 2)}
-	model := NewTUIModel(context.Background(), streamer)
+	model := NewTUIModel(context.Background(), streamer, TUIOptions{})
 
 	model.startStream(&rootly.StreamAiChatParams{})
 	firstTurn := model.turn
@@ -97,7 +97,7 @@ func TestTUIModelDropsStaleStreamMessages(t *testing.T) {
 }
 
 func TestTUIModelCtrlCTwiceWhileIdleQuits(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{})
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 	_, firstCmd := model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if firstCmd != nil || model.status != "press Ctrl+C again to exit" {
 		t.Fatalf("first Ctrl+C = %v, %q, want status message and no quit", firstCmd, model.status)
@@ -112,7 +112,7 @@ func TestTUIModelCtrlCTwiceWhileIdleQuits(t *testing.T) {
 }
 
 func TestTUIModelConfirmStartsResume(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{})
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 	sessionID := uuid.MustParse(testSessionID)
 	model.sessionID = &sessionID
 	model.state = tuiConfirming
@@ -135,7 +135,7 @@ func TestTUIModelConfirmStartsResume(t *testing.T) {
 }
 
 func TestTUIModelExpiredConfirmationDoesNotResume(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{})
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 	sessionID := uuid.MustParse(testSessionID)
 	model.sessionID = &sessionID
 	model.state = tuiConfirming
@@ -151,6 +151,49 @@ func TestTUIModelExpiredConfirmationDoesNotResume(t *testing.T) {
 	}
 	if output := commandOutput(cmd); !strings.Contains(output, "Confirmation expired; no action was taken.") {
 		t.Errorf("scrollback output = %q, want expiration message", output)
+	}
+}
+
+func TestTUIModelExpiredCancelDoesNotResume(t *testing.T) {
+	streamer := &fakeStreamer{}
+	model := NewTUIModel(context.Background(), streamer, TUIOptions{})
+	sessionID := uuid.MustParse(testSessionID)
+	model.sessionID = &sessionID
+	model.state = tuiConfirming
+	model.pending = &rootly.AiChatStreamConfirmationRequired{
+		CheckpointID: testCheckpointID,
+		Question:     "Approve?",
+		ExpiresAt:    "2000-01-01T00:00:00Z",
+	}
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	if model.state != tuiIdle || model.pending != nil || len(streamer.calls) != 0 {
+		t.Errorf("expired cancel state = %v, pending=%v, calls=%d; want idle without resume", model.state, model.pending, len(streamer.calls))
+	}
+	if output := commandOutput(cmd); !strings.Contains(output, "Confirmation expired; no action was taken.") {
+		t.Errorf("scrollback output = %q, want expiration message", output)
+	}
+}
+
+func TestTUIModelSeparatesResumedText(t *testing.T) {
+	streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{}}}
+	model := NewTUIModel(context.Background(), streamer, TUIOptions{})
+	sessionID := uuid.MustParse(testSessionID)
+	model.sessionID = &sessionID
+	model.state = tuiConfirming
+	model.pending = &rootly.AiChatStreamConfirmationRequired{
+		CheckpointID: testCheckpointID,
+		ExpiresAt:    "2099-01-01T00:00:00Z",
+	}
+	model.answer.WriteString("A")
+
+	_ = model.handleConfirmationDecision(rootly.StreamAiChatParamsDecisionConfirm)
+	model.handleEvent(Event{Type: rootly.AiChatStreamEventText, Text: &rootly.AiChatStreamText{Content: "B"}})
+	if got := model.answer.String(); got != "A\n\nB" {
+		t.Errorf("answer = %q, want resumed text separated by a blank line", got)
+	}
+	if model.cancel != nil {
+		model.cancel()
 	}
 }
 
@@ -183,7 +226,7 @@ func TestTUIModelStreamErrorsPrintPartialAnswer(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			model := NewTUIModel(context.Background(), &fakeStreamer{})
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 			model.state = tuiStreaming
 			model.doneStatus = test.doneStatus
 			model.answer.WriteString("partial answer")
@@ -200,6 +243,33 @@ func TestTUIModelStreamErrorsPrintPartialAnswer(t *testing.T) {
 	}
 }
 
+func TestTUIModelNoColorErrorHasNoANSI(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.state = tuiStreaming
+	model.answer.WriteString("# partial answer")
+
+	_, cmd := model.Update(streamMessage{done: true, err: errors.New("stream failed")})
+	output := commandOutput(cmd)
+	if strings.Contains(output, "\x1b[") {
+		t.Errorf("scrollback output contains ANSI escape sequence: %q", output)
+	}
+	if !strings.Contains(output, "# partial answer") || !strings.Contains(output, "stream failed") {
+		t.Errorf("scrollback output = %q, want raw Markdown and error", output)
+	}
+}
+
+func TestTUIModelCachesMarkdownRenderingAcrossViews(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.state = tuiStreaming
+	model.answer.WriteString("A streamed answer")
+
+	model.View()
+	model.View()
+	if model.renderCount != 1 {
+		t.Errorf("render count = %d, want one render for unchanged answer", model.renderCount)
+	}
+}
+
 func TestTUIModelResumeStatuses(t *testing.T) {
 	tests := []struct {
 		status      string
@@ -213,7 +283,7 @@ func TestTUIModelResumeStatuses(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.status, func(t *testing.T) {
-			model := NewTUIModel(context.Background(), &fakeStreamer{})
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 			model.state = tuiStreaming
 			model.doneStatus = test.status
 			model.answer.WriteString("reply")
@@ -234,7 +304,7 @@ func TestTUIModelResumeStatuses(t *testing.T) {
 }
 
 func TestTUIModelNewCommandClearsSession(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{})
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 	sessionID := uuid.MustParse(testSessionID)
 	model.sessionID = &sessionID
 	model.composer.SetValue("/new")
@@ -247,7 +317,7 @@ func TestTUIModelNewCommandClearsSession(t *testing.T) {
 
 func TestTUIModelModifiedEnterInsertsNewline(t *testing.T) {
 	for _, modifier := range []tea.KeyMod{tea.ModShift, tea.ModAlt} {
-		model := NewTUIModel(context.Background(), &fakeStreamer{})
+		model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 		model.composer.SetValue("question")
 
 		_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: modifier})
@@ -264,5 +334,5 @@ func commandOutput(cmd tea.Cmd) string {
 	if cmd == nil {
 		return ""
 	}
-	return fmt.Sprintf("%#v", cmd())
+	return fmt.Sprint(cmd())
 }

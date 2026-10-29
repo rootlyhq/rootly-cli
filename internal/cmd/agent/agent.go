@@ -44,7 +44,7 @@ var AgentCmd = &cobra.Command{
 			})
 		}
 
-		model := aiagent.NewTUIModel(cmd.Context(), client)
+		model := aiagent.NewTUIModel(cmd.Context(), client, aiagent.TUIOptions{NoColor: viper.GetBool("no-color")})
 		program := tea.NewProgram(model,
 			tea.WithInput(stdin),
 			tea.WithOutput(cmd.OutOrStdout()),
