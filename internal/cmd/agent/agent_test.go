@@ -6,27 +6,33 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
+	aiagent "github.com/rootlyhq/rootly-cli/internal/agent"
 	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/config"
 )
 
 func TestPreflightAIFeatureFlag(t *testing.T) {
 	tests := []struct {
-		name      string
-		status    int
-		flags     map[string]bool
-		wantError string
-		wantUser  bool
+		name               string
+		status             int
+		flags              map[string]bool
+		wantError          string
+		wantUser           bool
+		wantAIChatDisabled bool
 	}{
-		{name: "disabled", status: http.StatusOK, flags: map[string]bool{"ai-chat": false}, wantError: "Rootly AI chat isn't enabled for your organization. Contact your Rootly account team or Rootly support to turn it on."},
+		{name: "disabled", status: http.StatusOK, flags: map[string]bool{"ai-chat": false}, wantError: "Rootly AI chat isn't enabled for your organization. Contact your Rootly account team or Rootly support to turn it on.", wantAIChatDisabled: true},
 		{name: "enabled", status: http.StatusOK, flags: map[string]bool{"ai-chat": true}, wantUser: true},
 		{name: "flag absent", status: http.StatusOK, flags: map[string]bool{"ai-native-home": true}, wantUser: true},
 		{name: "unauthorized", status: http.StatusUnauthorized, wantError: "not authenticated: run `rootly login` or set ROOTLY_API_KEY"},
 		{name: "other failure proceeds", status: http.StatusInternalServerError},
+		{name: "disabled response", status: http.StatusForbidden, wantError: "Rootly AI chat isn't enabled for your organization. Contact your Rootly account team or Rootly support to turn it on.", wantAIChatDisabled: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -46,6 +52,8 @@ func TestPreflightAIFeatureFlag(t *testing.T) {
 					})
 				case http.StatusUnauthorized:
 					_, _ = writer.Write([]byte(`{"errors":[{"title":"Unauthorized"}]}`))
+				case http.StatusForbidden:
+					_, _ = writer.Write([]byte(`{"errors":[{"title":"AI chat is not enabled for this team"}]}`))
 				}
 			}))
 			defer server.Close()
@@ -63,6 +71,9 @@ func TestPreflightAIFeatureFlag(t *testing.T) {
 				if err == nil || err.Error() != test.wantError {
 					t.Fatalf("preflightAI() error = %v, want %q", err, test.wantError)
 				}
+				if got := aiagent.IsAIChatDisabled(err); got != test.wantAIChatDisabled {
+					t.Errorf("IsAIChatDisabled(error) = %v, want %v", got, test.wantAIChatDisabled)
+				}
 				return
 			}
 			if err != nil {
@@ -72,6 +83,56 @@ func TestPreflightAIFeatureFlag(t *testing.T) {
 				t.Errorf("current user returned = %v, want %v", currentUser != nil, test.wantUser)
 			}
 		})
+	}
+}
+
+func TestAgentPreflightRunsBeforeIncidentLookup(t *testing.T) {
+	var incidentLookups atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/users/me" {
+			writer.Header().Set("Content-Type", "application/vnd.api+json")
+			_, _ = writer.Write([]byte(`{"data":{"id":"user-1","type":"users","attributes":{"feature_flags":{"ai-chat":false}}}}`))
+			return
+		}
+		if strings.Contains(request.URL.Path, "/incidents") {
+			incidentLookups.Add(1)
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+
+	oldAPIKey, oldAPIHost, oldDebug := viper.GetString("api_key"), viper.GetString("api_host"), viper.GetBool("debug")
+	viper.Set("api_key", "test-key")
+	viper.Set("api_host", server.URL)
+	viper.Set("debug", false)
+	t.Cleanup(func() {
+		viper.Set("api_key", oldAPIKey)
+		viper.Set("api_host", oldAPIHost)
+		viper.Set("debug", oldDebug)
+	})
+
+	cmd := &cobra.Command{}
+	cmd.Flags().StringP("print", "p", "", "")
+	cmd.Flags().StringP("resume", "r", "", "")
+	cmd.Flags().BoolP("continue", "c", false, "")
+	cmd.Flags().String("incident", "", "")
+	cmd.Flags().String("alert", "", "")
+	cmd.Flags().String("output-format", "text", "")
+	cmd.SetContext(context.Background())
+	cmd.SetIn(bytes.NewReader(nil))
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Flags().Set("incident", "INC-8"); err != nil {
+		t.Fatalf("set incident flag: %v", err)
+	}
+
+	err := AgentCmd.RunE(cmd, nil)
+	wantError := "Rootly AI chat isn't enabled for your organization. Contact your Rootly account team or Rootly support to turn it on."
+	if err == nil || err.Error() != wantError {
+		t.Fatalf("AgentCmd.RunE() error = %v, want %q", err, wantError)
+	}
+	if got := incidentLookups.Load(); got != 0 {
+		t.Errorf("incident lookup requests = %d, want none before AI preflight", got)
 	}
 }
 

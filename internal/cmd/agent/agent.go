@@ -56,6 +56,10 @@ var AgentCmd = &cobra.Command{
 			}
 			sessionID = &id
 		}
+		currentUser, err := preflightAI(cmd, client)
+		if err != nil {
+			return err
+		}
 		if continueSession {
 			id, title, err := latestSession(cmd.Context(), client)
 			if err != nil {
@@ -77,10 +81,6 @@ var AgentCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("alert not found: %w", err)
 			}
-		}
-		currentUser, err := preflightAI(cmd, client)
-		if err != nil {
-			return err
 		}
 		if printMode {
 			return aiagent.RunPrint(cmd.Context(), client, aiagent.PrintOptions{
@@ -173,7 +173,7 @@ func preflightAI(cmd *cobra.Command, client *api.Client) (*rootly.CurrentUserRes
 	if response.StatusCode() != 200 || response.ApplicationVndAPIJSON200 == nil {
 		if response.StatusCode() == 403 {
 			mapped := aiagent.StatusResponseError(response.StatusCode(), response.Body)
-			if mapped.Error() == "Rootly AI chat isn't enabled for your organization. Contact your Rootly account team or Rootly support to turn it on." {
+			if aiagent.IsAIChatDisabled(mapped) {
 				return nil, mapped
 			}
 		}

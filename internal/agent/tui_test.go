@@ -410,6 +410,23 @@ func TestTUISessionCommandsRequireSessionAndMapErrors(t *testing.T) {
 	}
 }
 
+func TestTUIBindingCommandsShowUsageWithoutID(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	for _, test := range []struct {
+		command string
+		want    string
+	}{
+		{command: "/incident", want: "Usage: /incident <id>"},
+		{command: "/alert", want: "Usage: /alert <id>"},
+	} {
+		t.Run(test.command, func(t *testing.T) {
+			if output := commandOutput(model.runSlashCommand(test.command)); !strings.Contains(output, test.want) {
+				t.Errorf("output = %q, want %q", output, test.want)
+			}
+		})
+	}
+}
+
 func TestTUIExportWritesTranscriptWithoutOverwriting(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "chat.md")

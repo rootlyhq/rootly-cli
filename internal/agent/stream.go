@@ -35,6 +35,11 @@ func AIChatDisabledError() error {
 	return aiChatDisabledError{}
 }
 
+func IsAIChatDisabled(err error) bool {
+	var disabled aiChatDisabledError
+	return errors.As(err, &disabled)
+}
+
 type aiChatDisabledError struct{}
 
 func (aiChatDisabledError) Error() string {

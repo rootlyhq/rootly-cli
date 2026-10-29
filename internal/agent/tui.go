@@ -700,7 +700,7 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 		return m.exportTranscript(strings.Join(parts[1:], " "))
 	case "/incident", "/alert":
 		if len(parts) < 2 {
-			return tea.Println("resource ID is required")
+			return tea.Println(fmt.Sprintf("Usage: %s <id>", parts[0]))
 		}
 		return m.resolveBinding(strings.TrimPrefix(parts[0], "/"), parts[1])
 	default:
