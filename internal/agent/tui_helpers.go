@@ -366,7 +366,15 @@ func (m *TUIModel) printHistory(title string, messages []rootly.AiChatSessionMes
 	if len(lines) == 0 {
 		return nil
 	}
-	return tea.Println(strings.Join(lines, "\n\n"))
+	commands := make([]tea.Cmd, 0, len(lines)+1)
+	for index, line := range lines {
+		if index < len(lines)-1 {
+			line += "\n"
+		}
+		commands = append(commands, tea.Println(line))
+	}
+	commands = append(commands, tea.RequestWindowSize)
+	return tea.Sequence(commands...)
 }
 
 func (m *TUIModel) openSessionPicker() tea.Cmd {

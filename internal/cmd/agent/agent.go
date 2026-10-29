@@ -123,7 +123,7 @@ var AgentCmd = &cobra.Command{
 func init() {
 	AgentCmd.Flags().StringP("print", "p", "", "Send a prompt and print the response")
 	AgentCmd.Flags().StringP("resume", "r", "", "Resume an AI chat session by UUID")
-	AgentCmd.Flags().BoolP("continue", "c", false, "Continue the most recent AI chat session")
+	AgentCmd.Flags().BoolP("continue", "c", false, "Continue the most recent AI chat session (incident/alert chats: use --resume <id>)")
 	AgentCmd.Flags().String("incident", "", "Bind the chat to an incident")
 	AgentCmd.Flags().String("alert", "", "Bind the chat to an alert")
 	AgentCmd.Flags().String("output-format", "text", "Print output format: text, json, or stream-json")
@@ -144,7 +144,7 @@ func latestSession(ctx context.Context, client *api.Client) (uuid.UUID, string, 
 	}
 	sessions := response.ApplicationVndAPIJSON200.Sessions
 	if len(sessions) == 0 {
-		return uuid.Nil, "", errors.New("no previous AI chat session to continue")
+		return uuid.Nil, "", errors.New("no previous AI chat session to continue (incident/alert-bound chats are resumed with --resume <id>)")
 	}
 	id, err := uuid.Parse(sessions[0].ID.String())
 	if err != nil {

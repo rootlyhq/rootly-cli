@@ -8,30 +8,80 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-func TestGlamourPreservesOSC8LinksAndWrapsVisibleText(t *testing.T) {
-	const target = "https://rootly.com/docs/a-long-path-that-should-not-be-visible"
-	linkStart := ansi.SetHyperlink(target)
-	linkEnd := ansi.ResetHyperlink()
-	renderer, err := glamour.NewTermRenderer(glamour.WithWordWrap(20))
+func TestGlamourRendersLinksWithPrivateUseMarkers(t *testing.T) {
+	const target = "http://localhost:3000/account/incidents/8-iam-credentials-has-been-leaked?tab=follow_ups&ai_slack_unfurl_resource=action_item:e052c503-dc3b-447e-8a5e-e4dd4d2a266a"
+	markdown := "Created: [Rotate the keys](" + target + ") on INC-8.\n\n- [Review the action](https://rootly.com/docs/actions)"
+	renderer, err := glamour.NewTermRenderer(glamour.WithEnvironmentConfig(), glamour.WithWordWrap(80))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	rendered, err := renderer.Render(linkStart + "Read the guide" + linkEnd + " now")
+	source, urls := preprocessMarkdownLinksWithURLs(markdown)
+	rendered, err := renderer.Render(source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rendered, linkStart) || !strings.Contains(rendered, linkEnd) {
-		t.Fatalf("rendered output did not preserve OSC-8 controls: %q", rendered)
+	output := restoreMarkdownLinks(rendered, urls)
+	visible := ansi.Strip(output)
+	if !strings.Contains(visible, "Rotate the keys") {
+		t.Errorf("visible output = %q, want link label", visible)
 	}
-	visible := strings.TrimSpace(ansi.Strip(rendered))
-	if strings.Contains(visible, target) || !strings.Contains(visible, "Read the guide now") {
-		t.Errorf("visible output = %q, want link text without its target", visible)
-	}
-	for _, line := range strings.Split(visible, "\n") {
-		if width := ansi.StringWidth(line); width > 20 {
-			t.Errorf("visible line width = %d, want at most 20: %q", width, line)
+	for _, unwanted := range []string{"follow_ups", "ai_slack_unfurl", "\uE000", "\uE001"} {
+		if strings.Contains(visible, unwanted) {
+			t.Errorf("visible output = %q, want no %q", visible, unwanted)
 		}
+	}
+	if got := strings.Count(output, ansi.SetHyperlink(target)); got != 1 {
+		t.Errorf("hyperlink start count = %d, want exactly one", got)
+	}
+}
+
+func TestGlamourMapsMultipleLinksToURLsInOrder(t *testing.T) {
+	const firstURL = "https://rootly.com/incidents/first"
+	const secondURL = "https://rootly.com/incidents/second"
+	renderer, err := glamour.NewTermRenderer(glamour.WithEnvironmentConfig(), glamour.WithWordWrap(80))
+	if err != nil {
+		t.Fatal(err)
+	}
+	markdown := "[First](https://rootly.com/incidents/first) and [Second](https://rootly.com/incidents/second)."
+	source, urls := preprocessMarkdownLinksWithURLs(markdown)
+	rendered, err := renderer.Render(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := restoreMarkdownLinks(rendered, urls)
+	firstIndex := strings.Index(output, ansi.SetHyperlink(firstURL))
+	secondIndex := strings.Index(output, ansi.SetHyperlink(secondURL))
+	if firstIndex < 0 || secondIndex <= firstIndex ||
+		strings.Count(output, ansi.SetHyperlink(firstURL)) != 1 ||
+		strings.Count(output, ansi.SetHyperlink(secondURL)) != 1 {
+		t.Errorf("hyperlinks are missing or reordered: %q", output)
+	}
+}
+
+func TestGlamourPreservesPrivateUseLinkMarkers(t *testing.T) {
+	const (
+		start = "\uE000"
+		end   = "\uE001"
+	)
+	source := "Rotate " + start + "the keys" + end + " today.\n\n- " + start + "review access" + end
+	renderer, err := glamour.NewTermRenderer(glamour.WithEnvironmentConfig(), glamour.WithWordWrap(80))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := renderer.Render(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(rendered, start) != 2 || strings.Count(rendered, end) != 2 {
+		t.Fatalf("rendered output = %q, want both pairs of private-use markers", rendered)
+	}
+	firstStart := strings.Index(rendered, start)
+	firstEnd := strings.Index(rendered, end)
+	secondStart := strings.LastIndex(rendered, start)
+	secondEnd := strings.LastIndex(rendered, end)
+	if firstStart >= firstEnd || firstEnd >= secondStart || secondStart >= secondEnd {
+		t.Errorf("rendered marker order is incorrect: %q", rendered)
 	}
 }
 
@@ -46,12 +96,11 @@ func TestPreprocessMarkdownLinksUsesASTAndHonorsNoColor(t *testing.T) {
 	markdown := "[Read the docs](" + url + ") " + code + "\n\n```md\n" + block + "\n```\n\n" + autolink + " " + bare
 
 	processed := terminalMarkdown(markdown, false)
-	if !strings.Contains(processed, ansi.SetHyperlink(url)) || !strings.Contains(processed, ansi.ResetHyperlink()) {
-		t.Errorf("processed Markdown = %q, want OSC-8 around the link text", processed)
+	if !strings.Contains(processed, "\uE000Read the docs\uE001") {
+		t.Errorf("processed Markdown = %q, want private-use markers around the link text", processed)
 	}
-	visible := ansi.Strip(processed)
-	if strings.Contains(visible, "]("+url+")") {
-		t.Errorf("processed Markdown still contains the rendered destination: %q", visible)
+	if strings.Contains(processed, ansi.SetHyperlink(url)) || strings.Contains(processed, ansi.ResetHyperlink()) {
+		t.Errorf("processed Markdown = %q, must not contain OSC-8 controls before rendering", processed)
 	}
 	for _, unchanged := range []string{code, block, autolink, bare} {
 		if !strings.Contains(processed, unchanged) {

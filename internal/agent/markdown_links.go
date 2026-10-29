@@ -12,9 +12,10 @@ import (
 )
 
 type markdownLinkReplacement struct {
-	start int
-	end   int
-	text  string
+	start       int
+	end         int
+	text        string
+	destination string
 }
 
 func terminalMarkdown(markdown string, noColor bool) string {
@@ -25,6 +26,11 @@ func terminalMarkdown(markdown string, noColor bool) string {
 }
 
 func preprocessMarkdownLinks(markdown string) string {
+	processed, _ := preprocessMarkdownLinksWithURLs(markdown)
+	return processed
+}
+
+func preprocessMarkdownLinksWithURLs(markdown string) (processed string, urls []string) {
 	source := []byte(markdown)
 	document := goldmark.New().Parser().Parse(goldmarktext.NewReader(source))
 	replacements := make([]markdownLinkReplacement, 0)
@@ -50,21 +56,65 @@ func preprocessMarkdownLinks(markdown string) string {
 		if !ok {
 			return ast.WalkContinue, nil
 		}
-		replacement := ansi.SetHyperlink(destination) + string(source[start+1:closingBracket]) + ansi.ResetHyperlink()
-		replacements = append(replacements, markdownLinkReplacement{start: start, end: end, text: replacement})
+		replacement := "\uE000" + string(source[start+1:closingBracket]) + "\uE001"
+		replacements = append(replacements, markdownLinkReplacement{
+			start:       start,
+			end:         end,
+			text:        replacement,
+			destination: destination,
+		})
 		return ast.WalkContinue, nil
 	})
 
 	if len(replacements) == 0 {
-		return markdown
+		return markdown, nil
 	}
 	sort.Slice(replacements, func(i, j int) bool {
-		return replacements[i].start > replacements[j].start
+		return replacements[i].start < replacements[j].start
 	})
-	for _, replacement := range replacements {
+	urls = make([]string, len(replacements))
+	for index, replacement := range replacements {
+		urls[index] = replacement.destination
+	}
+	for index := len(replacements) - 1; index >= 0; index-- {
+		replacement := replacements[index]
 		source = append(source[:replacement.start], append([]byte(replacement.text), source[replacement.end:]...)...)
 	}
-	return string(source)
+	return string(source), urls
+}
+
+func restoreMarkdownLinks(rendered string, urls []string) string {
+	const (
+		startMarker = "\uE000"
+		endMarker   = "\uE001"
+	)
+	var output strings.Builder
+	urlIndex := 0
+	for rendered != "" {
+		startIndex := strings.Index(rendered, startMarker)
+		endIndex := strings.Index(rendered, endMarker)
+		if startIndex < 0 && endIndex < 0 {
+			break
+		}
+		markerIndex := startIndex
+		marker := startMarker
+		if markerIndex < 0 || (endIndex >= 0 && endIndex < markerIndex) {
+			markerIndex = endIndex
+			marker = endMarker
+		}
+		output.WriteString(rendered[:markerIndex])
+		if marker == startMarker {
+			if urlIndex < len(urls) {
+				output.WriteString(ansi.SetHyperlink(urls[urlIndex]))
+			}
+			urlIndex++
+		} else {
+			output.WriteString(ansi.ResetHyperlink())
+		}
+		rendered = rendered[markerIndex+len(marker):]
+	}
+	output.WriteString(rendered)
+	return output.String()
 }
 
 func markdownLinkLabel(link ast.Node, source []byte) string {

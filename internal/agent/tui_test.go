@@ -337,6 +337,32 @@ func TestTUIHistoryRecallAndFooter(t *testing.T) {
 	}
 }
 
+func TestTUIHistoryLoadedKeepsComposerAndSchedulesRedraw(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.historyRequest = 1
+
+	updated, cmd := model.Update(historyLoadedMsg{
+		request: 1,
+		title:   "Resumed session",
+		messages: []rootly.AiChatSessionMessage{
+			{Role: rootly.AiChatSessionMessageRole("user"), Content: "older prompt"},
+			{Role: rootly.AiChatSessionMessageRole("assistant"), Content: "long answer"},
+		},
+	})
+	if updated.(*TUIModel).state != tuiIdle {
+		t.Fatalf("state = %v, want idle after history loads", updated.(*TUIModel).state)
+	}
+	if cmd == nil {
+		t.Fatal("history load did not schedule print and redraw commands")
+	}
+	if got := fmt.Sprintf("%T", cmd()); !strings.Contains(got, "sequenceMsg") {
+		t.Errorf("history command message type = %q, want sequence of prints and redraw", got)
+	}
+	if view := ansi.Strip(model.View().Content); !strings.Contains(view, "❯ Ask Rootly...") {
+		t.Errorf("view after history load = %q, want composer visible", view)
+	}
+}
+
 func TestLoadSessionHistoryFetchesLastPage(t *testing.T) {
 	firstMessage := rootly.AiChatSessionMessage{
 		ID:   uuid.MustParse(testSessionID),
@@ -378,12 +404,31 @@ func TestTUITaskActivityIsTerminalAndDeduplicated(t *testing.T) {
 	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-1", Title: "Create incident", Status: "complete"}})
 	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-1", Title: "Create incident", Status: "complete"}})
 	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-2", Title: "Notify owner", Status: "cancelled"}})
-	if len(model.activityCommands) != 2 {
+	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-3", Title: "Searched incidents (1.2s)", Status: "complete"}})
+	if len(model.activityCommands) != 3 {
 		t.Fatalf("activity commands = %d, want one per terminal task", len(model.activityCommands))
 	}
 	first, second := commandOutput(model.activityCommands[0]), commandOutput(model.activityCommands[1])
 	if !strings.Contains(first, "✓ Create incident") || !strings.Contains(second, "✗ Notify owner") {
 		t.Errorf("task lines = %q, %q; want success and failure glyphs", first, second)
+	}
+	if got := commandOutput(model.activityCommands[2]); !strings.Contains(got, "✓ Searched incidents (1.2s)") || strings.Contains(got, "(1.2s) (") {
+		t.Errorf("duration task line = %q, want title duration only", got)
+	}
+}
+
+func TestTUIStatusActivityIsPersisted(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.handleEvent(activityStatusEvent("Get incidents..."))
+	if len(model.activityCommands) != 0 {
+		t.Fatalf("activity commands after initial status = %d, want none", len(model.activityCommands))
+	}
+	model.handleEvent(activityStatusEvent("Composing response..."))
+	if len(model.activityCommands) != 1 {
+		t.Fatalf("activity commands after next status = %d, want one", len(model.activityCommands))
+	}
+	if got := commandOutput(model.activityCommands[0]); !strings.Contains(got, "✓ Get incidents (") {
+		t.Errorf("activity line = %q, want successful Get incidents", got)
 	}
 }
 

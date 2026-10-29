@@ -170,7 +170,7 @@ func TestLatestSessionErrors(t *testing.T) {
 		body      string
 		wantError string
 	}{
-		{name: "no sessions", status: http.StatusOK, body: `{"meta":{"pagination":{"has_more":false,"next_before":null}},"sessions":[]}`, wantError: "no previous AI chat session to continue"},
+		{name: "no sessions", status: http.StatusOK, body: `{"meta":{"pagination":{"has_more":false,"next_before":null}},"sessions":[]}`, wantError: "no previous AI chat session to continue (incident/alert-bound chats are resumed with --resume <id>)"},
 		{name: "disabled", status: http.StatusForbidden, body: `{"errors":[{"title":"AI chat is not enabled for this team"}]}`, wantError: "Rootly AI chat isn't enabled for your organization. Contact your Rootly account team or Rootly support to turn it on."},
 	}
 	for _, test := range tests {
@@ -190,5 +190,16 @@ func TestLatestSessionErrors(t *testing.T) {
 				t.Errorf("latestSession() error = %v, want %q", err, test.wantError)
 			}
 		})
+	}
+}
+
+func TestContinueFlagHelp(t *testing.T) {
+	flag := AgentCmd.Flags().Lookup("continue")
+	if flag == nil {
+		t.Fatal("continue flag is not registered")
+	}
+	want := "Continue the most recent AI chat session (incident/alert chats: use --resume <id>)"
+	if flag.Usage != want {
+		t.Errorf("continue help = %q, want %q", flag.Usage, want)
 	}
 }

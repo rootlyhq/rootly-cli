@@ -136,8 +136,7 @@ type TUIModel struct {
 	turnStartedAt       time.Time
 	lastAnswer          string
 	transcript          []transcriptTurn
-	taskStarted         map[string]time.Time
-	taskFinished        map[string]bool
+	activities          activityTracker
 	activityCommands    []tea.Cmd
 	statusRequest       int
 	sessionPicker       list.Model
@@ -195,8 +194,6 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 		incident:     options.Incident,
 		alert:        options.Alert,
 		historyIndex: -1,
-		taskStarted:  make(map[string]time.Time),
-		taskFinished: make(map[string]bool),
 	}
 }
 
@@ -325,6 +322,9 @@ func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
 }
 
 func (m *TUIModel) handleEvent(event Event) {
+	for _, line := range m.activities.Handle(event) {
+		m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, line)))
+	}
 	switch event.Type {
 	case rootly.AiChatStreamEventSessionID:
 		if event.SessionID != nil {
@@ -349,21 +349,6 @@ func (m *TUIModel) handleEvent(event Event) {
 	case rootly.AiChatStreamEventTaskUpdate:
 		if event.TaskUpdate != nil {
 			m.status = fmt.Sprintf("%s (%s)", event.TaskUpdate.Title, event.TaskUpdate.Status)
-			task := event.TaskUpdate
-			if _, ok := m.taskStarted[task.ID]; !ok {
-				m.taskStarted[task.ID] = time.Now()
-			}
-			status := strings.ToLower(task.Status)
-			if status != "in_progress" && status != "pending" && status != "running" && !m.taskFinished[task.ID] {
-				glyph := "✓"
-				if strings.Contains(status, "fail") || strings.Contains(status, "error") || strings.Contains(status, "cancel") {
-					glyph = "✗"
-				}
-				elapsed := time.Since(m.taskStarted[task.ID]).Seconds()
-				line := fmt.Sprintf("%s %s (%.1fs)", glyph, task.Title, elapsed)
-				m.taskFinished[task.ID] = true
-				m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, line)))
-			}
 		}
 	case rootly.AiChatStreamEventSkillLoaded:
 		if event.SkillLoaded != nil {
@@ -390,18 +375,33 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	m.stream = nil
 	m.state = tuiIdle
 	if err != nil {
+		for _, line := range m.activities.Finish(false) {
+			m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, line)))
+		}
+	} else if m.doneStatus == "confirmation_required" {
+		m.activities.pending = nil
+	} else if m.doneStatus != "" {
+		for _, line := range m.activities.Finish(m.doneStatus == "complete") {
+			m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, line)))
+		}
+	}
+	commands := append([]tea.Cmd(nil), m.activityCommands...)
+	m.activityCommands = nil
+	if err != nil {
 		m.status = ""
 		m.pending = nil
 		m.doneStatus = ""
 		cmd := m.scrollback(err.Error(), lipgloss.NewStyle().Foreground(lipgloss.Color("1")))
-		return m, cmd
+		m.activities.Reset()
+		return m, sequenceTUICommands(append(commands, cmd)...)
 	}
 	if m.doneStatus == "error" {
 		m.status = ""
 		m.pending = nil
 		m.doneStatus = ""
 		cmd := m.scrollback("AI chat turn failed", lipgloss.NewStyle().Foreground(lipgloss.Color("1")))
-		return m, cmd
+		m.activities.Reset()
+		return m, sequenceTUICommands(append(commands, cmd)...)
 	}
 	if m.doneStatus == "confirmation_required" && m.pending != nil {
 		if expired(m.pending) {
@@ -409,34 +409,35 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 			m.status = ""
 			m.doneStatus = ""
 			cmd := m.scrollback("Confirmation expired; no action was taken.", lipgloss.NewStyle())
-			return m, cmd
+			m.activities.Reset()
+			return m, sequenceTUICommands(append(commands, cmd)...)
 		}
 		m.state = tuiConfirming
-		return m, nil
+		return m, sequenceTUICommands(commands...)
 	}
 	if m.doneStatus == "cancelled" {
 		m.status = ""
 		m.pending = nil
 		m.doneStatus = ""
 		cmd := m.scrollback("Action cancelled.", lipgloss.NewStyle())
-		return m, cmd
+		m.activities.Reset()
+		return m, sequenceTUICommands(append(commands, cmd)...)
 	}
 	if m.doneStatus == "expired" {
 		m.status = ""
 		m.pending = nil
 		m.doneStatus = ""
 		cmd := m.scrollback("Confirmation expired; no action was taken.", lipgloss.NewStyle())
-		return m, cmd
+		m.activities.Reset()
+		return m, sequenceTUICommands(append(commands, cmd)...)
 	}
 
 	rawAnswer := m.answer.String()
 	answer := strings.TrimSpace(rawAnswer)
-	cmds := append([]tea.Cmd(nil), m.activityCommands...)
-	m.activityCommands = nil
 	if answer != "" {
 		m.lastAnswer = rawAnswer
 		m.transcript = append(m.transcript, transcriptTurn{user: m.currentPrompt, assistant: rawAnswer})
-		cmds = append(cmds, tea.Println("\n"+m.renderAssistantAnswer(rawAnswer)+"\n"+m.turnFooter()))
+		commands = append(commands, tea.Println("\n"+m.renderAssistantAnswer(rawAnswer)+"\n"+m.turnFooter()))
 	}
 	if m.doneStatus != "" && m.doneStatus != "complete" && m.doneStatus != "confirmed" {
 		m.status = "turn halted: " + m.doneStatus
@@ -447,9 +448,15 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	m.doneStatus = ""
 	m.turnStartedAt = time.Time{}
 	m.currentPrompt = ""
-	m.taskStarted = make(map[string]time.Time)
-	m.taskFinished = make(map[string]bool)
-	return m, tea.Batch(cmds...)
+	m.activities.Reset()
+	return m, sequenceTUICommands(commands...)
+}
+
+func sequenceTUICommands(commands ...tea.Cmd) tea.Cmd {
+	if len(commands) == 0 {
+		return nil
+	}
+	return tea.Sequence(commands...)
 }
 
 func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
@@ -618,8 +625,7 @@ func (m *TUIModel) submit() tea.Cmd {
 	m.historyIndex = -1
 	m.actionRequest++
 	m.turnStartedAt = time.Now()
-	m.taskStarted = make(map[string]time.Time)
-	m.taskFinished = make(map[string]bool)
+	m.activities.Reset()
 	params := &rootly.StreamAiChatParams{Message: &message, SessionID: m.sessionID}
 	if m.incident != nil && !m.incidentUsed {
 		if id, err := uuid.Parse(m.incident.ID); err == nil {
@@ -848,11 +854,12 @@ func (m *TUIModel) renderMarkdown(markdown string, width int) string {
 		m.renderedSource = ""
 	}
 	if m.renderedSource != markdown {
-		rendered, err := m.renderer.Render(terminalMarkdown(markdown, false))
+		source, urls := preprocessMarkdownLinksWithURLs(markdown)
+		rendered, err := m.renderer.Render(source)
 		if err != nil {
 			return markdown
 		}
-		m.rendered = strings.TrimSpace(rendered)
+		m.rendered = strings.TrimSpace(restoreMarkdownLinks(rendered, urls))
 		m.renderedSource = markdown
 		m.renderCount++
 	}

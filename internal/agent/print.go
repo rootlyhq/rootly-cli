@@ -42,12 +42,10 @@ func RunPrint(ctx context.Context, streamer Streamer, options PrintOptions) erro
 	}
 
 	run := printRun{
-		streamer:     streamer,
-		options:      options,
-		params:       initialPrintParams(prompt, options),
-		sessionID:    options.SessionID,
-		taskStarted:  make(map[string]time.Time),
-		taskFinished: make(map[string]bool),
+		streamer:  streamer,
+		options:   options,
+		params:    initialPrintParams(prompt, options),
+		sessionID: options.SessionID,
 	}
 	return run.run(ctx)
 }
@@ -92,8 +90,7 @@ type printRun struct {
 	params       *rootly.StreamAiChatParams
 	sessionID    *uuid.UUID
 	answer       strings.Builder
-	taskStarted  map[string]time.Time
-	taskFinished map[string]bool
+	activities   activityTracker
 	confirmation *rootly.AiChatStreamConfirmationRequired
 	doneStatus   string
 	streamError  error
@@ -117,6 +114,7 @@ func (r *printRun) runTurn(ctx context.Context) (bool, error) {
 		return r.handleEvent(event, &resumeTextSeparator)
 	})
 	if err != nil {
+		r.writeActivityLines(r.activities.Finish(false))
 		return false, finishPrintError(r.options, r.answer.String(), err)
 	}
 	if r.streamError != nil {
@@ -133,6 +131,7 @@ func (r *printRun) runTurn(ctx context.Context) (bool, error) {
 }
 
 func (r *printRun) handleEvent(event Event, resumeTextSeparator *bool) bool {
+	r.writeActivityLines(r.activities.Handle(event))
 	if r.options.OutputFormat == "stream-json" {
 		writeStreamEvent(r.options.Stdout, event)
 	}
@@ -161,7 +160,7 @@ func (r *printRun) handleEvent(event Event, resumeTextSeparator *bool) bool {
 		}
 	case rootly.AiChatStreamEventTaskUpdate:
 		if event.TaskUpdate != nil {
-			r.writeTaskUpdate(event.TaskUpdate)
+			writeProgress(r.options, fmt.Sprintf("task: %s (%s)", event.TaskUpdate.Title, event.TaskUpdate.Status))
 		}
 	case rootly.AiChatStreamEventSkillLoaded:
 		if event.SkillLoaded != nil {
@@ -182,22 +181,10 @@ func (r *printRun) handleEvent(event Event, resumeTextSeparator *bool) bool {
 	return true
 }
 
-func (r *printRun) writeTaskUpdate(task *rootly.AiChatStreamTaskUpdate) {
-	writeProgress(r.options, fmt.Sprintf("task: %s (%s)", task.Title, task.Status))
-	if _, exists := r.taskStarted[task.ID]; !exists {
-		r.taskStarted[task.ID] = time.Now()
+func (r *printRun) writeActivityLines(lines []string) {
+	for _, line := range lines {
+		writeProgress(r.options, faint(r.options.NoColor, line))
 	}
-	status := strings.ToLower(task.Status)
-	if status == "in_progress" || status == "pending" || status == "running" || r.taskFinished[task.ID] {
-		return
-	}
-	glyph := "✓"
-	if strings.Contains(status, "fail") || strings.Contains(status, "error") || strings.Contains(status, "cancel") {
-		glyph = "✗"
-	}
-	line := fmt.Sprintf("%s %s (%.1fs)", glyph, task.Title, time.Since(r.taskStarted[task.ID]).Seconds())
-	writeProgress(r.options, faint(r.options.NoColor, line))
-	r.taskFinished[task.ID] = true
 }
 
 func (r *printRun) resumeConfirmation(confirmation *rootly.AiChatStreamConfirmationRequired) (bool, error) {
@@ -373,11 +360,12 @@ func writeAnswer(options PrintOptions, answer string) error {
 		if err != nil {
 			return err
 		}
-		rendered, err := renderer.Render(terminalMarkdown(answer, false))
+		source, urls := preprocessMarkdownLinksWithURLs(answer)
+		rendered, err := renderer.Render(source)
 		if err != nil {
 			return err
 		}
-		answer = strings.TrimSpace(rendered)
+		answer = strings.TrimSpace(restoreMarkdownLinks(rendered, urls))
 	}
 	_, err := fmt.Fprintln(options.Stdout, answer)
 	return err
