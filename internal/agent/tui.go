@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ type streamMessage struct {
 	event Event
 	err   error
 	done  bool
+	turn  int
 }
 
 type TUIModel struct {
@@ -50,6 +52,7 @@ type TUIModel struct {
 	doneStatus    string
 	idleInterrupt bool
 	currentParams *rootly.StreamAiChatParams
+	turn          int
 }
 
 func NewTUIModel(ctx context.Context, streamer Streamer) *TUIModel {
@@ -101,6 +104,9 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
+	if message.turn != m.turn {
+		return m, nil
+	}
 	if m.state != tuiStreaming {
 		return m, nil
 	}
@@ -113,6 +119,9 @@ func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	m.handleEvent(message.event)
+	if message.event.Type == rootly.AiChatStreamEventError && message.event.Error != nil {
+		return m.finishTurn(errors.New(message.event.Error.Message))
+	}
 	cmd := m.waitForStream()
 	return m, cmd
 }
@@ -158,30 +167,50 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	m.stream = nil
 	m.state = tuiIdle
 	if err != nil {
-		m.status = err.Error()
-		return m, nil
+		m.status = ""
+		m.pending = nil
+		m.doneStatus = ""
+		cmd := m.scrollback(err.Error(), lipgloss.NewStyle().Foreground(lipgloss.Color("1")))
+		return m, cmd
 	}
 	if m.doneStatus == "error" {
-		if m.status == "" {
-			m.status = "AI chat turn failed"
-		}
-		return m, nil
+		m.status = ""
+		m.pending = nil
+		m.doneStatus = ""
+		cmd := m.scrollback("AI chat turn failed", lipgloss.NewStyle().Foreground(lipgloss.Color("1")))
+		return m, cmd
 	}
 	if m.doneStatus == "confirmation_required" && m.pending != nil {
 		if expired(m.pending) {
 			m.pending = nil
-			m.status = "confirmation expired; no action was taken"
-			return m, tea.Println(m.status)
+			m.status = ""
+			m.doneStatus = ""
+			cmd := m.scrollback("Confirmation expired; no action was taken.", lipgloss.NewStyle())
+			return m, cmd
 		}
 		m.state = tuiConfirming
 		return m, nil
+	}
+	if m.doneStatus == "cancelled" {
+		m.status = ""
+		m.pending = nil
+		m.doneStatus = ""
+		cmd := m.scrollback("Action cancelled.", lipgloss.NewStyle())
+		return m, cmd
+	}
+	if m.doneStatus == "expired" {
+		m.status = ""
+		m.pending = nil
+		m.doneStatus = ""
+		cmd := m.scrollback("Confirmation expired; no action was taken.", lipgloss.NewStyle())
+		return m, cmd
 	}
 
 	cmds := make([]tea.Cmd, 0, 1)
 	if answer := strings.TrimSpace(m.answer.String()); answer != "" {
 		cmds = append(cmds, tea.Printf("Assistant:\n%s", renderMarkdown(answer, m.width)))
 	}
-	if m.doneStatus != "" && m.doneStatus != "complete" {
+	if m.doneStatus != "" && m.doneStatus != "complete" && m.doneStatus != "confirmed" {
 		m.status = "turn halted: " + m.doneStatus
 	} else {
 		m.status = ""
@@ -191,17 +220,28 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
+	lines := make([]string, 0, 2)
+	if answer := strings.TrimSpace(m.answer.String()); answer != "" {
+		lines = append(lines, renderMarkdown(answer, m.width))
+	}
+	lines = append(lines, style.Render(message))
+	m.answer.Reset()
+	return tea.Println(strings.Join(lines, "\n"))
+}
+
 func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		if m.state == tuiStreaming {
+			cmd := m.scrollback("Cancelled.", lipgloss.NewStyle().Faint(true))
 			if m.cancel != nil {
 				m.cancel()
 			}
 			m.state = tuiIdle
 			m.cancel = nil
 			m.stream = nil
-			m.status = "cancelled"
-			return m, nil
+			m.status = ""
+			return m, cmd
 		}
 		if m.idleInterrupt {
 			return m, tea.Quit
@@ -219,6 +259,14 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.state == tuiConfirming {
 		switch strings.ToLower(msg.String()) {
 		case "y":
+			if expired(m.pending) {
+				m.pending = nil
+				m.state = tuiIdle
+				m.status = ""
+				m.doneStatus = ""
+				cmd := m.scrollback("Confirmation expired; no action was taken.", lipgloss.NewStyle())
+				return m, cmd
+			}
 			cmd := m.resume(rootly.StreamAiChatParamsDecisionConfirm)
 			return m, cmd
 		case "n", "esc":
@@ -293,6 +341,8 @@ func (m *TUIModel) startStream(params *rootly.StreamAiChatParams) tea.Cmd {
 }
 
 func (m *TUIModel) beginStream(params *rootly.StreamAiChatParams) tea.Cmd {
+	m.turn++
+	turn := m.turn
 	m.state = tuiStreaming
 	m.pending = nil
 	m.doneStatus = ""
@@ -304,16 +354,17 @@ func (m *TUIModel) beginStream(params *rootly.StreamAiChatParams) tea.Cmd {
 	stream := m.stream
 
 	go func() {
+		defer close(stream)
 		err := StreamTurn(ctx, m.streamer, params, func(event Event) bool {
 			select {
-			case stream <- streamMessage{event: event}:
+			case stream <- streamMessage{event: event, turn: turn}:
 				return true
 			case <-ctx.Done():
 				return false
 			}
 		})
 		select {
-		case stream <- streamMessage{err: err, done: true}:
+		case stream <- streamMessage{err: err, done: true, turn: turn}:
 		case <-ctx.Done():
 		}
 	}()
@@ -344,10 +395,11 @@ func (m *TUIModel) resume(decision rootly.StreamAiChatParamsDecision) tea.Cmd {
 
 func (m *TUIModel) waitForStream() tea.Cmd {
 	stream := m.stream
+	turn := m.turn
 	return func() tea.Msg {
 		message, ok := <-stream
 		if !ok {
-			return streamMessage{err: fmt.Errorf("stream closed"), done: true}
+			return streamMessage{err: fmt.Errorf("stream closed"), done: true, turn: turn}
 		}
 		return message
 	}

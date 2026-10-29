@@ -117,15 +117,29 @@ func RunPrint(ctx context.Context, streamer Streamer, options PrintOptions) erro
 			continue
 		}
 
-		if err := writeAnswer(options, answer.String()); err != nil {
-			return err
-		}
-		if doneStatus != "" && doneStatus != "complete" {
-			_, err := fmt.Fprintf(options.Stderr, "turn halted: %s\n", doneStatus)
-			return err
-		}
-		return nil
+		return finishPrintTurn(options, answer.String(), doneStatus)
 	}
+}
+
+func finishPrintTurn(options PrintOptions, answer, doneStatus string) error {
+	if strings.TrimSpace(answer) != "" {
+		if err := writeAnswer(options, answer); err != nil {
+			return err
+		}
+	}
+	switch doneStatus {
+	case "cancelled":
+		_, err := fmt.Fprintln(options.Stderr, "Action cancelled.")
+		return err
+	case "expired":
+		_, err := fmt.Fprintln(options.Stderr, "Confirmation expired; no action was taken.")
+		return err
+	}
+	if doneStatus != "" && doneStatus != "complete" && doneStatus != "confirmed" {
+		_, err := fmt.Fprintf(options.Stderr, "turn halted: %s\n", doneStatus)
+		return err
+	}
+	return nil
 }
 
 func readPrompt(options PrintOptions) (string, error) {

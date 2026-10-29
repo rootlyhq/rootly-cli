@@ -127,6 +127,57 @@ func TestRunPrintConfirmationResumesWithCancel(t *testing.T) {
 	if got := streamer.calls[1].Decision; got == nil || *got != rootly.StreamAiChatParamsDecisionCancel {
 		t.Errorf("resume decision = %v, want cancel", got)
 	}
+	if got := stdout.String(); got != "" {
+		t.Errorf("stdout = %q, want no answer for cancellation without replay", got)
+	}
+	if !strings.Contains(stderr.String(), "Action cancelled.") || strings.Contains(stderr.String(), "turn halted") {
+		t.Errorf("stderr = %q, want cancellation note without halted status", stderr.String())
+	}
+}
+
+func TestRunPrintConfirmationResumesWithConfirmedStatus(t *testing.T) {
+	streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{
+		{
+			eventOf(rootly.AiChatStreamEventSessionID, `{"session_id":"`+testSessionID+`"}`),
+			eventOf(rootly.AiChatStreamEventConfirmationRequired, `{"checkpoint_id":"`+testCheckpointID+`","question":"Create the service?","expires_at":"2099-01-01T00:00:00Z"}`),
+			eventOf(rootly.AiChatStreamEventDone, `{"status":"confirmation_required"}`),
+		},
+		{
+			eventOf(rootly.AiChatStreamEventText, `{"content":"Created."}`),
+			eventOf(rootly.AiChatStreamEventDone, `{"status":"confirmed"}`),
+		},
+	}}
+	var stdout, stderr bytes.Buffer
+	options := newPrintOptions(&stdout, &stderr)
+	options.Stdin = strings.NewReader("y\n")
+	options.IsStdinTTY = func() bool { return true }
+	options.IsStderrTTY = func() bool { return true }
+
+	if err := RunPrint(context.Background(), streamer, options); err != nil {
+		t.Fatalf("RunPrint() error = %v", err)
+	}
+	if got := stdout.String(); got != "Created.\n" {
+		t.Errorf("stdout = %q, want completed answer", got)
+	}
+	if strings.Contains(stderr.String(), "turn halted") {
+		t.Errorf("stderr = %q, confirmed should be treated as complete", stderr.String())
+	}
+}
+
+func TestRunPrintExpiredStatus(t *testing.T) {
+	streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{
+		eventOf(rootly.AiChatStreamEventDone, `{"status":"expired"}`),
+	}}}
+	var stdout, stderr bytes.Buffer
+	if err := RunPrint(context.Background(), streamer, newPrintOptions(&stdout, &stderr)); err != nil {
+		t.Fatalf("RunPrint() error = %v", err)
+	}
+	if got := stdout.String(); got != "" {
+		t.Errorf("stdout = %q, want no answer", got)
+	}
+	if got := stderr.String(); got != "Confirmation expired; no action was taken.\n" {
+		t.Errorf("stderr = %q, want expiration message", got)
+	}
 }
 
 func TestRunPrintNonInteractiveConfirmationReturnsQuestion(t *testing.T) {
