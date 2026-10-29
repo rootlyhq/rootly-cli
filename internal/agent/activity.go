@@ -13,8 +13,15 @@ type pendingActivity struct {
 	startedAt time.Time
 }
 
+type completedActivity struct {
+	line                        string
+	finalizedByText             bool
+	finalizedByQualifyingStatus bool
+}
+
 type activityTracker struct {
 	pending      *pendingActivity
+	completed    []completedActivity
 	taskStarted  map[string]time.Time
 	taskFinished map[string]bool
 	now          func() time.Time
@@ -24,25 +31,30 @@ func (tracker *activityTracker) Handle(event Event) []string {
 	tracker.initialize()
 	switch event.Type {
 	case rootly.AiChatStreamEventStatus:
-		lines := tracker.finishPending(true)
-		if event.Status != nil {
-			if title, ok := statusActivityTitle(event.Status.Status); ok {
-				tracker.pending = &pendingActivity{title: title, startedAt: tracker.now()}
-			}
-		}
-		return lines
-	case rootly.AiChatStreamEventText:
-		return tracker.finishPending(true)
-	case rootly.AiChatStreamEventDone:
-		if event.Done != nil && event.Done.Status == "confirmation_required" {
-			tracker.pending = nil
+		if event.Status == nil {
 			return nil
 		}
-		return tracker.finishPending(event.Done != nil && event.Done.Status == "complete")
+		title, startsActivity := statusActivityTitle(event.Status.Status)
+		tracker.finishPending(true, false, startsActivity)
+		if startsActivity {
+			lines := tracker.flushCompleted()
+			tracker.pending = &pendingActivity{title: title, startedAt: tracker.now()}
+			return lines
+		}
+	case rootly.AiChatStreamEventText:
+		tracker.finishPending(true, true, false)
+	case rootly.AiChatStreamEventDone:
+		if event.Done != nil && event.Done.Status == "confirmation_required" {
+			tracker.dropConfirmation()
+			return nil
+		}
+		tracker.finishPending(event.Done != nil && event.Done.Status == "complete", false, false)
+		return tracker.flushCompleted()
 	case rootly.AiChatStreamEventConfirmationRequired:
-		tracker.pending = nil
+		tracker.dropConfirmation()
 	case rootly.AiChatStreamEventError:
-		return tracker.finishPending(false)
+		tracker.finishPending(false, false, false)
+		return tracker.flushCompleted()
 	case rootly.AiChatStreamEventTaskUpdate:
 		return tracker.handleTaskUpdate(event.TaskUpdate)
 	}
@@ -51,11 +63,13 @@ func (tracker *activityTracker) Handle(event Event) []string {
 
 func (tracker *activityTracker) Finish(success bool) []string {
 	tracker.initialize()
-	return tracker.finishPending(success)
+	tracker.finishPending(success, false, false)
+	return tracker.flushCompleted()
 }
 
 func (tracker *activityTracker) Reset() {
 	tracker.pending = nil
+	tracker.completed = nil
 	tracker.taskStarted = make(map[string]time.Time)
 	tracker.taskFinished = make(map[string]bool)
 }
@@ -72,17 +86,44 @@ func (tracker *activityTracker) initialize() {
 	}
 }
 
-func (tracker *activityTracker) finishPending(success bool) []string {
+func (tracker *activityTracker) finishPending(success, finalizedByText, finalizedByQualifyingStatus bool) {
 	if tracker.pending == nil {
-		return nil
+		return
 	}
 	glyph := "✓"
 	if !success {
 		glyph = "✗"
 	}
 	line := fmt.Sprintf("%s %s (%.1fs)", glyph, tracker.pending.title, tracker.now().Sub(tracker.pending.startedAt).Seconds())
+	tracker.completed = append(tracker.completed, completedActivity{
+		line:                        line,
+		finalizedByText:             finalizedByText,
+		finalizedByQualifyingStatus: finalizedByQualifyingStatus,
+	})
 	tracker.pending = nil
-	return []string{line}
+}
+
+func (tracker *activityTracker) flushCompleted() []string {
+	if len(tracker.completed) == 0 {
+		return nil
+	}
+	lines := make([]string, len(tracker.completed))
+	for index, activity := range tracker.completed {
+		lines[index] = activity.line
+	}
+	tracker.completed = nil
+	return lines
+}
+
+func (tracker *activityTracker) dropConfirmation() {
+	tracker.pending = nil
+	for len(tracker.completed) > 0 {
+		last := tracker.completed[len(tracker.completed)-1]
+		if !last.finalizedByText && last.finalizedByQualifyingStatus {
+			break
+		}
+		tracker.completed = tracker.completed[:len(tracker.completed)-1]
+	}
 }
 
 func (tracker *activityTracker) handleTaskUpdate(task *rootly.AiChatStreamTaskUpdate) []string {

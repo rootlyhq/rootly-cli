@@ -124,6 +124,7 @@ func (r *printRun) runTurn(ctx context.Context) (bool, error) {
 		return false, finishPrintError(r.options, r.answer.String(), errors.New("AI chat turn failed"))
 	}
 	if r.confirmation != nil || r.doneStatus == "confirmation_required" {
+		r.writeActivityLines(r.activities.Finish(true))
 		return r.resumeConfirmation(r.confirmation)
 	}
 	r.options.SessionID = r.sessionID

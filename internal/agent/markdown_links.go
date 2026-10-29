@@ -232,6 +232,34 @@ func matchingMarkdownParen(source []byte, start int) (int, bool) {
 	return 0, false
 }
 
+func trimIncompleteTrailingMarkdownLink(markdown string) string {
+	source := []byte(markdown)
+	incompleteStart := -1
+	for index := 0; index < len(source); index++ {
+		if source[index] != '[' || escapedMarkdownCharacter(source, index) {
+			continue
+		}
+		closingBracket := matchingMarkdownBracket(source, index)
+		if closingBracket < 0 {
+			incompleteStart = index
+			continue
+		}
+		if closingBracket+1 >= len(source) || source[closingBracket+1] != '(' {
+			continue
+		}
+		closingParen, complete := matchingMarkdownParen(source, closingBracket+1)
+		if !complete {
+			incompleteStart = index
+			continue
+		}
+		index = closingParen
+	}
+	if incompleteStart >= 0 {
+		return string(source[:incompleteStart])
+	}
+	return markdown
+}
+
 func markdownLinkDestination(raw []byte) string {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) > 0 && raw[0] == '<' {

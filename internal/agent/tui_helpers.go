@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -555,7 +556,7 @@ func (m *TUIModel) sessionAction(action, message string, body rootly.UpdateAiCha
 		if err == nil && response == nil {
 			err = errors.New("empty session update response")
 		} else if err == nil && (response.StatusCode() < 200 || response.StatusCode() >= 300) {
-			err = StatusResponseError(response.StatusCode(), response.Body)
+			err = sessionActionStatusError(response.StatusCode(), response.Body)
 		}
 		return sessionActionMsg{request: request, action: action, message: message, err: err}
 	}
@@ -575,14 +576,28 @@ func (m *TUIModel) deleteSession() tea.Cmd {
 		if err == nil && response == nil {
 			err = errors.New("empty session delete response")
 		} else if err == nil && (response.StatusCode() < 200 || response.StatusCode() >= 300) {
-			err = StatusResponseError(response.StatusCode(), response.Body)
+			err = sessionActionStatusError(response.StatusCode(), response.Body)
 		}
 		return sessionActionMsg{request: request, action: "delete", message: "Deleted session " + shortSessionID(id.String()) + ".", err: err}
 	}
 }
 
+var errSessionActionNotFound = errors.New("session action not found")
+
+const sessionActionNotFoundMessage = "Session not found. Incident and alert chats can't be renamed, pinned, archived or deleted from the CLI yet."
+
+func sessionActionStatusError(status int, body []byte) error {
+	if status == http.StatusNotFound {
+		return errSessionActionNotFound
+	}
+	return StatusResponseError(status, body)
+}
+
 func (m *TUIModel) handleSessionAction(message sessionActionMsg) tea.Cmd {
 	if message.err != nil {
+		if errors.Is(message.err, errSessionActionNotFound) {
+			return tea.Println(sessionActionNotFoundMessage)
+		}
 		return tea.Println(message.err.Error())
 	}
 	if message.action == "archive" || message.action == "delete" {

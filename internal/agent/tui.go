@@ -379,7 +379,10 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 			m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, line)))
 		}
 	} else if m.doneStatus == "confirmation_required" {
-		m.activities.pending = nil
+		m.activities.dropConfirmation()
+		for _, line := range m.activities.Finish(true) {
+			m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, line)))
+		}
 	} else if m.doneStatus != "" {
 		for _, line := range m.activities.Finish(m.doneStatus == "complete") {
 			m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, line)))
@@ -437,7 +440,10 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	if answer != "" {
 		m.lastAnswer = rawAnswer
 		m.transcript = append(m.transcript, transcriptTurn{user: m.currentPrompt, assistant: rawAnswer})
-		commands = append(commands, tea.Println("\n"+m.renderAssistantAnswer(rawAnswer)+"\n"+m.turnFooter()))
+		commands = append(commands,
+			tea.Println("\n"+m.renderAssistantAnswer(rawAnswer)+"\n"+m.turnFooter()),
+			tea.RequestWindowSize,
+		)
 	}
 	if m.doneStatus != "" && m.doneStatus != "complete" && m.doneStatus != "confirmed" {
 		m.status = "turn halted: " + m.doneStatus
@@ -793,7 +799,11 @@ func (m *TUIModel) View() tea.View {
 	var content strings.Builder
 	switch m.state {
 	case tuiStreaming:
-		if rendered := m.renderMarkdown(m.answer.String(), m.width-2); rendered != "" {
+		markdown := m.answer.String()
+		if !m.noColor {
+			markdown = trimIncompleteTrailingMarkdownLink(markdown)
+		}
+		if rendered := m.renderMarkdown(markdown, m.width-2); rendered != "" {
 			content.WriteString(rendered)
 			content.WriteString("\n")
 		}

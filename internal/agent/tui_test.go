@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,7 @@ type fakeTUIAPI struct {
 	updateBodies  []rootly.UpdateAiChatSessionApplicationVndAPIPlusJSONRequestBody
 	updateStatus  int
 	deleteCalls   int
+	deleteStatus  int
 }
 
 func (f *fakeTUIAPI) GetCurrentUserWithResponse(context.Context) (*rootly.GetCurrentUserResponse, error) {
@@ -72,7 +74,14 @@ func (f *fakeTUIAPI) UpdateAiChatSessionWithApplicationVndAPIPlusJSONBodyWithRes
 
 func (f *fakeTUIAPI) DeleteAiChatSessionWithResponse(context.Context, rootly.ID) (*rootly.DeleteAiChatSessionResponse, error) {
 	f.deleteCalls++
-	return &rootly.DeleteAiChatSessionResponse{HTTPResponse: &http.Response{StatusCode: http.StatusNoContent}}, nil
+	status := f.deleteStatus
+	if status == 0 {
+		status = http.StatusNoContent
+	}
+	return &rootly.DeleteAiChatSessionResponse{
+		HTTPResponse: &http.Response{StatusCode: status},
+		Body:         []byte(`{"errors":[{"title":"Session not found"}]}`),
+	}, nil
 }
 
 func (*fakeTUIAPI) GetIncidentByID(context.Context, string) (*api.Incident, error) {
@@ -363,6 +372,43 @@ func TestTUIHistoryLoadedKeepsComposerAndSchedulesRedraw(t *testing.T) {
 	}
 }
 
+func TestTUIStreamingTrimsOnlyIncompleteColorLinks(t *testing.T) {
+	const partial = "see [Rotate](http://x?a_b"
+	colorModel := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	colorModel.state = tuiStreaming
+	colorModel.answer.WriteString(partial)
+	colorView := colorModel.View().Content
+	visible := ansi.Strip(colorView)
+	for _, unwanted := range []string{"http", "a_b"} {
+		if strings.Contains(visible, unwanted) {
+			t.Errorf("streaming view = %q, want no %q from incomplete link", visible, unwanted)
+		}
+	}
+	if final := ansi.Strip(colorModel.renderAssistantAnswer(partial)); !strings.Contains(final, "http://x?a_b") {
+		t.Errorf("final answer = %q, want unchanged incomplete-link text", final)
+	}
+
+	rawModel := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	rawModel.state = tuiStreaming
+	rawModel.answer.WriteString(partial)
+	if view := rawModel.View().Content; !strings.Contains(view, partial) {
+		t.Errorf("no-color streaming view = %q, want raw Markdown %q", view, partial)
+	}
+
+	const completeURL = "http://x?a_b"
+	completeModel := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	completeModel.state = tuiStreaming
+	completeModel.answer.WriteString("see [Rotate](" + completeURL + ") and more")
+	completeView := completeModel.View().Content
+	completeVisible := ansi.Strip(completeView)
+	if !strings.Contains(completeVisible, "Rotate") || !strings.Contains(completeVisible, "and more") {
+		t.Errorf("complete-link streaming view = %q, want link label and trailing text", completeVisible)
+	}
+	if got := strings.Count(completeView, ansi.SetHyperlink(completeURL)); got != 1 {
+		t.Errorf("complete-link count = %d, want one hyperlink", got)
+	}
+}
+
 func TestLoadSessionHistoryFetchesLastPage(t *testing.T) {
 	firstMessage := rootly.AiChatSessionMessage{
 		ID:   uuid.MustParse(testSessionID),
@@ -424,11 +470,103 @@ func TestTUIStatusActivityIsPersisted(t *testing.T) {
 		t.Fatalf("activity commands after initial status = %d, want none", len(model.activityCommands))
 	}
 	model.handleEvent(activityStatusEvent("Composing response..."))
+	if len(model.activityCommands) != 0 {
+		t.Fatalf("activity commands after composing status = %d, want none until the turn finishes", len(model.activityCommands))
+	}
+	model.handleEvent(Event{Type: rootly.AiChatStreamEventText, Text: &rootly.AiChatStreamText{Content: "Answer"}})
+	if len(model.activityCommands) != 0 {
+		t.Fatalf("activity commands after text = %d, want none until the turn finishes", len(model.activityCommands))
+	}
+	model.handleEvent(activityDoneEvent("complete"))
 	if len(model.activityCommands) != 1 {
-		t.Fatalf("activity commands after next status = %d, want one", len(model.activityCommands))
+		t.Fatalf("activity commands after turn completion = %d, want one", len(model.activityCommands))
 	}
 	if got := commandOutput(model.activityCommands[0]); !strings.Contains(got, "✓ Get incidents (") {
 		t.Errorf("activity line = %q, want successful Get incidents", got)
+	}
+}
+
+func TestTUIConfirmationDefersTextFinalizedActivityUntilResumedTurn(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.state = tuiStreaming
+	model.handleEvent(activityStatusEvent("Create action item..."))
+	model.handleEvent(activityStatusEvent("Composing response..."))
+	model.handleEvent(Event{Type: rootly.AiChatStreamEventText, Text: &rootly.AiChatStreamText{Content: "Ready."}})
+	model.handleEvent(Event{
+		Type: rootly.AiChatStreamEventConfirmationRequired,
+		ConfirmationRequired: &rootly.AiChatStreamConfirmationRequired{
+			CheckpointID: testCheckpointID,
+			Question:     "Approve?",
+			ExpiresAt:    "2099-01-01T00:00:00Z",
+		},
+	})
+	model.handleEvent(activityDoneEvent("confirmation_required"))
+
+	_, confirmationCmd := model.finishTurn(nil)
+	if output := commandSequenceOutput(confirmationCmd); strings.Contains(output, "✓ Create action item (") {
+		t.Fatalf("confirmation output = %q, want no activity before approval", output)
+	}
+	if model.state != tuiConfirming {
+		t.Fatalf("state = %v, want confirming", model.state)
+	}
+
+	model.pending = nil
+	model.state = tuiStreaming
+	model.answer.Reset()
+	model.doneStatus = ""
+	model.handleEvent(activityStatusEvent("Create action item..."))
+	model.handleEvent(Event{Type: rootly.AiChatStreamEventText, Text: &rootly.AiChatStreamText{Content: "Created."}})
+	model.handleEvent(activityDoneEvent("complete"))
+
+	_, resumedCmd := model.finishTurn(nil)
+	if output := commandSequenceOutput(resumedCmd); strings.Count(output, "✓ Create action item (") != 1 {
+		t.Fatalf("resumed output = %q, want exactly one completed activity", output)
+	}
+}
+
+func TestTUIConfirmationFlushesStatusFinalization(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.state = tuiStreaming
+	model.handleEvent(activityStatusEvent("A..."))
+	model.handleEvent(activityStatusEvent("B..."))
+	model.handleEvent(Event{
+		Type: rootly.AiChatStreamEventConfirmationRequired,
+		ConfirmationRequired: &rootly.AiChatStreamConfirmationRequired{
+			CheckpointID: testCheckpointID,
+			Question:     "Approve?",
+			ExpiresAt:    "2099-01-01T00:00:00Z",
+		},
+	})
+	model.handleEvent(activityDoneEvent("confirmation_required"))
+
+	_, cmd := model.finishTurn(nil)
+	output := commandSequenceOutput(cmd)
+	if strings.Count(output, "✓ A (") != 1 || strings.Contains(output, "✓ B (") {
+		t.Fatalf("confirmation output = %q, want retained A line and no B line", output)
+	}
+}
+
+func TestTUIFinishTurnRequestsWindowSizeAfterPrintedAnswer(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.answer.WriteString("Answer")
+	model.currentPrompt = "Question"
+	model.doneStatus = "complete"
+
+	_, cmd := model.finishTurn(nil)
+	if cmd == nil {
+		t.Fatal("finishTurn() returned no command")
+	}
+	result := cmd()
+	sequence := reflect.ValueOf(result)
+	if sequence.Kind() != reflect.Slice || sequence.Len() == 0 {
+		t.Fatalf("finishTurn command result = %T, want a non-empty sequence", result)
+	}
+	lastCommand, ok := sequence.Index(sequence.Len() - 1).Interface().(tea.Cmd)
+	if !ok {
+		t.Fatalf("last sequence entry = %T, want tea.Cmd", sequence.Index(sequence.Len()-1).Interface())
+	}
+	if got, want := reflect.TypeOf(lastCommand()), reflect.TypeOf(tea.RequestWindowSize()); got != want {
+		t.Errorf("last command message type = %v, want window-size request type %v", got, want)
 	}
 }
 
@@ -452,6 +590,47 @@ func TestTUISessionCommandsRequireSessionAndMapErrors(t *testing.T) {
 	}
 	if len(apiClient.updateBodies) != 1 {
 		t.Errorf("updates = %d, want one PATCH", len(apiClient.updateBodies))
+	}
+}
+
+func TestTUISessionActionsMapNotFoundForBoundSessions(t *testing.T) {
+	const want = "Session not found. Incident and alert chats can't be renamed, pinned, archived or deleted from the CLI yet."
+	apiClient := &fakeTUIAPI{updateStatus: http.StatusNotFound, deleteStatus: http.StatusNotFound}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+	sessionID := uuid.MustParse(testSessionID)
+	model.sessionID = &sessionID
+
+	for _, command := range []string{"/rename Updated title", "/pin", "/unpin", "/archive"} {
+		t.Run(command, func(t *testing.T) {
+			cmd := model.runSlashCommand(command)
+			if cmd == nil {
+				t.Fatal("session action returned no command")
+			}
+			msg := cmd()
+			result, ok := msg.(sessionActionMsg)
+			if !ok {
+				t.Fatalf("command result = %T, want sessionActionMsg", msg)
+			}
+			if result.err == nil {
+				t.Fatal("session action error = nil, want not-found error")
+			}
+			if output := commandOutput(model.handleSessionAction(result)); !strings.Contains(output, want) {
+				t.Errorf("session action output = %q, want %q", output, want)
+			}
+		})
+	}
+
+	model.runSlashCommand("/delete")
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	if cmd == nil {
+		t.Fatal("delete confirmation returned no API command")
+	}
+	result, ok := cmd().(sessionActionMsg)
+	if !ok || result.err == nil {
+		t.Fatalf("delete result = %#v, want not-found sessionActionMsg", result)
+	}
+	if output := commandOutput(model.handleSessionAction(result)); !strings.Contains(output, want) {
+		t.Errorf("delete output = %q, want %q", output, want)
 	}
 }
 
@@ -662,7 +841,7 @@ func TestTUIModelStreamErrorsPrintPartialAnswer(t *testing.T) {
 			model.answer.WriteString("partial answer")
 
 			_, cmd := model.Update(test.message)
-			output := commandOutput(cmd)
+			output := commandSequenceOutput(cmd)
 			if !strings.Contains(output, "partial") || !strings.Contains(output, "answer") || !strings.Contains(output, test.wantMessage) {
 				t.Errorf("scrollback output = %q, want partial answer and %q", output, test.wantMessage)
 			}
@@ -719,7 +898,7 @@ func TestTUIModelResumeStatuses(t *testing.T) {
 			model.answer.WriteString("reply")
 
 			_, cmd := model.Update(streamMessage{done: true})
-			output := commandOutput(cmd)
+			output := commandSequenceOutput(cmd)
 			if test.wantMessage != "" && !strings.Contains(output, test.wantMessage) {
 				t.Errorf("scrollback output = %q, want %q", output, test.wantMessage)
 			}
@@ -765,4 +944,23 @@ func commandOutput(cmd tea.Cmd) string {
 		return ""
 	}
 	return fmt.Sprint(cmd())
+}
+
+func commandSequenceOutput(cmd tea.Cmd) string {
+	if cmd == nil {
+		return ""
+	}
+	result := cmd()
+	sequence := reflect.ValueOf(result)
+	if sequence.Kind() != reflect.Slice {
+		return fmt.Sprint(result)
+	}
+	var output strings.Builder
+	for index := 0; index < sequence.Len(); index++ {
+		command, ok := sequence.Index(index).Interface().(tea.Cmd)
+		if ok {
+			fmt.Fprint(&output, command())
+		}
+	}
+	return output.String()
 }
