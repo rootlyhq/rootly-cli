@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	rootly "github.com/rootlyhq/rootly-go"
 )
@@ -115,10 +114,13 @@ func TestDescribeError(t *testing.T) {
 }
 
 func TestDescribeErrorRetryAfterHTTPDate(t *testing.T) {
-	retryDate := time.Now().Add(17 * time.Second).UTC().Format(http.TimeFormat)
-	got := describeError(newStreamStatusError(http.StatusTooManyRequests, "rate limited", retryDate)).Error()
-	if got != "rate limited by Rootly AI: retry in 17s" && got != "rate limited by Rootly AI: retry in 16s" {
-		t.Errorf("describeError() = %q, want retry in 16s or 17s", got)
+	got := describeError(newStreamStatusError(
+		http.StatusTooManyRequests,
+		"rate limited",
+		"Wed, 21 Oct 2015 07:28:00 GMT",
+	)).Error()
+	if got != "rate limited by Rootly AI: retry in 1s" {
+		t.Errorf("describeError() = %q, want retry in 1s", got)
 	}
 }
 
