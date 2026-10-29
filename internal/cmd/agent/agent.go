@@ -6,6 +6,7 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -44,12 +45,17 @@ var AgentCmd = &cobra.Command{
 			})
 		}
 
-		model := aiagent.NewTUIModel(cmd.Context(), client, aiagent.TUIOptions{NoColor: viper.GetBool("no-color")})
-		program := tea.NewProgram(model,
+		noColor := viper.GetBool("no-color")
+		model := aiagent.NewTUIModel(cmd.Context(), client, aiagent.TUIOptions{NoColor: noColor})
+		options := []tea.ProgramOption{
 			tea.WithInput(stdin),
 			tea.WithOutput(cmd.OutOrStdout()),
 			tea.WithContext(cmd.Context()),
-		)
+		}
+		if noColor {
+			options = append(options, tea.WithColorProfile(colorprofile.Ascii))
+		}
+		program := tea.NewProgram(model, options...)
 		_, err = program.Run()
 		return err
 	},
