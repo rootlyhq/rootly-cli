@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	rootly "github.com/rootlyhq/rootly-go"
 )
@@ -62,6 +64,7 @@ func TestStreamTurnDecodesKnownEventsAndIgnoresUnknown(t *testing.T) {
 }
 
 func TestDescribeError(t *testing.T) {
+	retryDate := time.Now().Add(17 * time.Second).UTC().Format(http.TimeFormat)
 	tests := []struct {
 		name string
 		err  error
@@ -69,18 +72,43 @@ func TestDescribeError(t *testing.T) {
 	}{
 		{
 			name: "unauthorized",
-			err:  fmt.Errorf(`unexpected status 401 Unauthorized: {"errors":[{"title":"Invalid token"}]}`),
+			err:  fmt.Errorf("wrapped: %w", newStreamStatusError(http.StatusUnauthorized, `{"errors":[{"title":"Invalid token"}]}`, "")),
 			want: "not authenticated: run `rootly login` or set ROOTLY_API_KEY",
 		},
 		{
 			name: "oauth ai chat scope",
-			err:  fmt.Errorf(`unexpected status 403 Forbidden: {"errors":[{"title":"OAuth token requires ai.chat:write scope for this action"}]}`),
+			err:  newStreamStatusError(http.StatusForbidden, `{"errors":[{"title":"OAuth token requires ai.chat:write scope for this action"}]}`, ""),
 			want: "OAuth token requires ai.chat:write scope for this action. Run `rootly logout && rootly login` to refresh your scopes",
 		},
 		{
-			name: "rate limit",
-			err:  fmt.Errorf("unexpected status 429 Too Many Requests: rate limited"),
+			name: "rate limit with retry after",
+			err:  newStreamStatusError(http.StatusTooManyRequests, "rate limited", "17"),
+			want: "rate limited by Rootly AI: retry in 17s",
+		},
+		{
+			name: "rate limit retry after rounds up",
+			err:  newStreamStatusError(http.StatusTooManyRequests, "rate limited", retryDate),
+			want: "rate limited by Rootly AI: retry in 17s",
+		},
+		{
+			name: "rate limit retry after minimum",
+			err:  newStreamStatusError(http.StatusTooManyRequests, "rate limited", "0"),
+			want: "rate limited by Rootly AI: retry in 1s",
+		},
+		{
+			name: "rate limit without retry after",
+			err:  newStreamStatusError(http.StatusTooManyRequests, "rate limited", ""),
 			want: "rate limit exceeded (60/min); please try again shortly",
+		},
+		{
+			name: "internal server title",
+			err:  newStreamStatusError(http.StatusInternalServerError, `{"errors":[{"title":"Internal server error"}]}`, ""),
+			want: "Internal server error",
+		},
+		{
+			name: "internal server body",
+			err:  newStreamStatusError(http.StatusInternalServerError, "temporary failure", ""),
+			want: "request failed with status 500: temporary failure",
 		},
 	}
 	for _, tt := range tests {
@@ -92,8 +120,21 @@ func TestDescribeError(t *testing.T) {
 	}
 }
 
+func newStreamStatusError(statusCode int, body, retryAfter string) *rootly.AiChatStreamStatusError {
+	header := make(http.Header)
+	if retryAfter != "" {
+		header.Set("Retry-After", retryAfter)
+	}
+	return &rootly.AiChatStreamStatusError{
+		StatusCode: statusCode,
+		Status:     fmt.Sprintf("%d %s", statusCode, http.StatusText(statusCode)),
+		Header:     header,
+		Body:       []byte(body),
+	}
+}
+
 func TestStreamTurnDescribesRequestErrors(t *testing.T) {
-	streamer := streamError{err: fmt.Errorf("unexpected status 401 Unauthorized: auth failed")}
+	streamer := streamError{err: newStreamStatusError(http.StatusUnauthorized, "auth failed", "")}
 	err := StreamTurn(context.Background(), streamer, &rootly.StreamAiChatParams{}, func(Event) bool {
 		return true
 	})

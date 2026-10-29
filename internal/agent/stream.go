@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"strings"
+	"time"
 
 	rootly "github.com/rootlyhq/rootly-go"
 )
@@ -104,21 +106,15 @@ func decodeEvent(event rootly.AiChatStreamEvent) (Event, bool, error) {
 }
 
 func describeError(err error) error {
-	const prefix = "unexpected status "
-	message := err.Error()
-	if !strings.HasPrefix(message, prefix) {
+	var streamErr *rootly.AiChatStreamStatusError
+	if !errors.As(err, &streamErr) {
 		return err
 	}
 
-	statusAndBody := strings.TrimPrefix(message, prefix)
-	statusText, body, hasBody := strings.Cut(statusAndBody, ": ")
-	var status int
-	if _, scanErr := fmt.Sscanf(statusText, "%d", &status); scanErr != nil {
-		return err
-	}
-
+	status := streamErr.StatusCode
+	body := strings.TrimSpace(string(streamErr.Body))
 	title := ""
-	if hasBody {
+	if body != "" {
 		var response struct {
 			Errors []struct {
 				Title string `json:"title"`
@@ -137,13 +133,23 @@ func describeError(err error) error {
 			return fmt.Errorf("OAuth token requires ai.chat:write scope for this action. Run `rootly logout && rootly login` to refresh your scopes")
 		}
 	case 429:
+		if retryAfter, ok := streamErr.RetryAfter(); ok {
+			seconds := int64(retryAfter / time.Second)
+			if retryAfter%time.Second != 0 {
+				seconds++
+			}
+			if seconds < 1 {
+				seconds = 1
+			}
+			return fmt.Errorf("rate limited by Rootly AI: retry in %ds", seconds)
+		}
 		return fmt.Errorf("rate limit exceeded (60/min); please try again shortly")
 	}
 
 	if title != "" {
 		return fmt.Errorf("%s", title)
 	}
-	if hasBody && body != "" {
+	if body != "" {
 		return fmt.Errorf("request failed with status %d: %s", status, body)
 	}
 	return fmt.Errorf("request failed with status %d", status)
