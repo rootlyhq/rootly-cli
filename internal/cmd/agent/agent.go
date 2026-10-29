@@ -63,7 +63,7 @@ var AgentCmd = &cobra.Command{
 		if continueSession {
 			id, title, err := latestSession(cmd.Context(), client)
 			if err != nil {
-				return err
+				return aiagent.SanitizeTerminalError(err)
 			}
 			sessionID = &id
 			sessionTitle = title
@@ -72,14 +72,14 @@ var AgentCmd = &cobra.Command{
 		if incidentValue != "" {
 			incident, err = client.GetIncidentByID(cmd.Context(), api.NormalizeIncidentID(incidentValue))
 			if err != nil {
-				return fmt.Errorf("incident not found: %w", err)
+				return fmt.Errorf("incident not found: %w", aiagent.SanitizeTerminalError(err))
 			}
 		}
 		var boundAlert *api.Alert
 		if alertValue != "" {
 			boundAlert, err = client.GetAlertByID(cmd.Context(), alertValue)
 			if err != nil {
-				return fmt.Errorf("alert not found: %w", err)
+				return fmt.Errorf("alert not found: %w", aiagent.SanitizeTerminalError(err))
 			}
 		}
 		if printMode {
@@ -90,6 +90,7 @@ var AgentCmd = &cobra.Command{
 				Stderr:       cmd.ErrOrStderr(),
 				NoColor:      viper.GetBool("no-color"),
 				Quiet:        viper.GetBool("quiet"),
+				APIHost:      client.APIHost(),
 				SessionID:    sessionID,
 				OutputFormat: outputFormat,
 				Incident:     incident,
@@ -134,7 +135,7 @@ func latestSession(ctx context.Context, client *api.Client) (uuid.UUID, string, 
 	limit, archived := 1, false
 	response, err := client.ListAiChatSessionsWithResponse(ctx, &rootly.ListAiChatSessionsParams{Limit: &limit, Archived: &archived})
 	if err != nil {
-		return uuid.Nil, "", err
+		return uuid.Nil, "", aiagent.SanitizeTerminalError(err)
 	}
 	if response == nil {
 		return uuid.Nil, "", errors.New("empty response while listing AI chat sessions")
@@ -157,7 +158,7 @@ func preflightAI(cmd *cobra.Command, client *api.Client) (*rootly.CurrentUserRes
 	response, err := client.GetCurrentUserWithResponse(cmd.Context())
 	if err != nil {
 		if viper.GetBool("debug") {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "AI preflight failed: %v\n", err)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "AI preflight failed: %v\n", aiagent.SanitizeTerminalError(err))
 		}
 		return nil, nil
 	}

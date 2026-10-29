@@ -197,6 +197,54 @@ func TestTUITranscriptUsesClaudeCodeStyle(t *testing.T) {
 	}
 }
 
+func TestTUIAnswerAndHistorySanitizeTerminalControls(t *testing.T) {
+	const (
+		attack = "\x1b]52;c;ZXZpbA==\x07\x1b[2J\x1b]8;;https://evil.example\x07"
+		url    = "https://rootly.com/docs"
+	)
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.handleEvent(Event{Type: rootly.AiChatStreamEventText, Text: &rootly.AiChatStreamText{
+		Content: "safe " + attack + " [Open docs](" + url + ")",
+	}})
+	answer := model.renderAssistantAnswer(model.answer.String())
+	for _, unwanted := range []string{"]52;", "[2J", "\x1b]8;;https://evil.example"} {
+		if strings.Contains(answer, unwanted) {
+			t.Errorf("rendered answer = %q, want no %q", answer, unwanted)
+		}
+	}
+	if got := strings.Count(answer, ansi.SetHyperlink(url)); got != 1 {
+		t.Errorf("answer link count = %d, want one CLI-generated OSC-8 link: %q", got, answer)
+	}
+
+	historyModel := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	cmd := historyModel.printHistory("History "+attack, []rootly.AiChatSessionMessage{
+		{Role: rootly.AiChatSessionMessageRole("user"), Content: "Prompt " + attack},
+		{Role: rootly.AiChatSessionMessageRole("assistant"), Content: "Answer " + attack},
+	})
+	history := commandSequenceOutput(cmd)
+	for _, unwanted := range []string{"]52;", "[2J", "\x1b"} {
+		if strings.Contains(history, unwanted) {
+			t.Errorf("printed history = %q, want no %q", history, unwanted)
+		}
+	}
+	historyModel.sessionTitle = "Session " + attack
+	status := historyModel.statusLines()
+	for _, unwanted := range []string{"]52;", "[2J", "\x1b"} {
+		if strings.Contains(status, unwanted) {
+			t.Errorf("status output = %q, want no %q", status, unwanted)
+		}
+	}
+}
+
+func TestSessionPickerSanitizesTitle(t *testing.T) {
+	item := sessionPickerItem{session: rootly.AiChatSession{
+		Title: "\x1b]52;c;ZXZpbA==\x07",
+	}}
+	if got := item.Title(); got != "Untitled" {
+		t.Errorf("session picker title = %q, want Untitled after sanitization", got)
+	}
+}
+
 func TestTUIComposerStartsAtOneRowAndGrows(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 	model.composer.SetWidth(40)

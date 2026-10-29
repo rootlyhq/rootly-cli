@@ -2,23 +2,32 @@ package agent
 
 import (
 	"bytes"
+	"net/url"
 	"sort"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	goldmarktext "github.com/yuin/goldmark/text"
 )
 
-type markdownLinkReplacement struct {
-	start       int
-	end         int
-	text        string
+type markdownLink struct {
 	destination string
+	host        string
+	hyperlink   bool
+}
+
+type markdownLinkReplacement struct {
+	start int
+	end   int
+	text  string
+	link  markdownLink
 }
 
 func terminalMarkdown(markdown string, noColor bool) string {
+	markdown = sanitizeTerminalText(markdown)
 	if noColor {
 		return markdown
 	}
@@ -26,11 +35,12 @@ func terminalMarkdown(markdown string, noColor bool) string {
 }
 
 func preprocessMarkdownLinks(markdown string) string {
-	processed, _ := preprocessMarkdownLinksWithURLs(markdown)
+	processed, _ := preprocessMarkdownLinksWithURLs(markdown, "")
 	return processed
 }
 
-func preprocessMarkdownLinksWithURLs(markdown string) (processed string, urls []string) {
+func preprocessMarkdownLinksWithURLs(markdown, apiHost string) (processed string, links []markdownLink) {
+	markdown = sanitizeTerminalText(markdown)
 	source := []byte(markdown)
 	document := goldmark.New().Parser().Parse(goldmarktext.NewReader(source))
 	replacements := make([]markdownLinkReplacement, 0)
@@ -57,11 +67,12 @@ func preprocessMarkdownLinksWithURLs(markdown string) (processed string, urls []
 			return ast.WalkContinue, nil
 		}
 		replacement := "\uE000" + string(source[start+1:closingBracket]) + "\uE001"
+		safeLink := newMarkdownLink(destination, apiHost)
 		replacements = append(replacements, markdownLinkReplacement{
-			start:       start,
-			end:         end,
-			text:        replacement,
-			destination: destination,
+			start: start,
+			end:   end,
+			text:  replacement,
+			link:  safeLink,
 		})
 		return ast.WalkContinue, nil
 	})
@@ -72,24 +83,64 @@ func preprocessMarkdownLinksWithURLs(markdown string) (processed string, urls []
 	sort.Slice(replacements, func(i, j int) bool {
 		return replacements[i].start < replacements[j].start
 	})
-	urls = make([]string, len(replacements))
+	links = make([]markdownLink, len(replacements))
 	for index, replacement := range replacements {
-		urls[index] = replacement.destination
+		links[index] = replacement.link
 	}
 	for index := len(replacements) - 1; index >= 0; index-- {
 		replacement := replacements[index]
 		source = append(source[:replacement.start], append([]byte(replacement.text), source[replacement.end:]...)...)
 	}
-	return string(source), urls
+	return string(source), links
 }
 
-func restoreMarkdownLinks(rendered string, urls []string) string {
+func newMarkdownLink(destination, apiHost string) markdownLink {
+	link := markdownLink{destination: sanitizeTerminalText(destination)}
+	parsed, err := url.Parse(link.destination)
+	if err != nil {
+		return link
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return link
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host == "" {
+		return link
+	}
+	link.hyperlink = true
+	domain := rootlyAppDomain(apiHost)
+	if domain != "" && (host == domain || strings.HasSuffix(host, "."+domain)) {
+		return link
+	}
+	link.host = host
+	return link
+}
+
+func rootlyAppDomain(apiHost string) string {
+	apiHost = strings.TrimSpace(sanitizeTerminalText(apiHost))
+	if apiHost == "" {
+		return ""
+	}
+	if !strings.Contains(apiHost, "://") {
+		apiHost = "//" + apiHost
+	}
+	parsed, err := url.Parse(apiHost)
+	if err != nil {
+		return ""
+	}
+	domain := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	return strings.TrimPrefix(domain, "api.")
+}
+
+func restoreMarkdownLinks(rendered string, links []markdownLink) string {
 	const (
 		startMarker = "\uE000"
 		endMarker   = "\uE001"
 	)
 	var output strings.Builder
-	urlIndex := 0
+	linkIndex := 0
+	currentLink := -1
 	for rendered != "" {
 		startIndex := strings.Index(rendered, startMarker)
 		endIndex := strings.Index(rendered, endMarker)
@@ -104,12 +155,24 @@ func restoreMarkdownLinks(rendered string, urls []string) string {
 		}
 		output.WriteString(rendered[:markerIndex])
 		if marker == startMarker {
-			if urlIndex < len(urls) {
-				output.WriteString(ansi.SetHyperlink(urls[urlIndex]))
+			currentLink = linkIndex
+			if currentLink < len(links) && links[currentLink].hyperlink {
+				output.WriteString(ansi.SetHyperlink(links[currentLink].destination))
 			}
-			urlIndex++
+			linkIndex++
 		} else {
-			output.WriteString(ansi.ResetHyperlink())
+			if currentLink >= 0 && currentLink < len(links) {
+				link := links[currentLink]
+				if link.hyperlink {
+					output.WriteString(ansi.ResetHyperlink())
+					if link.host != "" {
+						output.WriteString(lipgloss.NewStyle().Faint(true).Render(" (" + link.host + ")"))
+					}
+				} else {
+					output.WriteString(" <" + link.destination + ">")
+				}
+			}
+			currentLink = -1
 		}
 		rendered = rendered[markerIndex+len(marker):]
 	}

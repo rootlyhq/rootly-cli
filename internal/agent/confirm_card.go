@@ -29,23 +29,24 @@ func renderConfirmationCard(confirmation *rootly.AiChatStreamConfirmationRequire
 		return ""
 	}
 
-	lines := []string{confirmation.Question}
+	lines := []string{sanitizeTerminalText(confirmation.Question)}
 	preview, validPreview := parseConfirmationPreview(confirmation.Preview)
 	if validPreview {
 		if preview.Title != "" {
-			lines = append(lines, preview.Title)
+			lines = append(lines, sanitizeTerminalText(preview.Title))
 		}
 		if preview.Summary != "" {
-			lines = append(lines, preview.Summary)
+			lines = append(lines, sanitizeTerminalText(preview.Summary))
 		}
 		if preview.ContextText != "" {
-			lines = append(lines, preview.ContextText)
+			lines = append(lines, sanitizeTerminalText(preview.ContextText))
 		}
 		inferredFields := confirmationInferredFields(preview.InferredFields)
 		for _, field := range preview.Fields {
-			value := confirmationValue(field.Value)
-			row := fmt.Sprintf("%s: %s", field.Label, value)
-			if field.Inferred || inferredFields[field.Label] {
+			label := sanitizeTerminalText(field.Label)
+			value := sanitizeTerminalText(confirmationValue(field.Value))
+			row := fmt.Sprintf("%s: %s", label, value)
+			if field.Inferred || inferredFields[label] {
 				if noColor {
 					row += " (inferred)"
 				} else {
@@ -54,7 +55,11 @@ func renderConfirmationCard(confirmation *rootly.AiChatStreamConfirmationRequire
 			}
 			lines = append(lines, row)
 		}
-		if missing := confirmationMissingFields(confirmation.MissingFields); len(missing) > 0 {
+		missing := confirmationMissingFields(confirmation.MissingFields)
+		for index := range missing {
+			missing[index] = sanitizeTerminalText(missing[index])
+		}
+		if len(missing) > 0 {
 			lines = append(lines, "Missing: "+strings.Join(missing, ", "))
 		}
 		if preview.Destructive {
@@ -65,12 +70,7 @@ func renderConfirmationCard(confirmation *rootly.AiChatStreamConfirmationRequire
 			lines = append(lines, tag)
 		}
 	} else if len(confirmation.Preview) > 0 {
-		var indented bytes.Buffer
-		if err := json.Indent(&indented, confirmation.Preview, "", "  "); err == nil {
-			lines = append(lines, strings.Split(indented.String(), "\n")...)
-		} else {
-			lines = append(lines, string(confirmation.Preview))
-		}
+		lines = append(lines, strings.Split(sanitizedConfirmationPreview(confirmation.Preview), "\n")...)
 	}
 
 	footer := "y approve · n/Esc cancel"
@@ -113,12 +113,49 @@ func confirmationValue(value any) string {
 	case string:
 		return value
 	case map[string]any, []any:
-		encoded, err := json.Marshal(value)
+		encoded, err := json.Marshal(sanitizeConfirmationJSONValue(value))
 		if err == nil {
 			return string(encoded)
 		}
 	}
 	return fmt.Sprint(value)
+}
+
+func sanitizedConfirmationPreview(raw []byte) string {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return sanitizeTerminalText(string(raw))
+	}
+	encoded, err := json.Marshal(sanitizeConfirmationJSONValue(value))
+	if err != nil {
+		return sanitizeTerminalText(string(raw))
+	}
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, encoded, "", "  "); err != nil {
+		return sanitizeTerminalText(string(encoded))
+	}
+	return indented.String()
+}
+
+func sanitizeConfirmationJSONValue(value any) any {
+	switch value := value.(type) {
+	case string:
+		return sanitizeTerminalText(value)
+	case []any:
+		sanitized := make([]any, len(value))
+		for index, item := range value {
+			sanitized[index] = sanitizeConfirmationJSONValue(item)
+		}
+		return sanitized
+	case map[string]any:
+		sanitized := make(map[string]any, len(value))
+		for key, item := range value {
+			sanitized[sanitizeTerminalText(key)] = sanitizeConfirmationJSONValue(item)
+		}
+		return sanitized
+	default:
+		return value
+	}
 }
 
 func confirmationInferredFields(raw json.RawMessage) map[string]bool {
@@ -130,15 +167,15 @@ func confirmationInferredFields(raw json.RawMessage) map[string]bool {
 	for _, value := range values {
 		var name string
 		if json.Unmarshal(value, &name) == nil {
-			inferred[name] = true
+			inferred[sanitizeTerminalText(name)] = true
 			continue
 		}
 		var field map[string]any
 		if json.Unmarshal(value, &field) == nil {
 			if name, ok := field["label"].(string); ok {
-				inferred[name] = true
+				inferred[sanitizeTerminalText(name)] = true
 			} else if name, ok := field["name"].(string); ok {
-				inferred[name] = true
+				inferred[sanitizeTerminalText(name)] = true
 			}
 		}
 	}

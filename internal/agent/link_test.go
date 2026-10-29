@@ -16,7 +16,7 @@ func TestGlamourRendersLinksWithPrivateUseMarkers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	source, urls := preprocessMarkdownLinksWithURLs(markdown)
+	source, urls := preprocessMarkdownLinksWithURLs(markdown, "api.rootly.com")
 	rendered, err := renderer.Render(source)
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestGlamourMapsMultipleLinksToURLsInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	markdown := "[First](https://rootly.com/incidents/first) and [Second](https://rootly.com/incidents/second)."
-	source, urls := preprocessMarkdownLinksWithURLs(markdown)
+	source, urls := preprocessMarkdownLinksWithURLs(markdown, "api.rootly.com")
 	rendered, err := renderer.Render(source)
 	if err != nil {
 		t.Fatal(err)
@@ -56,6 +56,47 @@ func TestGlamourMapsMultipleLinksToURLsInOrder(t *testing.T) {
 		strings.Count(output, ansi.SetHyperlink(firstURL)) != 1 ||
 		strings.Count(output, ansi.SetHyperlink(secondURL)) != 1 {
 		t.Errorf("hyperlinks are missing or reordered: %q", output)
+	}
+}
+
+func TestGlamourDisclosesUntrustedLinkHostsAndTrustsRootlyDomain(t *testing.T) {
+	markdown := "[Open INC-8](https://evil.example/x) and [Open Rootly](https://rootly.com/incidents/8)"
+	renderer, err := glamour.NewTermRenderer(glamour.WithEnvironmentConfig(), glamour.WithWordWrap(80))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, links := preprocessMarkdownLinksWithURLs(markdown, "api.rootly.com")
+	rendered, err := renderer.Render(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := restoreMarkdownLinks(rendered, links)
+	visible := ansi.Strip(output)
+	if !strings.Contains(visible, "Open INC-8 (evil.example)") {
+		t.Errorf("visible output = %q, want external host after link label", visible)
+	}
+	if !strings.Contains(visible, "Open Rootly") || strings.Contains(visible, "(rootly.com)") {
+		t.Errorf("visible output = %q, want trusted Rootly link without host disclosure", visible)
+	}
+}
+
+func TestGlamourDoesNotHyperlinkUnsupportedSchemes(t *testing.T) {
+	markdown := "[x](javascript:alert(1))"
+	renderer, err := glamour.NewTermRenderer(glamour.WithEnvironmentConfig(), glamour.WithWordWrap(80))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, links := preprocessMarkdownLinksWithURLs(markdown, "api.rootly.com")
+	rendered, err := renderer.Render(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := restoreMarkdownLinks(rendered, links)
+	if strings.Contains(output, "\x1b]8;;") {
+		t.Errorf("output = %q, want no OSC-8 hyperlink", output)
+	}
+	if visible := ansi.Strip(output); !strings.Contains(visible, "x <javascript:alert(1)>") {
+		t.Errorf("visible output = %q, want label followed by plain URL", visible)
 	}
 }
 

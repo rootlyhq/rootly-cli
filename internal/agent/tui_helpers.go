@@ -66,20 +66,22 @@ func (i sessionPickerItem) FilterValue() string {
 	if i.loadMore {
 		return "Load more"
 	}
-	if strings.TrimSpace(i.session.Title) == "" {
+	title := sanitizeTerminalText(i.session.Title)
+	if strings.TrimSpace(title) == "" {
 		return "Untitled"
 	}
-	return i.session.Title
+	return title
 }
 
 func (i sessionPickerItem) Title() string {
 	if i.loadMore {
 		return "Load more…"
 	}
-	if strings.TrimSpace(i.session.Title) == "" {
+	title := sanitizeTerminalText(i.session.Title)
+	if strings.TrimSpace(title) == "" {
 		return "Untitled"
 	}
-	return i.session.Title
+	return title
 }
 
 func (i sessionPickerItem) Description() string {
@@ -252,14 +254,14 @@ func (m *TUIModel) bindingHeader() string {
 		if id == "" {
 			id = shortSessionID(m.incident.ID)
 		}
-		return fmt.Sprintf("Chatting about %s: %s", id, m.incident.Title)
+		return sanitizeTerminalText(fmt.Sprintf("Chatting about %s: %s", id, m.incident.Title))
 	}
 	if m.alert != nil {
 		id := m.alert.ShortID
 		if id == "" {
 			id = shortSessionID(m.alert.ID)
 		}
-		return fmt.Sprintf("Chatting about %s: %s", id, m.alert.Summary)
+		return sanitizeTerminalText(fmt.Sprintf("Chatting about %s: %s", id, m.alert.Summary))
 	}
 	return ""
 }
@@ -312,13 +314,17 @@ func (m *TUIModel) statusLines() string {
 		if name == "" {
 			name = strings.TrimSpace(attributes.FirstName.GetOrEmpty() + " " + attributes.LastName.GetOrEmpty())
 		}
-		user = strings.TrimSpace(name + " (" + attributes.Email + ")")
+		user = sanitizeTerminalText(strings.TrimSpace(name + " (" + attributes.Email + ")"))
 	}
 	host := m.apiHost
 	if host == "" && m.api != nil {
 		host = m.api.APIHost()
 	}
-	lines := []string{"session " + session, "user " + user, "API " + host}
+	lines := []string{"session " + session}
+	if title := sanitizeTerminalText(m.sessionTitle); title != "" {
+		lines = append(lines, "title "+title)
+	}
+	lines = append(lines, "user "+user, "API "+sanitizeTerminalText(host))
 	if header := m.bindingHeader(); header != "" {
 		lines = append(lines, header)
 	}
@@ -345,22 +351,23 @@ func (m *TUIModel) loadHistory(sessionID uuid.UUID, title string) tea.Cmd {
 func (m *TUIModel) printHistory(title string, messages []rootly.AiChatSessionMessage) tea.Cmd {
 	lines := make([]string, 0, len(messages))
 	if title != "" {
-		lines = append(lines, faint(m.noColor, title))
+		lines = append(lines, faint(m.noColor, sanitizeTerminalText(title)))
 	}
 	if len(messages) > 0 {
 		m.transcript = nil
 	}
 	for _, message := range messages {
+		content := sanitizeTerminalText(message.Content)
 		switch message.Role {
 		case rootly.AiChatSessionMessageRole("user"):
-			lines = append(lines, renderPromptEcho(message.Content, m.width, m.noColor))
-			m.transcript = append(m.transcript, transcriptTurn{user: message.Content})
+			lines = append(lines, renderPromptEcho(content, m.width, m.noColor))
+			m.transcript = append(m.transcript, transcriptTurn{user: content})
 		case rootly.AiChatSessionMessageRole("assistant"):
-			lines = append(lines, m.renderAssistantAnswer(message.Content))
+			lines = append(lines, m.renderAssistantAnswer(content))
 			if len(m.transcript) > 0 && m.transcript[len(m.transcript)-1].assistant == "" {
-				m.transcript[len(m.transcript)-1].assistant = message.Content
+				m.transcript[len(m.transcript)-1].assistant = content
 			} else {
-				m.transcript = append(m.transcript, transcriptTurn{assistant: message.Content})
+				m.transcript = append(m.transcript, transcriptTurn{assistant: content})
 			}
 		}
 	}
@@ -435,7 +442,7 @@ func (m *TUIModel) handleSessionPage(message sessionPageMsg) tea.Cmd {
 	m.pickerLoading = false
 	if message.err != nil {
 		m.pickerOpen = false
-		return tea.Println(message.err.Error())
+		return tea.Println(sanitizeTerminalText(message.err.Error()))
 	}
 	m.pickerBefore = message.before
 	m.pickerHasMore = message.hasMore && message.before != ""
@@ -476,7 +483,7 @@ func (m *TUIModel) selectPickerItem(item sessionPickerItem) tea.Cmd {
 	m.pickerLoading = false
 	m.actionRequest++
 	m.sessionID = &id
-	m.sessionTitle = item.Title()
+	m.sessionTitle = sanitizeTerminalText(item.Title())
 	m.answer.Reset()
 	m.lastAnswer = ""
 	m.transcript = nil
@@ -542,7 +549,7 @@ func (m *TUIModel) refreshCommandMenu() {
 	m.commandMenuOpen = true
 }
 
-func (m *TUIModel) sessionAction(action, message string, body rootly.UpdateAiChatSessionApplicationVndAPIPlusJSONRequestBody) tea.Cmd {
+func (m *TUIModel) sessionAction(action, message string, body rootly.UpdateAiChatSessionApplicationVndAPIPlusJSONRequestBody, sessionTitle *string) tea.Cmd {
 	if m.sessionID == nil {
 		return tea.Println("No session yet: send a message first.")
 	}
@@ -558,7 +565,7 @@ func (m *TUIModel) sessionAction(action, message string, body rootly.UpdateAiCha
 		} else if err == nil && (response.StatusCode() < 200 || response.StatusCode() >= 300) {
 			err = sessionActionStatusError(response.StatusCode(), response.Body)
 		}
-		return sessionActionMsg{request: request, action: action, message: message, err: err}
+		return sessionActionMsg{request: request, action: action, message: message, sessionTitle: sessionTitle, err: err}
 	}
 }
 
@@ -598,13 +605,20 @@ func (m *TUIModel) handleSessionAction(message sessionActionMsg) tea.Cmd {
 		if errors.Is(message.err, errSessionActionNotFound) {
 			return tea.Println(sessionActionNotFoundMessage)
 		}
-		return tea.Println(message.err.Error())
+		return tea.Println(sanitizeTerminalText(message.err.Error()))
 	}
+	if message.action == "rename" {
+		m.sessionTitle = ""
+		if message.sessionTitle != nil {
+			m.sessionTitle = sanitizeTerminalText(*message.sessionTitle)
+		}
+	}
+	text := sanitizeTerminalText(message.message)
 	if message.action == "archive" || message.action == "delete" {
 		m.startNewSession()
-		return tea.Println(faint(m.noColor, message.message))
+		return tea.Println(faint(m.noColor, text))
 	}
-	return tea.Println(faint(m.noColor, message.message))
+	return tea.Println(faint(m.noColor, text))
 }
 
 func (m *TUIModel) startNewSession() {
@@ -645,7 +659,7 @@ func (m *TUIModel) exportTranscript(filename string) tea.Cmd {
 		}
 	}
 	if err != nil {
-		return tea.Println("Export failed: " + err.Error())
+		return tea.Println("Export failed: " + sanitizeTerminalText(err.Error()))
 	}
 	return tea.Println(faint(m.noColor, "Exported "+path))
 }
@@ -749,5 +763,5 @@ func historyPageCount(meta map[string]interface{}) int {
 }
 
 func StatusResponseError(status int, body []byte) error {
-	return describeError(&rootly.AiChatStreamStatusError{StatusCode: status, Body: body})
+	return sanitizeTerminalError(describeError(&rootly.AiChatStreamStatusError{StatusCode: status, Body: body}))
 }

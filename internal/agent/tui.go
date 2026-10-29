@@ -80,10 +80,11 @@ type sessionPageMsg struct {
 }
 
 type sessionActionMsg struct {
-	request int
-	action  string
-	message string
-	err     error
+	request      int
+	action       string
+	message      string
+	sessionTitle *string
+	err          error
 }
 
 type bindingResolvedMsg struct {
@@ -190,7 +191,7 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 		currentUser:  currentUser,
 		userLoaded:   options.CurrentUser != nil,
 		sessionID:    options.SessionID,
-		sessionTitle: options.SessionTitle,
+		sessionTitle: sanitizeTerminalText(options.SessionTitle),
 		incident:     options.Incident,
 		alert:        options.Alert,
 		historyIndex: -1,
@@ -205,7 +206,7 @@ func (m *TUIModel) Init() tea.Cmd {
 			title = shortSessionID(m.sessionID.String())
 		}
 		cmds = append(cmds,
-			tea.Println(faint(m.noColor, fmt.Sprintf("Resumed %q", title))),
+			tea.Println(faint(m.noColor, fmt.Sprintf("Resumed %q", sanitizeTerminalText(title)))),
 			m.loadHistory(*m.sessionID, ""),
 		)
 	}
@@ -242,7 +243,7 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.err != nil {
-			return m, tea.Println(faint(m.noColor, "Could not load session history: "+msg.err.Error()))
+			return m, tea.Println(faint(m.noColor, "Could not load session history: "+sanitizeTerminalText(msg.err.Error())))
 		}
 		cmd := m.printHistory(msg.title, msg.messages)
 		return m, cmd
@@ -269,7 +270,7 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.err != nil {
-			return m, tea.Println(msg.err.Error())
+			return m, tea.Println(sanitizeTerminalText(msg.err.Error()))
 		}
 		m.sessionID = nil
 		m.answer.Reset()
@@ -303,13 +304,13 @@ func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
 		return m.finishTurn(message.err)
 	}
 	if message.err != nil {
-		m.status = message.err.Error()
+		m.status = sanitizeTerminalText(message.err.Error())
 		cmd := m.waitForStream()
 		return m, cmd
 	}
 	m.handleEvent(message.event)
 	if message.event.Type == rootly.AiChatStreamEventError && message.event.Error != nil {
-		return m.finishTurn(errors.New(message.event.Error.Message))
+		return m.finishTurn(errors.New(sanitizeTerminalText(message.event.Error.Message)))
 	}
 	if len(m.activityCommands) > 0 {
 		commands := append([]tea.Cmd(nil), m.activityCommands...)
@@ -323,7 +324,7 @@ func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
 
 func (m *TUIModel) handleEvent(event Event) {
 	for _, line := range m.activities.Handle(event) {
-		m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, line)))
+		m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, sanitizeTerminalText(line))))
 	}
 	switch event.Type {
 	case rootly.AiChatStreamEventSessionID:
@@ -340,29 +341,30 @@ func (m *TUIModel) handleEvent(event Event) {
 				}
 				m.resumeTextSeparator = false
 			}
-			m.answer.WriteString(event.Text.Content)
+			m.answer.WriteString(sanitizeTerminalText(event.Text.Content))
 		}
 	case rootly.AiChatStreamEventStatus:
 		if event.Status != nil {
-			m.status = event.Status.Status
+			m.status = sanitizeTerminalText(event.Status.Status)
 		}
 	case rootly.AiChatStreamEventTaskUpdate:
 		if event.TaskUpdate != nil {
-			m.status = fmt.Sprintf("%s (%s)", event.TaskUpdate.Title, event.TaskUpdate.Status)
+			m.status = fmt.Sprintf("%s (%s)", sanitizeTerminalText(event.TaskUpdate.Title), sanitizeTerminalText(event.TaskUpdate.Status))
 		}
 	case rootly.AiChatStreamEventSkillLoaded:
 		if event.SkillLoaded != nil {
-			m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, "• Loaded skill "+event.SkillLoaded.Skill.Name)))
+			skillName := sanitizeTerminalText(event.SkillLoaded.Skill.Name)
+			m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, "• Loaded skill "+skillName)))
 		}
 	case rootly.AiChatStreamEventConfirmationRequired:
 		m.pending = event.ConfirmationRequired
 	case rootly.AiChatStreamEventError:
 		if event.Error != nil {
-			m.status = event.Error.Message
+			m.status = sanitizeTerminalText(event.Error.Message)
 		}
 	case rootly.AiChatStreamEventDone:
 		if event.Done != nil {
-			m.doneStatus = event.Done.Status
+			m.doneStatus = sanitizeTerminalText(event.Done.Status)
 		}
 	}
 }
@@ -394,7 +396,7 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 		m.status = ""
 		m.pending = nil
 		m.doneStatus = ""
-		cmd := m.scrollback(err.Error(), lipgloss.NewStyle().Foreground(lipgloss.Color("1")))
+		cmd := m.scrollback(sanitizeTerminalText(err.Error()), lipgloss.NewStyle().Foreground(lipgloss.Color("1")))
 		m.activities.Reset()
 		return m, sequenceTUICommands(append(commands, cmd)...)
 	}
@@ -446,7 +448,7 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 		)
 	}
 	if m.doneStatus != "" && m.doneStatus != "complete" && m.doneStatus != "confirmed" {
-		m.status = "turn halted: " + m.doneStatus
+		m.status = "turn halted: " + sanitizeTerminalText(m.doneStatus)
 	} else {
 		m.status = ""
 	}
@@ -676,7 +678,7 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 			body.Title = nullable.NewNullableWithValue(title)
 			message = "Renamed to " + title + "."
 		}
-		return m.sessionAction("rename", message, body)
+		return m.sessionAction("rename", message, body, &title)
 	case "/pin", "/unpin":
 		pinned := parts[0] == "/pin"
 		body := rootly.UpdateAiChatSession{Pinned: &pinned}
@@ -687,13 +689,13 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 		if m.sessionID == nil {
 			return tea.Println("No session yet: send a message first.")
 		}
-		return m.sessionAction(parts[0], action+" session "+shortSessionID(m.sessionID.String())+".", body)
+		return m.sessionAction(parts[0], action+" session "+shortSessionID(m.sessionID.String())+".", body, nil)
 	case "/archive":
 		archived := true
 		if m.sessionID == nil {
 			return tea.Println("No session yet: send a message first.")
 		}
-		return m.sessionAction("archive", "Archived session "+shortSessionID(m.sessionID.String())+".", rootly.UpdateAiChatSession{Archived: &archived})
+		return m.sessionAction("archive", "Archived session "+shortSessionID(m.sessionID.String())+".", rootly.UpdateAiChatSession{Archived: &archived}, nil)
 	case "/delete":
 		if m.sessionID == nil {
 			return tea.Println("No session yet: send a message first.")
@@ -845,6 +847,7 @@ func (m *TUIModel) View() tea.View {
 }
 
 func (m *TUIModel) renderMarkdown(markdown string, width int) string {
+	markdown = sanitizeTerminalText(markdown)
 	if m.noColor {
 		return markdown
 	}
@@ -864,12 +867,12 @@ func (m *TUIModel) renderMarkdown(markdown string, width int) string {
 		m.renderedSource = ""
 	}
 	if m.renderedSource != markdown {
-		source, urls := preprocessMarkdownLinksWithURLs(markdown)
+		source, links := preprocessMarkdownLinksWithURLs(markdown, m.apiHost)
 		rendered, err := m.renderer.Render(source)
 		if err != nil {
 			return markdown
 		}
-		m.rendered = strings.TrimSpace(restoreMarkdownLinks(rendered, urls))
+		m.rendered = strings.TrimSpace(restoreMarkdownLinks(rendered, links))
 		m.renderedSource = markdown
 		m.renderCount++
 	}

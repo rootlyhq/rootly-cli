@@ -30,6 +30,31 @@ func TestRunPrintJoinsTextToStdout(t *testing.T) {
 	}
 }
 
+func TestRunPrintTextSanitizesAnswerAndStatus(t *testing.T) {
+	streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{
+		eventOf(rootly.AiChatStreamEventStatus, `{"status":"\u001b]52;c;ZXZpbA==\u0007Status"}`),
+		eventOf(rootly.AiChatStreamEventText, `{"content":"Answer \u001b]52;c;ZXZpbA==\u0007 \u001b[2J \u001b]8;;https://evil.example\u0007"}`),
+		eventOf(rootly.AiChatStreamEventDone, `{"status":"complete"}`),
+	}}}
+	var stdout, stderr bytes.Buffer
+	options := newPrintOptions(&stdout, &stderr)
+	options.IsStderrTTY = func() bool { return true }
+
+	if err := RunPrint(context.Background(), streamer, options); err != nil {
+		t.Fatalf("RunPrint() error = %v", err)
+	}
+	for label, output := range map[string]string{"stdout": stdout.String(), "stderr": stderr.String()} {
+		for _, unwanted := range []string{"]52;", "[2J", "\x1b]8;;"} {
+			if strings.Contains(output, unwanted) {
+				t.Errorf("%s = %q, want no %q", label, output, unwanted)
+			}
+		}
+	}
+	if !strings.Contains(stdout.String(), "Answer") || !strings.Contains(stderr.String(), "Status") {
+		t.Errorf("stdout/stderr = %q / %q, want sanitized answer and status", stdout.String(), stderr.String())
+	}
+}
+
 func TestRunPrintJSONAndStreamJSON(t *testing.T) {
 	for _, outputFormat := range []string{"json", "stream-json"} {
 		t.Run(outputFormat, func(t *testing.T) {

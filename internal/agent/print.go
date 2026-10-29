@@ -25,6 +25,7 @@ type PrintOptions struct {
 	NoColor      bool
 	Quiet        bool
 	OutputFormat string
+	APIHost      string
 	SessionID    *uuid.UUID
 	Incident     *api.Incident
 	Alert        *api.Alert
@@ -153,19 +154,24 @@ func (r *printRun) handleEvent(event Event, resumeTextSeparator *bool) bool {
 				}
 				*resumeTextSeparator = false
 			}
-			r.answer.WriteString(event.Text.Content)
+			content := event.Text.Content
+			if r.options.OutputFormat == "text" {
+				content = sanitizeTerminalText(content)
+			}
+			r.answer.WriteString(content)
 		}
 	case rootly.AiChatStreamEventStatus:
 		if event.Status != nil {
-			writeProgress(r.options, event.Status.Status)
+			writeProgress(r.options, sanitizeTerminalText(event.Status.Status))
 		}
 	case rootly.AiChatStreamEventTaskUpdate:
 		if event.TaskUpdate != nil {
-			writeProgress(r.options, fmt.Sprintf("task: %s (%s)", event.TaskUpdate.Title, event.TaskUpdate.Status))
+			writeProgress(r.options, fmt.Sprintf("task: %s (%s)", sanitizeTerminalText(event.TaskUpdate.Title), sanitizeTerminalText(event.TaskUpdate.Status)))
 		}
 	case rootly.AiChatStreamEventSkillLoaded:
 		if event.SkillLoaded != nil {
-			writeProgress(r.options, faint(r.options.NoColor, "• Loaded skill "+event.SkillLoaded.Skill.Name))
+			skillName := sanitizeTerminalText(event.SkillLoaded.Skill.Name)
+			writeProgress(r.options, faint(r.options.NoColor, "• Loaded skill "+skillName))
 		}
 	case rootly.AiChatStreamEventConfirmationRequired:
 		r.confirmation = event.ConfirmationRequired
@@ -184,7 +190,7 @@ func (r *printRun) handleEvent(event Event, resumeTextSeparator *bool) bool {
 
 func (r *printRun) writeActivityLines(lines []string) {
 	for _, line := range lines {
-		writeProgress(r.options, faint(r.options.NoColor, line))
+		writeProgress(r.options, faint(r.options.NoColor, sanitizeTerminalText(line)))
 	}
 }
 
@@ -198,7 +204,11 @@ func (r *printRun) resumeConfirmation(confirmation *rootly.AiChatStreamConfirmat
 			r.options.Confirmation = confirmation
 			_ = finishPrintTurn(r.options, r.answer.String(), "confirmation_required")
 		}
-		return false, fmt.Errorf("action requires approval: %s (run \"rootly agent\" interactively)", confirmation.Question)
+		err := fmt.Errorf("action requires approval: %s (run \"rootly agent\" interactively)", sanitizeTerminalText(confirmation.Question))
+		if r.options.OutputFormat == "text" {
+			err = sanitizeTerminalError(err)
+		}
+		return false, err
 	}
 	decision, err := askForApproval(r.options, confirmation)
 	if err != nil {
@@ -228,8 +238,9 @@ func finishPrintError(options PrintOptions, answer string, err error) error {
 		if outputErr := finishPrintTurn(options, answer, "error"); outputErr != nil {
 			return outputErr
 		}
+		return sanitizeTerminalError(err)
 	}
-	return err
+	return sanitizeTerminalError(err)
 }
 
 func finishPrintTurn(options PrintOptions, answer, doneStatus string) error {
@@ -261,6 +272,8 @@ func finishPrintTurn(options PrintOptions, answer, doneStatus string) error {
 		encoder := json.NewEncoder(options.Stdout)
 		return encoder.Encode(result)
 	}
+	answer = sanitizeTerminalText(answer)
+	doneStatus = sanitizeTerminalText(doneStatus)
 	if strings.TrimSpace(answer) != "" {
 		if err := writeAnswer(options, answer); err != nil {
 			return err
@@ -356,17 +369,18 @@ func askForApproval(options PrintOptions, confirmation *rootly.AiChatStreamConfi
 }
 
 func writeAnswer(options PrintOptions, answer string) error {
+	answer = sanitizeTerminalText(answer)
 	if terminal(options.IsStdoutTTY) && !options.NoColor {
 		renderer, err := glamour.NewTermRenderer(glamour.WithEnvironmentConfig(), glamour.WithWordWrap(80))
 		if err != nil {
 			return err
 		}
-		source, urls := preprocessMarkdownLinksWithURLs(answer)
+		source, links := preprocessMarkdownLinksWithURLs(answer, options.APIHost)
 		rendered, err := renderer.Render(source)
 		if err != nil {
 			return err
 		}
-		answer = strings.TrimSpace(restoreMarkdownLinks(rendered, urls))
+		answer = strings.TrimSpace(restoreMarkdownLinks(rendered, links))
 	}
 	_, err := fmt.Fprintln(options.Stdout, answer)
 	return err

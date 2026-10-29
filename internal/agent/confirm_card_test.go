@@ -88,3 +88,23 @@ func TestRenderConfirmationCardOmitsExpiryWhenUnset(t *testing.T) {
 		t.Errorf("card = %q, want no expiry countdown", got)
 	}
 }
+
+func TestRenderConfirmationCardSanitizesTerminalControls(t *testing.T) {
+	const attack = "\x1b]52;c;ZXZpbA==\x07\x1b[2J\x1b]8;;https://evil.example\x07"
+	confirmation := &rootly.AiChatStreamConfirmationRequired{
+		Question: "Approve " + attack,
+		Preview: []byte(`{
+			"title":"Title \u001b]52;c;ZXZpbA==\u0007\u001b[2J",
+			"summary":"Summary \u001b]52;c;ZXZpbA==\u0007",
+			"context_text":"Context \u001b[2J",
+			"fields":[{"label":"Label \u001b]52;c;ZXZpbA==\u0007","value":{"key":"Value \u001b]52;c;ZXZpbA==\u0007"}}]
+		}`),
+		MissingFields: []byte(`["Missing \u001b]52;c;ZXZpbA==\u0007"]`),
+	}
+	card := renderConfirmationCard(confirmation, 80, true, time.Now())
+	for _, unwanted := range []string{"]52;", "[2J", "\x1b]8;;", "\x1b"} {
+		if strings.Contains(card, unwanted) {
+			t.Errorf("confirmation card = %q, want no %q", card, unwanted)
+		}
+	}
+}
