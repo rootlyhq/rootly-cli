@@ -11,7 +11,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/mattn/go-isatty v0.0.24
-	github.com/rootlyhq/rootly-go v0.14.1-0.20261029121035-739c08477d0d
+	github.com/rootlyhq/rootly-go v0.14.1-0.20261029120658-1958d1f08056
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	golang.org/x/oauth2 v0.37.0

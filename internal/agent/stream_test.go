@@ -129,7 +129,6 @@ func newStreamStatusError(statusCode int, body, retryAfter string) *rootly.AiCha
 	}
 	return &rootly.AiChatStreamStatusError{
 		StatusCode: statusCode,
-		Status:     fmt.Sprintf("%d %s", statusCode, http.StatusText(statusCode)),
 		Header:     header,
 		Body:       []byte(body),
 	}
