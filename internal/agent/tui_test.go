@@ -1,20 +1,118 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"iter"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
+	"github.com/oapi-codegen/nullable"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	rootly "github.com/rootlyhq/rootly-go"
+
+	"github.com/rootlyhq/rootly-cli/internal/api"
 )
 
 type blockingStreamer struct {
 	started chan struct{}
+}
+
+type fakeTUIAPI struct {
+	sessionPages  []*rootly.ListAiChatSessionsResponse
+	listParams    []*rootly.ListAiChatSessionsParams
+	messagePages  []*rootly.ListAiChatSessionMessagesResponse
+	messageParams []*rootly.ListAiChatSessionMessagesParams
+	updateBodies  []rootly.UpdateAiChatSessionApplicationVndAPIPlusJSONRequestBody
+	updateStatus  int
+	deleteCalls   int
+}
+
+func (f *fakeTUIAPI) GetCurrentUserWithResponse(context.Context) (*rootly.GetCurrentUserResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeTUIAPI) ListAiChatSessionsWithResponse(_ context.Context, params *rootly.ListAiChatSessionsParams) (*rootly.ListAiChatSessionsResponse, error) {
+	f.listParams = append(f.listParams, params)
+	if len(f.sessionPages) == 0 {
+		return testSessionPage(nil, false, ""), nil
+	}
+	response := f.sessionPages[0]
+	f.sessionPages = f.sessionPages[1:]
+	return response, nil
+}
+
+func (f *fakeTUIAPI) ListAiChatSessionMessagesWithResponse(_ context.Context, _ openapi_types.UUID, params *rootly.ListAiChatSessionMessagesParams) (*rootly.ListAiChatSessionMessagesResponse, error) {
+	f.messageParams = append(f.messageParams, params)
+	if len(f.messagePages) == 0 {
+		return nil, errors.New("history not configured")
+	}
+	response := f.messagePages[0]
+	f.messagePages = f.messagePages[1:]
+	return response, nil
+}
+
+func (f *fakeTUIAPI) UpdateAiChatSessionWithApplicationVndAPIPlusJSONBodyWithResponse(_ context.Context, _ rootly.ID, body rootly.UpdateAiChatSessionApplicationVndAPIPlusJSONRequestBody) (*rootly.UpdateAiChatSessionResponse, error) {
+	f.updateBodies = append(f.updateBodies, body)
+	status := f.updateStatus
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return &rootly.UpdateAiChatSessionResponse{HTTPResponse: &http.Response{StatusCode: status}, Body: []byte(`{"errors":[{"title":"ai.chat:write required"}]}`)}, nil
+}
+
+func (f *fakeTUIAPI) DeleteAiChatSessionWithResponse(context.Context, rootly.ID) (*rootly.DeleteAiChatSessionResponse, error) {
+	f.deleteCalls++
+	return &rootly.DeleteAiChatSessionResponse{HTTPResponse: &http.Response{StatusCode: http.StatusNoContent}}, nil
+}
+
+func (*fakeTUIAPI) GetIncidentByID(context.Context, string) (*api.Incident, error) {
+	return nil, errors.New("incident not found")
+}
+
+func (*fakeTUIAPI) GetAlertByID(context.Context, string) (*api.Alert, error) {
+	return nil, errors.New("alert not found")
+}
+
+func (*fakeTUIAPI) APIHost() string { return "api.example.test" }
+
+func testSessionPage(sessions []rootly.AiChatSession, hasMore bool, before string) *rootly.ListAiChatSessionsResponse {
+	data := &rootly.AiChatSessionList{Sessions: sessions}
+	data.Meta.Pagination.HasMore = hasMore
+	if before == "" {
+		data.Meta.Pagination.NextBefore = nullable.NewNullNullable[string]()
+	} else {
+		data.Meta.Pagination.NextBefore = nullable.NewNullableWithValue(before)
+	}
+	return &rootly.ListAiChatSessionsResponse{
+		HTTPResponse:             &http.Response{StatusCode: http.StatusOK},
+		ApplicationVndAPIJSON200: data,
+	}
+}
+
+func testHistoryPage(messages []rootly.AiChatSessionMessage, pages int) *rootly.ListAiChatSessionMessagesResponse {
+	return &rootly.ListAiChatSessionMessagesResponse{
+		HTTPResponse: &http.Response{StatusCode: http.StatusOK},
+		ApplicationVndAPIJSON200: &rootly.AiChatSessionMessageList{
+			Messages: messages,
+			Meta:     map[string]interface{}{"pagination": map[string]interface{}{"pages": pages}},
+		},
+	}
+}
+
+func testSession(id, title string) rootly.AiChatSession {
+	return rootly.AiChatSession{
+		ID: uuid.MustParse(id), Title: title, LastActiveAt: time.Now(),
+	}
 }
 
 func (s *blockingStreamer) StreamAiChatEvents(ctx context.Context, _ *rootly.StreamAiChatParams) (iter.Seq2[rootly.AiChatStreamEvent, error], error) {
@@ -67,8 +165,278 @@ func TestTUIModelCtrlCCancelsStreaming(t *testing.T) {
 		t.Errorf("state/status = %v/%q, want idle with no status", model.state, model.status)
 	}
 	output := commandOutput(cmd)
-	if !strings.Contains(output, "partial") || !strings.Contains(output, "answer") || !strings.Contains(output, "Cancelled.") {
+	if !strings.Contains(output, "partial") || !strings.Contains(output, "answer") || !strings.Contains(output, "Stopped locally. The server may still finish this turn and save it to the session.") {
 		t.Errorf("scrollback output = %q, want partial answer and cancellation line", output)
+	}
+}
+
+func TestTUITranscriptUsesClaudeCodeStyle(t *testing.T) {
+	plain := renderPromptEcho("hello\nworld", 40, true)
+	if plain != "❯ hello\n  world" {
+		t.Errorf("plain prompt echo = %q, want prompt with indented continuation", plain)
+	}
+	colored := renderPromptEcho("hello\nworld", 40, false)
+	for _, line := range strings.Split(colored, "\n") {
+		if width := ansi.StringWidth(line); width != 40 {
+			t.Errorf("prompt echo width = %d, want 40: %q", width, line)
+		}
+	}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	answer := model.renderAssistantAnswer("Hello\nworld")
+	if answer != "● Hello\n  world" || strings.Contains(answer, "Assistant:") {
+		t.Errorf("assistant transcript = %q, want bullet and indented continuation without label", answer)
+	}
+}
+
+func TestTUIComposerStartsAtOneRowAndGrows(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.composer.SetWidth(40)
+	emptyRows := len(strings.Split(strings.TrimRight(model.composer.View(), "\n"), "\n"))
+	if emptyRows != 1 {
+		t.Errorf("empty composer rows = %d, want 1", emptyRows)
+	}
+
+	model.composer.SetValue("one\ntwo\nthree\nfour")
+	filledRows := len(strings.Split(strings.TrimRight(model.composer.View(), "\n"), "\n"))
+	if filledRows < 3 || filledRows > model.composer.MaxHeight {
+		t.Errorf("multiline composer rows = %d, want between 3 and %d", filledRows, model.composer.MaxHeight)
+	}
+	_, _ = model.Update(tea.WindowSizeMsg{Width: 60, Height: 18})
+	if model.composer.MaxHeight != 6 {
+		t.Errorf("composer max height after resize = %d, want 6", model.composer.MaxHeight)
+	}
+}
+
+func TestTUIExitAliasesAndNormalExitPhrase(t *testing.T) {
+	for _, prompt := range []string{"exit", " Exit ", "quit"} {
+		model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+		model.composer.SetValue(prompt)
+		cmd := model.submit()
+		if model.state != tuiIdle || cmd == nil {
+			t.Errorf("submit(%q) = state %v, command %v; want quit without streaming", prompt, model.state, cmd)
+		}
+	}
+	streamer := &fakeStreamer{}
+	model := NewTUIModel(context.Background(), streamer, TUIOptions{})
+	model.composer.SetValue("exit now")
+	_ = model.submit()
+	if model.state != tuiStreaming || model.currentParams == nil || model.currentParams.Message == nil || *model.currentParams.Message != "exit now" {
+		t.Errorf("exit now was not submitted as a normal prompt: state=%v params=%#v", model.state, model.currentParams)
+	}
+	if model.cancel != nil {
+		model.cancel()
+	}
+}
+
+func TestTUICommandAutocompleteTabCompletes(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.composer.SetValue("/res")
+	model.refreshCommandMenu()
+	if !model.commandMenuOpen {
+		t.Fatal("command menu did not open for a matching prefix")
+	}
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if got := model.composer.Value(); got != "/resume " {
+		t.Errorf("Tab value = %q, want /resume with a trailing space", got)
+	}
+	if model.commandMenuOpen {
+		t.Error("command menu remained open after Tab completion")
+	}
+}
+
+func TestTUICommandAutocompleteEnterRunsSelectedPrefix(t *testing.T) {
+	apiClient := &fakeTUIAPI{sessionPages: []*rootly.ListAiChatSessionsResponse{testSessionPage(nil, false, "")}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+	model.composer.SetValue("/r")
+	model.refreshCommandMenu()
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !model.pickerOpen || cmd == nil {
+		t.Fatalf("Enter on prefix did not run selected /resume command: picker=%v cmd=%v", model.pickerOpen, cmd)
+	}
+	result := cmd()
+	page, ok := result.(sessionPageMsg)
+	if !ok {
+		t.Fatalf("resume command result = %T, want session page", result)
+	}
+	_, _ = model.Update(page)
+	if len(apiClient.listParams) != 1 {
+		t.Errorf("session list calls = %d, want one selected /resume call", len(apiClient.listParams))
+	}
+}
+
+func TestTUISessionPickerLoadsMoreAndResumesSelection(t *testing.T) {
+	secondID := "db92b891-85c5-4e0c-a2f6-e8d873bfbde3"
+	apiClient := &fakeTUIAPI{sessionPages: []*rootly.ListAiChatSessionsResponse{
+		testSessionPage([]rootly.AiChatSession{testSession(testSessionID, "First")}, true, "cursor-2"),
+		testSessionPage([]rootly.AiChatSession{testSession(secondID, "Second")}, false, ""),
+	}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+
+	firstPage := model.openSessionPicker()().(sessionPageMsg)
+	_, _ = model.Update(firstPage)
+	if len(apiClient.listParams) != 1 || apiClient.listParams[0].Before != nil {
+		t.Fatalf("first list call params = %#v, want first page", apiClient.listParams)
+	}
+	if len(model.sessionPicker.Items()) != 2 {
+		t.Fatalf("picker items = %d, want session and Load more sentinel", len(model.sessionPicker.Items()))
+	}
+
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, loadMoreCmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if loadMoreCmd == nil {
+		t.Fatal("selecting Load more returned no fetch command")
+	}
+	secondPage := loadMoreCmd().(sessionPageMsg)
+	_, _ = model.Update(secondPage)
+	if len(apiClient.listParams) != 2 || apiClient.listParams[1].Before == nil || *apiClient.listParams[1].Before != "cursor-2" {
+		t.Fatalf("next page params = %#v, want Before cursor-2", apiClient.listParams)
+	}
+	if len(model.sessionPicker.Items()) != 2 {
+		t.Fatalf("picker items after more = %d, want two sessions", len(model.sessionPicker.Items()))
+	}
+
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if model.sessionID == nil || model.sessionID.String() != secondID {
+		t.Errorf("selected session = %v, want %s", model.sessionID, secondID)
+	}
+	if model.sessionTitle != "Second" || model.pickerOpen {
+		t.Errorf("selection state title/open = %q/%v, want Second/closed", model.sessionTitle, model.pickerOpen)
+	}
+}
+
+func TestTUISessionPickerEscapeCancels(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.pickerOpen = true
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if model.pickerOpen {
+		t.Error("Esc left the session picker open")
+	}
+}
+
+func TestTUIHistoryRecallAndFooter(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.promptHistory = []string{"first", "second"}
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	if got := model.composer.Value(); got != "second" {
+		t.Errorf("first Up value = %q, want latest prompt", got)
+	}
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	if got := model.composer.Value(); got != "first" {
+		t.Errorf("second Up value = %q, want previous prompt", got)
+	}
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if got := model.composer.Value(); got != "second" {
+		t.Errorf("Down value = %q, want newer prompt", got)
+	}
+	sessionID := uuid.MustParse(testSessionID)
+	model.sessionID = &sessionID
+	model.turnStartedAt = time.Now().Add(-1200 * time.Millisecond)
+	if footer := model.turnFooter(); !strings.Contains(footer, "session "+testSessionID[:8]) || !strings.Contains(footer, "s · session ") {
+		t.Errorf("turn footer = %q, want elapsed and short session id", footer)
+	}
+}
+
+func TestLoadSessionHistoryFetchesLastPage(t *testing.T) {
+	firstMessage := rootly.AiChatSessionMessage{
+		ID:   uuid.MustParse(testSessionID),
+		Role: rootly.AiChatSessionMessageRole("user"), Content: "old prompt",
+		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	lastMessage := rootly.AiChatSessionMessage{
+		ID:   uuid.MustParse("c532fe53-20b9-49ee-ab28-68e917d09e73"),
+		Role: rootly.AiChatSessionMessageRole("assistant"), Content: "latest answer",
+		CreatedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+	}
+	apiClient := &fakeTUIAPI{messagePages: []*rootly.ListAiChatSessionMessagesResponse{
+		testHistoryPage([]rootly.AiChatSessionMessage{firstMessage}, 2),
+		testHistoryPage([]rootly.AiChatSessionMessage{lastMessage}, 2),
+	}}
+
+	messages, err := loadSessionHistory(context.Background(), apiClient, uuid.MustParse(testSessionID))
+	if err != nil {
+		t.Fatalf("loadSessionHistory() error = %v", err)
+	}
+	if len(apiClient.messageParams) != 2 {
+		t.Fatalf("history calls = %d, want first and last page", len(apiClient.messageParams))
+	}
+	if *apiClient.messageParams[0].PageNumber != 1 || *apiClient.messageParams[0].PageSize != 100 ||
+		*apiClient.messageParams[1].PageNumber != 2 || *apiClient.messageParams[1].PageSize != 100 {
+		t.Errorf("history page params = %#v, %#v; want pages 1 and 2 with size 100", apiClient.messageParams[0], apiClient.messageParams[1])
+	}
+	if len(messages) != 2 || messages[0].Content != "old prompt" || messages[1].Content != "latest answer" {
+		t.Errorf("history messages = %#v, want first and last page messages in order", messages)
+	}
+}
+
+func TestTUITaskActivityIsTerminalAndDeduplicated(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-1", Title: "Create incident", Status: "in_progress"}})
+	if len(model.activityCommands) != 0 {
+		t.Fatalf("activity commands after in_progress = %d, want none", len(model.activityCommands))
+	}
+	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-1", Title: "Create incident", Status: "complete"}})
+	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-1", Title: "Create incident", Status: "complete"}})
+	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-2", Title: "Notify owner", Status: "cancelled"}})
+	if len(model.activityCommands) != 2 {
+		t.Fatalf("activity commands = %d, want one per terminal task", len(model.activityCommands))
+	}
+	first, second := commandOutput(model.activityCommands[0]), commandOutput(model.activityCommands[1])
+	if !strings.Contains(first, "✓ Create incident") || !strings.Contains(second, "✗ Notify owner") {
+		t.Errorf("task lines = %q, %q; want success and failure glyphs", first, second)
+	}
+}
+
+func TestTUISessionCommandsRequireSessionAndMapErrors(t *testing.T) {
+	apiClient := &fakeTUIAPI{}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+	if output := commandOutput(model.runSlashCommand("/rename name")); !strings.Contains(output, "No session yet: send a message first.") {
+		t.Errorf("no-session output = %q, want exact no-session message", output)
+	}
+	if len(apiClient.updateBodies) != 0 {
+		t.Fatalf("updates = %d, want no API call without a session", len(apiClient.updateBodies))
+	}
+
+	sessionID := uuid.MustParse(testSessionID)
+	model.sessionID = &sessionID
+	apiClient.updateStatus = http.StatusForbidden
+	cmd := model.runSlashCommand("/pin")
+	result, ok := cmd().(sessionActionMsg)
+	if !ok || result.err == nil || !strings.Contains(result.err.Error(), "ai.chat:write") {
+		t.Fatalf("pin result = %#v, want mapped API permission error", result)
+	}
+	if len(apiClient.updateBodies) != 1 {
+		t.Errorf("updates = %d, want one PATCH", len(apiClient.updateBodies))
+	}
+}
+
+func TestTUIExportWritesTranscriptWithoutOverwriting(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "chat.md")
+	sessionID := uuid.MustParse(testSessionID)
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.sessionID = &sessionID
+	model.transcript = []transcriptTurn{{user: "question", assistant: "answer"}}
+
+	if cmd := model.exportTranscript(path); cmd == nil {
+		t.Fatal("export returned no command")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read exported file: %v", err)
+	}
+	if !strings.Contains(string(got), "## You\n\nquestion") || !strings.Contains(string(got), "## Rootly\n\nanswer") {
+		t.Errorf("export = %q, want both transcript sections", got)
+	}
+	if cmd := model.exportTranscript(path); cmd == nil {
+		t.Fatal("second export returned no command")
+	}
+	gotAgain, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read exported file after repeated export: %v", err)
+	}
+	if !bytes.Equal(gotAgain, got) {
+		t.Errorf("existing export changed: before %q, after %q", got, gotAgain)
 	}
 }
 

@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -26,6 +27,77 @@ func TestRunPrintJoinsTextToStdout(t *testing.T) {
 	}
 	if got := stdout.String(); got != "Hello there.\n" {
 		t.Errorf("stdout = %q, want joined response", got)
+	}
+}
+
+func TestRunPrintJSONAndStreamJSON(t *testing.T) {
+	for _, outputFormat := range []string{"json", "stream-json"} {
+		t.Run(outputFormat, func(t *testing.T) {
+			streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{
+				eventOf(rootly.AiChatStreamEventText, `{"content":"answer"}`),
+				eventOf(rootly.AiChatStreamEventDone, `{"status":"complete"}`),
+			}}}
+			var stdout, stderr bytes.Buffer
+			options := newPrintOptions(&stdout, &stderr)
+			options.OutputFormat = outputFormat
+			if err := RunPrint(context.Background(), streamer, options); err != nil {
+				t.Fatalf("RunPrint() error = %v", err)
+			}
+			lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+			wantLines := 1
+			if outputFormat == "stream-json" {
+				wantLines = 3
+				var event map[string]any
+				if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+					t.Fatalf("event line is invalid JSON: %v", err)
+				}
+				if event["type"] != string(rootly.AiChatStreamEventText) {
+					t.Errorf("event type = %v, want %q", event["type"], rootly.AiChatStreamEventText)
+				}
+			}
+			if len(lines) != wantLines {
+				t.Fatalf("stdout lines = %d, want %d: %q", len(lines), wantLines, stdout.String())
+			}
+			var result map[string]any
+			if err := json.Unmarshal([]byte(lines[len(lines)-1]), &result); err != nil {
+				t.Fatalf("result line is invalid JSON: %v", err)
+			}
+			if outputFormat == "stream-json" && result["type"] != "result" {
+				t.Errorf("final type = %v, want result", result["type"])
+			}
+			if result["result"] != "answer" || result["status"] != "complete" {
+				t.Errorf("result = %#v, want answer and complete status", result)
+			}
+			if stderr.Len() != 0 {
+				t.Errorf("stderr = %q, want no progress output", stderr.String())
+			}
+		})
+	}
+}
+
+func TestRunPrintJSONConfirmationRequiredIsEmittedBeforeError(t *testing.T) {
+	streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{
+		eventOf(rootly.AiChatStreamEventSessionID, `{"session_id":"`+testSessionID+`"}`),
+		eventOf(rootly.AiChatStreamEventConfirmationRequired, `{"checkpoint_id":"`+testCheckpointID+`","question":"Approve?","preview":{"title":"Create"},"expires_at":"2099-01-01T00:00:00Z"}`),
+		eventOf(rootly.AiChatStreamEventDone, `{"status":"confirmation_required"}`),
+	}}}
+	var stdout, stderr bytes.Buffer
+	options := newPrintOptions(&stdout, &stderr)
+	options.OutputFormat = "json"
+
+	if err := RunPrint(context.Background(), streamer, options); err == nil {
+		t.Fatal("RunPrint() returned nil, want non-interactive confirmation error")
+	}
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("stdout is not a JSON result: %v (%q)", err, stdout.String())
+	}
+	confirmation, ok := result["confirmation"].(map[string]any)
+	if result["status"] != "confirmation_required" || !ok || confirmation["question"] != "Approve?" {
+		t.Errorf("result = %#v, want confirmation_required with question", result)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want no JSON-mode progress", stderr.String())
 	}
 }
 

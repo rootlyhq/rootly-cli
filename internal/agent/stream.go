@@ -29,6 +29,18 @@ type Event struct {
 	Done                 *rootly.AiChatStreamDone
 }
 
+const aiChatDisabledMessage = "Rootly AI chat isn't enabled for your organization. Contact your Rootly account team or Rootly support to turn it on."
+
+func AIChatDisabledError() error {
+	return aiChatDisabledError{}
+}
+
+type aiChatDisabledError struct{}
+
+func (aiChatDisabledError) Error() string {
+	return aiChatDisabledMessage
+}
+
 func StreamTurn(ctx context.Context, streamer Streamer, params *rootly.StreamAiChatParams, yield func(Event) bool) error {
 	events, err := streamer.StreamAiChatEvents(ctx, params)
 	if err != nil {
@@ -129,6 +141,9 @@ func describeError(err error) error {
 	case 401:
 		return fmt.Errorf("not authenticated: run `rootly login` or set ROOTLY_API_KEY")
 	case 403:
+		if strings.Contains(strings.ToLower(title), "not enabled") {
+			return AIChatDisabledError()
+		}
 		if strings.Contains(strings.ToLower(title+" "+body), "ai.chat:write") {
 			return fmt.Errorf("OAuth token requires ai.chat:write scope for this action. Run `rootly logout && rootly login` to refresh your scopes")
 		}
