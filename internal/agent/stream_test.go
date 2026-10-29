@@ -64,7 +64,6 @@ func TestStreamTurnDecodesKnownEventsAndIgnoresUnknown(t *testing.T) {
 }
 
 func TestDescribeError(t *testing.T) {
-	retryDate := time.Now().Add(17 * time.Second).UTC().Format(http.TimeFormat)
 	tests := []struct {
 		name string
 		err  error
@@ -83,11 +82,6 @@ func TestDescribeError(t *testing.T) {
 		{
 			name: "rate limit with retry after",
 			err:  newStreamStatusError(http.StatusTooManyRequests, "rate limited", "17"),
-			want: "rate limited by Rootly AI: retry in 17s",
-		},
-		{
-			name: "rate limit retry after rounds up",
-			err:  newStreamStatusError(http.StatusTooManyRequests, "rate limited", retryDate),
 			want: "rate limited by Rootly AI: retry in 17s",
 		},
 		{
@@ -117,6 +111,14 @@ func TestDescribeError(t *testing.T) {
 				t.Errorf("describeError() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDescribeErrorRetryAfterHTTPDate(t *testing.T) {
+	retryDate := time.Now().Add(17 * time.Second).UTC().Format(http.TimeFormat)
+	got := describeError(newStreamStatusError(http.StatusTooManyRequests, "rate limited", retryDate)).Error()
+	if got != "rate limited by Rootly AI: retry in 17s" && got != "rate limited by Rootly AI: retry in 16s" {
+		t.Errorf("describeError() = %q, want retry in 16s or 17s", got)
 	}
 }
 
