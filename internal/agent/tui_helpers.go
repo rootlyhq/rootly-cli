@@ -150,7 +150,16 @@ func (m *TUIModel) quitCommand() tea.Cmd {
 		return tea.Quit
 	}
 	hint := "Resume with: rootly agent --resume " + m.sessionID.String()
-	return tea.Sequence(tea.Println(faint(m.noColor, hint)), tea.Quit)
+	return tea.Sequence(m.println(faint(m.noColor, hint)), tea.Quit)
+}
+
+func (m *TUIModel) println(text string) tea.Cmd {
+	width := max(1, m.width)
+	for _, line := range strings.Split(text, "\n") {
+		lineWidth := lipgloss.Width(line)
+		m.printedRows += max(1, (lineWidth+width-1)/width)
+	}
+	return tea.Println(text)
 }
 
 func isExitAlias(message string) bool {
@@ -309,7 +318,7 @@ func (m *TUIModel) helpView() string {
 
 func (m *TUIModel) statusCommand() tea.Cmd {
 	if m.userLoaded || m.api == nil {
-		return tea.Println(m.statusLines())
+		return m.println(m.statusLines())
 	}
 	m.statusRequest++
 	request := m.statusRequest
@@ -395,7 +404,7 @@ func (m *TUIModel) printHistory(title string, messages []rootly.AiChatSessionMes
 		if index < len(lines)-1 {
 			line += "\n"
 		}
-		commands = append(commands, tea.Println(line))
+		commands = append(commands, m.println(line))
 	}
 	commands = append(commands, tea.RequestWindowSize)
 	return tea.Sequence(commands...)
@@ -421,7 +430,7 @@ func (m *TUIModel) openSessionPicker() tea.Cmd {
 func (m *TUIModel) loadSessionPage(before string) tea.Cmd {
 	if m.api == nil {
 		m.pickerOpen = false
-		return tea.Println("session API unavailable")
+		return m.println("session API unavailable")
 	}
 	m.pickerRequest++
 	request := m.pickerRequest
@@ -458,7 +467,7 @@ func (m *TUIModel) handleSessionPage(message sessionPageMsg) tea.Cmd {
 	m.pickerLoading = false
 	if message.err != nil {
 		m.pickerOpen = false
-		return tea.Println(sanitizeTerminalText(message.err.Error()))
+		return m.println(sanitizeTerminalText(message.err.Error()))
 	}
 	m.pickerBefore = message.before
 	m.pickerHasMore = message.hasMore && message.before != ""
@@ -493,7 +502,7 @@ func (m *TUIModel) selectPickerItem(item sessionPickerItem) tea.Cmd {
 	id, err := uuid.Parse(item.session.ID.String())
 	if err != nil {
 		m.pickerOpen = false
-		return tea.Println("invalid session UUID")
+		return m.println("invalid session UUID")
 	}
 	m.pickerOpen = false
 	m.pickerLoading = false
@@ -567,10 +576,10 @@ func (m *TUIModel) refreshCommandMenu() {
 
 func (m *TUIModel) sessionAction(action, message string, body rootly.UpdateAiChatSessionApplicationVndAPIPlusJSONRequestBody, sessionTitle *string) tea.Cmd {
 	if m.sessionID == nil {
-		return tea.Println("No session yet: send a message first.")
+		return m.println("No session yet: send a message first.")
 	}
 	if m.api == nil {
-		return tea.Println("session API unavailable")
+		return m.println("session API unavailable")
 	}
 	m.actionRequest++
 	request, id, apiClient, ctx := m.actionRequest, *m.sessionID, m.api, m.ctx
@@ -587,10 +596,10 @@ func (m *TUIModel) sessionAction(action, message string, body rootly.UpdateAiCha
 
 func (m *TUIModel) deleteSession() tea.Cmd {
 	if m.sessionID == nil {
-		return tea.Println("No session yet: send a message first.")
+		return m.println("No session yet: send a message first.")
 	}
 	if m.api == nil {
-		return tea.Println("session API unavailable")
+		return m.println("session API unavailable")
 	}
 	m.actionRequest++
 	request, id, apiClient, ctx := m.actionRequest, *m.sessionID, m.api, m.ctx
@@ -619,9 +628,9 @@ func sessionActionStatusError(status int, body []byte) error {
 func (m *TUIModel) handleSessionAction(message sessionActionMsg) tea.Cmd {
 	if message.err != nil {
 		if errors.Is(message.err, errSessionActionNotFound) {
-			return tea.Println(sessionActionNotFoundMessage)
+			return m.println(sessionActionNotFoundMessage)
 		}
-		return tea.Println(sanitizeTerminalText(message.err.Error()))
+		return m.println(sanitizeTerminalText(message.err.Error()))
 	}
 	if message.action == "rename" {
 		m.sessionTitle = ""
@@ -632,9 +641,9 @@ func (m *TUIModel) handleSessionAction(message sessionActionMsg) tea.Cmd {
 	text := sanitizeTerminalText(message.message)
 	if message.action == "archive" || message.action == "delete" {
 		m.startNewSession()
-		return tea.Println(faint(m.noColor, text))
+		return m.println(faint(m.noColor, text))
 	}
-	return tea.Println(faint(m.noColor, text))
+	return m.println(faint(m.noColor, text))
 }
 
 func (m *TUIModel) startNewSession() {
@@ -654,10 +663,10 @@ func (m *TUIModel) startNewSession() {
 
 func (m *TUIModel) exportTranscript(filename string) tea.Cmd {
 	if m.sessionID == nil {
-		return tea.Println("No session yet: send a message first.")
+		return m.println("No session yet: send a message first.")
 	}
 	if len(m.transcript) == 0 {
-		return tea.Println("Nothing to export yet.")
+		return m.println("Nothing to export yet.")
 	}
 	if strings.TrimSpace(filename) == "" {
 		filename = fmt.Sprintf("rootly-chat-%s-%s.md", shortSessionID(m.sessionID.String()), time.Now().Format("20060102-150405"))
@@ -675,9 +684,9 @@ func (m *TUIModel) exportTranscript(filename string) tea.Cmd {
 		}
 	}
 	if err != nil {
-		return tea.Println("Export failed: " + sanitizeTerminalText(err.Error()))
+		return m.println("Export failed: " + sanitizeTerminalText(err.Error()))
 	}
-	return tea.Println(faint(m.noColor, "Exported "+path))
+	return m.println(faint(m.noColor, "Exported "+path))
 }
 
 func (m *TUIModel) transcriptMarkdown() string {
@@ -695,7 +704,7 @@ func (m *TUIModel) transcriptMarkdown() string {
 
 func (m *TUIModel) resolveBinding(kind, value string) tea.Cmd {
 	if m.api == nil {
-		return tea.Println("resource API unavailable")
+		return m.println("resource API unavailable")
 	}
 	m.actionRequest++
 	request, apiClient, ctx := m.actionRequest, m.api, m.ctx

@@ -143,7 +143,7 @@ type TUIModel struct {
 	verbIndex           func(int) int
 	now                 func() time.Time
 	version             string
-	showWelcomeBanner   bool
+	printedRows         int
 	lastAnswer          string
 	transcript          []transcriptTurn
 	activities          activityTracker
@@ -199,7 +199,6 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 		version:           options.Version,
 		verbIndex:         rand.IntN,
 		now:               time.Now,
-		showWelcomeBanner: true,
 		api:               options.API,
 		apiHost:           options.APIHost,
 		currentUser:       currentUser,
@@ -214,15 +213,16 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 }
 
 func (m *TUIModel) Init() tea.Cmd {
-	cmds := []tea.Cmd{tea.ClearScreen, tea.Println(m.welcomeBanner()), m.composer.Focus()}
+	m.printedRows = 0
+	cmds := []tea.Cmd{tea.ClearScreen, m.println(m.welcomeBanner()), m.composer.Focus()}
 	if m.sessionID != nil {
 		if !m.resumeLinePending {
-			cmds = append(cmds, tea.Println(m.resumedLine()))
+			cmds = append(cmds, m.println(m.resumedLine()))
 		}
 		cmds = append(cmds, m.loadHistory(*m.sessionID, ""))
 	}
 	if header := m.bindingHeader(); header != "" {
-		cmds = append(cmds, tea.Println(faint(m.noColor, header)))
+		cmds = append(cmds, m.println(faint(m.noColor, header)))
 	}
 	return tea.Sequence(cmds...)
 }
@@ -267,10 +267,10 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.sessionTitle = sanitizeTerminalText(msg.sessionTitle)
 			}
 			m.resumeLinePending = false
-			resumedCmd = tea.Println(m.resumedLine())
+			resumedCmd = m.println(m.resumedLine())
 		}
 		if msg.err != nil {
-			errorCmd := tea.Println(faint(m.noColor, "Could not load session history: "+sanitizeTerminalText(msg.err.Error())))
+			errorCmd := m.println(faint(m.noColor, "Could not load session history: "+sanitizeTerminalText(msg.err.Error())))
 			if resumedCmd != nil {
 				return m, tea.Sequence(resumedCmd, errorCmd)
 			}
@@ -289,7 +289,8 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.response != nil && msg.response.ApplicationVndAPIJSON200 != nil {
 			m.currentUser = msg.response.ApplicationVndAPIJSON200
 		}
-		return m, tea.Println(m.statusLines())
+		cmd := m.println(m.statusLines())
+		return m, cmd
 	case sessionPageMsg:
 		cmd := m.handleSessionPage(msg)
 		return m, cmd
@@ -304,7 +305,8 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.err != nil {
-			return m, tea.Println(sanitizeTerminalText(msg.err.Error()))
+			cmd := m.println(sanitizeTerminalText(msg.err.Error()))
+			return m, cmd
 		}
 		m.sessionID = nil
 		m.answer.Reset()
@@ -314,7 +316,8 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.incident, m.alert = msg.incident, msg.alert
 		m.incidentUsed, m.alertUsed = false, false
 		m.status = ""
-		return m, tea.Println(faint(m.noColor, m.bindingHeader()))
+		cmd := m.println(faint(m.noColor, m.bindingHeader()))
+		return m, cmd
 	case tea.KeyPressMsg:
 		return m.updateKey(msg)
 	default:
@@ -358,7 +361,7 @@ func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
 
 func (m *TUIModel) handleEvent(event Event) {
 	for _, line := range m.activities.Handle(event) {
-		m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, sanitizeTerminalText(line))))
+		m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, sanitizeTerminalText(line))))
 	}
 	switch event.Type {
 	case rootly.AiChatStreamEventSessionID:
@@ -388,7 +391,7 @@ func (m *TUIModel) handleEvent(event Event) {
 	case rootly.AiChatStreamEventSkillLoaded:
 		if event.SkillLoaded != nil {
 			skillName := sanitizeTerminalText(event.SkillLoaded.Skill.Name)
-			m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, "• Loaded skill "+skillName)))
+			m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, "• Loaded skill "+skillName)))
 		}
 	case rootly.AiChatStreamEventConfirmationRequired:
 		m.pending = event.ConfirmationRequired
@@ -412,16 +415,16 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	m.state = tuiIdle
 	if err != nil {
 		for _, line := range m.activities.Finish(false) {
-			m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, line)))
+			m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, line)))
 		}
 	} else if m.doneStatus == "confirmation_required" {
 		m.activities.dropConfirmation()
 		for _, line := range m.activities.Finish(true) {
-			m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, line)))
+			m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, line)))
 		}
 	} else if m.doneStatus != "" {
 		for _, line := range m.activities.Finish(m.doneStatus == "complete") {
-			m.activityCommands = append(m.activityCommands, tea.Println(faint(m.noColor, line)))
+			m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, line)))
 		}
 	}
 	commands := append([]tea.Cmd(nil), m.activityCommands...)
@@ -477,7 +480,7 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 		m.lastAnswer = rawAnswer
 		m.transcript = append(m.transcript, transcriptTurn{user: m.currentPrompt, assistant: rawAnswer})
 		commands = append(commands,
-			tea.Println("\n"+m.renderAssistantAnswer(rawAnswer)+"\n"+m.turnFooter()),
+			m.println("\n"+m.renderAssistantAnswer(rawAnswer)+"\n"+m.turnFooter()),
 			tea.RequestWindowSize,
 		)
 	}
@@ -519,7 +522,7 @@ func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
 	m.answer.Reset()
 	m.turnStartedAt = time.Time{}
 	m.currentPrompt = ""
-	return tea.Println(strings.Join(lines, "\n"))
+	return m.println(strings.Join(lines, "\n"))
 }
 
 func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -654,7 +657,6 @@ func (m *TUIModel) submit() tea.Cmd {
 	if message == "" {
 		return nil
 	}
-	m.showWelcomeBanner = false
 	if isExitAlias(message) {
 		return m.quitCommand()
 	}
@@ -683,7 +685,7 @@ func (m *TUIModel) submit() tea.Cmd {
 		m.alertUsed = true
 	}
 	cmd := m.startStream(params)
-	return tea.Sequence(tea.Println(renderPromptEcho(message, m.width, m.noColor)), cmd)
+	return tea.Sequence(m.println(renderPromptEcho(message, m.width, m.noColor)), cmd)
 }
 
 func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
@@ -722,38 +724,38 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 			action = "Pinned"
 		}
 		if m.sessionID == nil {
-			return tea.Println("No session yet: send a message first.")
+			return m.println("No session yet: send a message first.")
 		}
 		return m.sessionAction(parts[0], action+" session "+shortSessionID(m.sessionID.String())+".", body, nil)
 	case "/archive":
 		archived := true
 		if m.sessionID == nil {
-			return tea.Println("No session yet: send a message first.")
+			return m.println("No session yet: send a message first.")
 		}
 		return m.sessionAction("archive", "Archived session "+shortSessionID(m.sessionID.String())+".", rootly.UpdateAiChatSession{Archived: &archived}, nil)
 	case "/delete":
 		if m.sessionID == nil {
-			return tea.Println("No session yet: send a message first.")
+			return m.println("No session yet: send a message first.")
 		}
 		m.deleteConfirming = true
 		return nil
 	case "/copy":
 		if m.sessionID == nil {
-			return tea.Println("No session yet: send a message first.")
+			return m.println("No session yet: send a message first.")
 		}
 		if m.lastAnswer == "" {
-			return tea.Println("Nothing to copy yet.")
+			return m.println("Nothing to copy yet.")
 		}
-		return tea.Batch(tea.SetClipboard(m.lastAnswer), tea.Println(faint(m.noColor, "Copied last answer.")))
+		return tea.Batch(tea.SetClipboard(m.lastAnswer), m.println(faint(m.noColor, "Copied last answer.")))
 	case "/export":
 		return m.exportTranscript(strings.Join(parts[1:], " "))
 	case "/incident", "/alert":
 		if len(parts) < 2 {
-			return tea.Println(fmt.Sprintf("Usage: %s <id>", parts[0]))
+			return m.println(fmt.Sprintf("Usage: %s <id>", parts[0]))
 		}
 		return m.resolveBinding(strings.TrimPrefix(parts[0], "/"), parts[1])
 	default:
-		return tea.Println(fmt.Sprintf("Unknown command %s. Type /help.", parts[0]))
+		return m.println(fmt.Sprintf("Unknown command %s. Type /help.", parts[0]))
 	}
 	return nil
 }
@@ -877,15 +879,9 @@ func (m *TUIModel) View() tea.View {
 		)
 	}
 	body := strings.Join(sections, "\n")
-	if m.showWelcomeBanner {
-		banner := strings.TrimSuffix(m.welcomeBanner(), "\n")
-		if height := lipgloss.Height(banner + "\n\n" + body); height < m.height {
-			body = banner + strings.Repeat("\n", m.height-height) + "\n\n" + body
-		} else {
-			body = banner + "\n\n" + body
-		}
-	} else if height := lipgloss.Height(body); height < m.height {
-		body = strings.Repeat("\n", m.height-height) + body
+	padding := m.height - m.printedRows - lipgloss.Height(body)
+	if padding > 0 {
+		body = strings.Repeat("\n", padding) + body
 	}
 	view := tea.NewView(body)
 	return view

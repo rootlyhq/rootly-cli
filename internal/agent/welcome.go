@@ -8,15 +8,13 @@ import (
 )
 
 func (m *TUIModel) welcomeBanner() string {
-	logo := " ▄▀▀▀▄ \n█ ● ● █\n ▀▄▄▄▀ "
+	mark := "✦"
+	name := "Rootly AI"
 	if !m.noColor {
-		logo = lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5CF6")).Render(logo)
+		mark = lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A24F")).Render(mark)
+		name = lipgloss.NewStyle().Bold(true).Render(name)
 	}
-
-	title := "Rootly AI"
-	if !m.noColor {
-		title = lipgloss.NewStyle().Bold(true).Render(title)
-	}
+	title := mark + " " + name
 	version := sanitizeTerminalText(m.version)
 	if version != "" && version != "dev" {
 		title += " " + faint(m.noColor, "v"+version)
@@ -42,7 +40,32 @@ func (m *TUIModel) welcomeBanner() string {
 	}
 	hostLine := faint(m.noColor, sanitizeTerminalText(host))
 	rows := strings.Join([]string{title, userLine, hostLine}, "\n")
-	return lipgloss.JoinHorizontal(lipgloss.Top, logo, "  ", rows) + "\n"
+	return lipgloss.JoinHorizontal(lipgloss.Center, sproutLogo(m.noColor), "  ", rows) + "\n"
+}
+
+func sproutLogo(noColor bool) string {
+	lines := []string{
+		"        ▄█▄",
+		"    ▄▄  ███  ▄▄",
+		"    ▀██  ▀  ██▀",
+		" ▄▄▄▄    ▄    ▄▄▄▄",
+		"  ▀▀▀   ███   ▀▀▀",
+		"▄▄▄▄▄▄▄  ▀  ▄▄▄▄▄▄▄",
+		"▀▀▀▀▀▀▀██▄██▀▀▀▀▀▀▀",
+		"        ███",
+	}
+	width := 0
+	for _, line := range lines {
+		width = max(width, lipgloss.Width(line))
+	}
+	for index, line := range lines {
+		lines[index] = line + strings.Repeat(" ", width-lipgloss.Width(line))
+	}
+	logo := strings.Join(lines, "\n")
+	if noColor {
+		return logo
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("#7C5CE6")).Render(logo)
 }
 
 func currentUserName(attributes rootly.CurrentUser) string {

@@ -28,9 +28,14 @@ func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
 
 	banner := ansi.Strip(model.welcomeBanner())
 	for _, expected := range []string{
-		" ▄▀▀▀▄",
-		"█ ● ● █",
-		" ▀▄▄▄▀",
+		"        ▄█▄",
+		"    ▄▄  ███  ▄▄",
+		"    ▀██  ▀  ██▀",
+		" ▄▄▄▄    ▄    ▄▄▄▄",
+		"  ▀▀▀   ███   ▀▀▀",
+		"▄▄▄▄▄▄▄  ▀  ▄▄▄▄▄▄▄",
+		"▀▀▀▀▀▀▀██▄██▀▀▀▀▀▀▀",
+		"        ███",
 		"Rootly AI",
 		"v1.2.3",
 		"Avery Rootly · Incident Response",
@@ -39,6 +44,19 @@ func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
 		if !strings.Contains(banner, expected) {
 			t.Errorf("welcome banner = %q, want %q", banner, expected)
 		}
+	}
+	bannerLines := strings.Split(strings.TrimSuffix(banner, "\n"), "\n")
+	if len(bannerLines) != 8 {
+		t.Errorf("welcome banner rows = %d, want 8", len(bannerLines))
+	}
+	for index, line := range strings.Split(sproutLogo(true), "\n") {
+		if width := lipgloss.Width(line); width != 19 {
+			t.Errorf("sprout row %d width = %d, want 19", index+1, width)
+		}
+	}
+	model.Init()
+	if model.printedRows != 9 {
+		t.Errorf("printed rows after welcome Init = %d, want 9 including the banner's final blank row", model.printedRows)
 	}
 }
 
@@ -95,16 +113,48 @@ func TestTUIViewPinsComposerHintToTerminalBottom(t *testing.T) {
 	if got := lastLine(view); got != "/ for commands · exit to quit" {
 		t.Errorf("last idle view line = %q, want composer hint", got)
 	}
-	lines := strings.Split(view, "\n")
-	if !strings.Contains(lines[0], "▄▀▀▀▄") || !strings.Contains(lines[0], "Rootly AI") {
-		t.Errorf("first idle view line = %q, want the welcome logo and title", lines[0])
-	}
-	if lines[3] != "" {
-		t.Errorf("line after welcome banner = %q, want one blank line", lines[3])
+	if strings.Contains(view, "Rootly AI") {
+		t.Errorf("idle view contains welcome banner, which should be printed once to scrollback: %q", view)
 	}
 	rule := strings.Repeat("─", model.width)
 	if got := strings.Count(view, rule); got != 2 {
 		t.Errorf("idle view has %d full-width rules, want 2: %q", got, view)
+	}
+}
+
+func TestTUIViewPaddingAccountsForPrintedAndWrappedRows(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.width = 20
+	model.height = 24
+	model.println("one\ntwo")
+
+	if model.printedRows != 2 {
+		t.Fatalf("printed rows = %d, want 2", model.printedRows)
+	}
+	if got := lipgloss.Height(model.View().Content); got != model.height-2 {
+		t.Errorf("view height after two printed rows = %d, want %d", got, model.height-2)
+	}
+
+	wrapped := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	wrapped.width = 20
+	wrapped.height = 24
+	wrapped.println(strings.Repeat("x", 41))
+	if wrapped.printedRows != 3 {
+		t.Fatalf("printed rows for a wrapped line = %d, want 3", wrapped.printedRows)
+	}
+	if got := lipgloss.Height(wrapped.View().Content); got != wrapped.height-3 {
+		t.Errorf("view height after wrapped output = %d, want %d", got, wrapped.height-3)
+	}
+
+	full := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	full.width = 20
+	full.height = 24
+	full.printedRows = 24
+	bodyHeight := lipgloss.Height(full.View().Content)
+	full.printedRows = 0
+	full.println(strings.Repeat("row\n", 24))
+	if got := lipgloss.Height(full.View().Content); got != bodyHeight {
+		t.Errorf("view height after filling scrollback = %d, want body height %d", got, bodyHeight)
 	}
 }
 
