@@ -882,6 +882,7 @@ func TestTUITranscriptSpacingAcrossTurns(t *testing.T) {
 func TestTUIHelpMentionsViewportNavigationAndTextSelection(t *testing.T) {
 	helpText := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{}).helpView()
 	for _, text := range []string{
+		"/resume, /sessions: choose a session",
 		"PgUp/PgDn/wheel scroll · Ctrl+Home/Ctrl+End scroll · Home/End scroll when composer is empty",
 		"Hold Option (macOS) / Shift to select text",
 	} {
@@ -993,6 +994,33 @@ func TestTUICommandAutocompleteTabCompletes(t *testing.T) {
 	if model.commandMenuOpen {
 		t.Error("command menu remained open after Tab completion")
 	}
+}
+
+func TestTUISessionsAliasOpensPicker(t *testing.T) {
+	for _, command := range []string{"/resume", "/sessions"} {
+		t.Run(command, func(t *testing.T) {
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: &fakeTUIAPI{}})
+			cmd := model.runSlashCommand(command)
+			if !model.pickerOpen || !model.pickerLoading || cmd == nil {
+				t.Fatalf("%s: pickerOpen=%t pickerLoading=%t cmd=%v; want an opening picker and load command", command, model.pickerOpen, model.pickerLoading, cmd)
+			}
+		})
+	}
+}
+
+func TestTUICommandAutocompleteSuggestsSessionsAlias(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.composer.SetValue("/ses")
+	model.refreshCommandMenu()
+	if !model.commandMenuOpen {
+		t.Fatal("slash menu did not open for /ses")
+	}
+	for _, item := range model.commandMenu.Items() {
+		if command, ok := item.(slashCommandItem); ok && command.command == "/sessions" {
+			return
+		}
+	}
+	t.Errorf("slash menu items = %v, want /sessions suggestion", model.commandMenu.Items())
 }
 
 func TestTUICommandAutocompleteEnterRunsSelectedPrefix(t *testing.T) {

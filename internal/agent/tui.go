@@ -886,7 +886,7 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 		m.status = m.helpView()
 	case "/status":
 		return m.statusCommand()
-	case "/resume":
+	case "/resume", "/sessions":
 		return m.openSessionPicker()
 	case "/rename":
 		title := strings.TrimSpace(strings.Join(parts[1:], " "))

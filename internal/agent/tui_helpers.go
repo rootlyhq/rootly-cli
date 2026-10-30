@@ -315,7 +315,7 @@ func (m *TUIModel) helpView() string {
 	return model.FullHelpView(groups) + "\n" +
 		"/exit, /quit, exit, quit: exit\n" +
 		"/new, /clear: start a new session\n" +
-		"/resume: choose a session\n" +
+		"/resume, /sessions: choose a session\n" +
 		"/rename [title]: rename or reset title\n" +
 		"/pin, /unpin: change pinned state\n" +
 		"/archive: archive this session\n" +
@@ -540,7 +540,7 @@ func (m *TUIModel) refreshCommandMenu() {
 	}
 	commands := []slashCommandItem{
 		{"/exit", "exit chat"}, {"/quit", "exit chat"}, {"/new", "new session"}, {"/clear", "new session"},
-		{"/resume", "choose a session"}, {"/rename", "rename session"}, {"/pin", "pin session"},
+		{"/resume", "choose a session"}, {"/sessions", "browse sessions"}, {"/rename", "rename session"}, {"/pin", "pin session"},
 		{"/unpin", "unpin session"}, {"/archive", "archive session"}, {"/delete", "delete session"},
 		{"/copy", "copy last answer"}, {"/export", "export transcript"}, {"/incident", "bind incident"},
 		{"/alert", "bind alert"}, {"/status", "show session info"}, {"/help", "show help"},
