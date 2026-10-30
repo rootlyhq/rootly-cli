@@ -314,7 +314,7 @@ func (m *TUIModel) helpView() string {
 		"/export [file]: write transcript\n" +
 		"/incident <id>, /alert <id>: bind a resource\n" +
 		"/status: show session and API info\n" +
-		"PgUp/PgDn/wheel scroll · End to jump to bottom\n" +
+		"PgUp/PgDn/wheel scroll · Ctrl+Home/Ctrl+End scroll · Home/End scroll when composer is empty\n" +
 		"Hold Option (macOS) / Shift to select text\n" +
 		"/help: show this help"
 }

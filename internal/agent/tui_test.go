@@ -260,7 +260,7 @@ func TestTUIViewportFollowControls(t *testing.T) {
 	if model.viewport.YOffset() != offset {
 		t.Errorf("append moved scrolled offset from %d to %d", offset, model.viewport.YOffset())
 	}
-	if !strings.Contains(view, "↓ new output · End to jump") {
+	if !strings.Contains(view, "↓ new output · ctrl+end to jump") {
 		t.Errorf("scrolled hint = %q, want new-output indicator", lastLine(view))
 	}
 
@@ -283,6 +283,66 @@ func TestTUIViewportFollowControls(t *testing.T) {
 	}
 	if got := model.composer.Value(); got != "jk " {
 		t.Errorf("composer value = %q, want typed j/k/space", got)
+	}
+
+	model.composer.SetValue("end")
+	model.composer.CursorStart()
+	offset = model.viewport.YOffset()
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEnd})
+	if model.viewport.YOffset() != offset {
+		t.Errorf("plain End moved viewport from %d to %d while composer had text", offset, model.viewport.YOffset())
+	}
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if got := model.composer.Value(); got != "en" {
+		t.Errorf("Backspace after End left composer value %q, want cursor at line end", got)
+	}
+
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyHome, Mod: tea.ModCtrl})
+	if model.viewport.YOffset() != 0 {
+		t.Error("Ctrl+Home did not scroll the viewport to the top with composer text")
+	}
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEnd, Mod: tea.ModCtrl})
+	if !model.viewport.AtBottom() {
+		t.Error("Ctrl+End did not scroll the viewport to the bottom with composer text")
+	}
+}
+
+func TestTUISessionPickerConsumesPageDownWithoutScrollingViewport(t *testing.T) {
+	model := newSizedTUITestModel(80, 24)
+	for index := 0; index < 60; index++ {
+		model.println(fmt.Sprintf("history block %02d", index+1))
+	}
+	model.View()
+	model.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+
+	sessions := make([]rootly.AiChatSession, 48)
+	for index := range sessions {
+		sessions[index] = testSession(uuid.NewString(), fmt.Sprintf("Session %02d", index+1))
+	}
+	apiClient := &fakeTUIAPI{sessionPages: []*rootly.ListAiChatSessionsResponse{
+		testSessionPage(sessions, false, ""),
+	}}
+	model.api = apiClient
+	pageCommand := model.openSessionPicker()
+	result := pageCommand()
+	pageMessage, ok := result.(sessionPageMsg)
+	if !ok {
+		t.Fatalf("picker command result = %T, want sessionPageMsg", result)
+	}
+	_, _ = model.Update(pageMessage)
+	model.View()
+
+	if model.sessionPicker.Paginator.TotalPages < 2 {
+		t.Fatalf("picker total pages = %d, want multiple pages", model.sessionPicker.Paginator.TotalPages)
+	}
+	page := model.sessionPicker.Paginator.Page
+	offset := model.viewport.YOffset()
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if model.sessionPicker.Paginator.Page <= page {
+		t.Errorf("picker page = %d after PgDn, want a page after %d", model.sessionPicker.Paginator.Page, page)
+	}
+	if model.viewport.YOffset() != offset {
+		t.Errorf("PgDn moved viewport from %d to %d while picker was open", offset, model.viewport.YOffset())
 	}
 }
 
@@ -517,9 +577,67 @@ func TestTUITranscriptIncludesHeaderAndConversation(t *testing.T) {
 	}
 }
 
+func TestTUITranscriptSpacingAcrossTurns(t *testing.T) {
+	model := newSizedTUITestModel(80, 24)
+	model.println("❯ first question")
+	model.println("● first answer")
+	model.println("✻ Triaged for 2s · done")
+	model.println("❯ second question")
+	model.View()
+
+	for name, output := range map[string]string{
+		"viewport":   model.viewport.GetContent(),
+		"transcript": model.Transcript(),
+	} {
+		lines := strings.Split(strings.TrimRight(ansi.Strip(output), " \n"), "\n")
+		headerIndex := -1
+		for index, line := range lines {
+			if strings.Contains(line, "New session") {
+				headerIndex = index
+				break
+			}
+		}
+		if headerIndex < 0 {
+			t.Fatalf("%s output has no session header: %q", name, output)
+		}
+		want := []string{
+			"New session",
+			"",
+			"❯ first question",
+			"● first answer",
+			"✻ Triaged for 2s · done",
+			"",
+			"❯ second question",
+		}
+		for offset, expected := range want {
+			lineIndex := headerIndex + offset
+			if lineIndex >= len(lines) {
+				t.Fatalf("%s output ended before line %q: %q", name, expected, output)
+			}
+			got := strings.TrimSpace(lines[lineIndex])
+			if expected == "New session" {
+				if !strings.HasSuffix(got, expected) {
+					t.Errorf("%s line %d = %q, want header ending in %q", name, lineIndex+1, got, expected)
+				}
+			} else if got != expected {
+				t.Errorf("%s line %d = %q, want %q", name, lineIndex+1, got, expected)
+			}
+		}
+		for index := 0; index+1 < len(lines); index++ {
+			if strings.TrimSpace(lines[index]) == "" && strings.TrimSpace(lines[index+1]) == "" {
+				t.Errorf("%s output has adjacent blank lines at %d: %q", name, index+1, output)
+				break
+			}
+		}
+	}
+}
+
 func TestTUIHelpMentionsViewportNavigationAndTextSelection(t *testing.T) {
 	helpText := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{}).helpView()
-	for _, text := range []string{"PgUp/PgDn/wheel scroll · End to jump to bottom", "Hold Option (macOS) / Shift to select text"} {
+	for _, text := range []string{
+		"PgUp/PgDn/wheel scroll · Ctrl+Home/Ctrl+End scroll · Home/End scroll when composer is empty",
+		"Hold Option (macOS) / Shift to select text",
+	} {
 		if !strings.Contains(helpText, text) {
 			t.Errorf("help is missing %q", text)
 		}

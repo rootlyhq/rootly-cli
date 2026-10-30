@@ -671,6 +671,10 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.commandMenu, cmd = m.commandMenu.Update(msg)
 			return m, cmd
+		case "pgup", "pgdown", "home", "end", "ctrl+home", "ctrl+end":
+			var cmd tea.Cmd
+			m.commandMenu, cmd = m.commandMenu.Update(msg)
+			return m, cmd
 		case "tab":
 			if item, ok := m.commandMenu.SelectedItem().(slashCommandItem); ok {
 				m.composer.SetValue(item.command + " ")
@@ -834,9 +838,19 @@ func (m *TUIModel) scrollViewportKey(msg tea.KeyPressMsg) bool {
 		m.viewport.PageUp()
 	case "pgdown":
 		m.viewport.PageDown()
-	case "home", "ctrl+home":
+	case "ctrl+home":
 		m.viewport.GotoTop()
-	case "end", "ctrl+end":
+	case "ctrl+end":
+		m.viewport.GotoBottom()
+	case "home":
+		if m.composer.Value() != "" {
+			return false
+		}
+		m.viewport.GotoTop()
+	case "end":
+		if m.composer.Value() != "" {
+			return false
+		}
 		m.viewport.GotoBottom()
 	default:
 		return false
@@ -1055,14 +1069,10 @@ func (m *TUIModel) transcriptContent() string {
 	if !m.welcomeAnimating {
 		header = strings.TrimSuffix(m.welcomeBanner(), "\n")
 	}
-	blocks := []string{header}
-	if m.transcriptCache != "" {
-		blocks = append(blocks, m.transcriptCache)
-	}
 	if live := m.liveSection(); live != "" {
-		blocks = append(blocks, live)
+		return joinHeaderAndConversation(header, m.transcriptCache, live)
 	}
-	return strings.Join(blocks, "\n")
+	return joinHeaderAndConversation(header, m.transcriptCache, "")
 }
 
 func (m *TUIModel) rebuildTranscriptCache() {
@@ -1074,9 +1084,54 @@ func (m *TUIModel) rebuildTranscriptCache() {
 	for _, block := range m.transcript[1:] {
 		blocks = append(blocks, ansi.Wrap(block, width, ""))
 	}
-	m.transcriptCache = strings.Join(blocks, "\n")
+	m.transcriptCache = joinTranscriptBlocks(blocks)
 	m.transcriptCacheWidth = width
 	m.transcriptCacheDirty = false
+}
+
+func joinTranscriptBlocks(blocks []string) string {
+	var joined strings.Builder
+	hasBlock := false
+	for _, block := range blocks {
+		block = strings.Trim(block, "\n")
+		if block == "" {
+			continue
+		}
+		if hasBlock {
+			if strings.HasPrefix(strings.TrimSpace(ansi.Strip(block)), "❯ ") {
+				joined.WriteString("\n\n")
+			} else {
+				joined.WriteByte('\n')
+			}
+		}
+		joined.WriteString(block)
+		hasBlock = true
+	}
+	return joined.String()
+}
+
+func joinHeaderAndConversation(header, committed, live string) string {
+	header = strings.TrimRight(header, "\n")
+	committed = strings.Trim(committed, "\n")
+	live = strings.Trim(live, "\n")
+
+	var joined strings.Builder
+	joined.WriteString(header)
+	if committed != "" {
+		if header != "" {
+			joined.WriteString("\n\n")
+		}
+		joined.WriteString(committed)
+	}
+	if live != "" {
+		if committed == "" && header != "" {
+			joined.WriteString("\n\n")
+		} else if committed != "" || header != "" {
+			joined.WriteByte('\n')
+		}
+		joined.WriteString(live)
+	}
+	return joined.String()
 }
 
 func (m *TUIModel) liveSection() string {
@@ -1123,7 +1178,7 @@ func (m *TUIModel) footerContent() string {
 	rule := faint(m.noColor, strings.Repeat("─", max(1, m.width-1)))
 	hint := "/ for commands · exit to quit"
 	if m.newOutputAvailable {
-		hint += " · " + faint(m.noColor, "↓ new output · End to jump")
+		hint += " · " + faint(m.noColor, "↓ new output · ctrl+end to jump")
 	}
 	hint = ansi.Truncate(hint, max(1, m.width-1), "")
 	return strings.Join([]string{rule, m.composer.View(), rule, faint(m.noColor, hint)}, "\n")
@@ -1167,14 +1222,11 @@ func (m *TUIModel) println(text string) tea.Cmd {
 func (m *TUIModel) Transcript() string {
 	m.rebuildTranscriptCache()
 	header := strings.TrimSuffix(m.welcomeBanner(), "\n")
-	blocks := []string{header}
-	if m.transcriptCache != "" {
-		blocks = append(blocks, m.transcriptCache)
-	}
+	live := ""
 	if remainder := m.uncommittedAnswer(); strings.TrimSpace(remainder) != "" {
-		blocks = append(blocks, m.renderAssistantAnswerPart(remainder, m.committedOffset == 0))
+		live = m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
 	}
-	return strings.TrimRight(strings.Join(blocks, "\n"), "\n") + "\n"
+	return joinHeaderAndConversation(header, m.transcriptCache, live) + "\n"
 }
 
 func (m *TUIModel) renderMarkdown(markdown string, width int) string {
