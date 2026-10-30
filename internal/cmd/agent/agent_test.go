@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -335,7 +336,7 @@ func TestRunAgentTUIPrintsTranscriptAfterRun(t *testing.T) {
 	model := aiagent.NewTUIModel(context.Background(), nil, aiagent.TUIOptions{NoColor: true})
 	runErr := errors.New("run failed")
 	var output bytes.Buffer
-	err := runAgentTUI(&output, func() (tea.Model, error) {
+	err := runAgentTUI(&output, &output, func() (tea.Model, error) {
 		_, _ = output.WriteString("after run\n")
 		return model, runErr
 	})
@@ -348,6 +349,35 @@ func TestRunAgentTUIPrintsTranscriptAfterRun(t *testing.T) {
 	}
 	if !strings.Contains(got, "New session") {
 		t.Errorf("redirected output = %q, want final transcript after Run", got)
+	}
+	if count := strings.Count(got, "New session"); count != 1 {
+		t.Errorf("transcript header count = %d, want 1", count)
+	}
+}
+
+func TestRunAgentTUIWritesPlainStdoutAndPreservesUITranscript(t *testing.T) {
+	model := aiagent.NewTUIModel(context.Background(), nil, aiagent.TUIOptions{Version: "1.2.3"})
+	wantTranscript := model.Transcript()
+	if !strings.Contains(wantTranscript, "\x1b") {
+		t.Fatal("test transcript has no ANSI styling")
+	}
+	var stdout, uiWriter bytes.Buffer
+	if err := runAgentTUI(&stdout, &uiWriter, func() (tea.Model, error) {
+		return model, nil
+	}); err != nil {
+		t.Fatalf("runAgentTUI() error = %v", err)
+	}
+	if strings.Contains(stdout.String(), "\x1b") {
+		t.Errorf("stdout transcript = %q, want no ANSI escape bytes", stdout.String())
+	}
+	if got, want := stdout.String(), ansi.Strip(wantTranscript); got != want {
+		t.Errorf("stdout transcript = %q, want stripped transcript %q", got, want)
+	}
+	if got := uiWriter.String(); got != wantTranscript {
+		t.Errorf("UI transcript = %q, want unchanged transcript %q", got, wantTranscript)
+	}
+	if !strings.Contains(uiWriter.String(), "New session") {
+		t.Errorf("UI writer = %q, want final transcript", uiWriter.String())
 	}
 }
 
@@ -362,24 +392,40 @@ func (w failingTranscriptWriter) Write([]byte) (int, error) {
 func TestRunAgentTUITranscriptWriteErrorPrecedence(t *testing.T) {
 	model := aiagent.NewTUIModel(context.Background(), nil, aiagent.TUIOptions{NoColor: true})
 	runErr := errors.New("run failed")
-	writeErr := errors.New("write failed")
-	tests := []struct {
-		name   string
-		runErr error
-		want   error
-	}{
-		{name: "run error takes precedence", runErr: runErr, want: runErr},
-		{name: "write error returned when run succeeds", want: writeErr},
-	}
+	stdoutWriteErr := errors.New("stdout write failed")
+	uiWriteErr := errors.New("UI write failed")
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := runAgentTUI(failingTranscriptWriter{err: writeErr}, func() (tea.Model, error) {
-				return model, test.runErr
-			})
-			if !errors.Is(err, test.want) {
-				t.Errorf("runAgentTUI() error = %v, want %v", err, test.want)
-			}
-		})
-	}
+	t.Run("run error takes precedence", func(t *testing.T) {
+		err := runAgentTUI(
+			failingTranscriptWriter{err: stdoutWriteErr},
+			failingTranscriptWriter{err: uiWriteErr},
+			func() (tea.Model, error) { return model, runErr },
+		)
+		if !errors.Is(err, runErr) {
+			t.Errorf("runAgentTUI() error = %v, want %v", err, runErr)
+		}
+	})
+
+	t.Run("first write error takes precedence", func(t *testing.T) {
+		err := runAgentTUI(
+			failingTranscriptWriter{err: stdoutWriteErr},
+			failingTranscriptWriter{err: uiWriteErr},
+			func() (tea.Model, error) { return model, nil },
+		)
+		if !errors.Is(err, stdoutWriteErr) {
+			t.Errorf("runAgentTUI() error = %v, want %v", err, stdoutWriteErr)
+		}
+	})
+
+	t.Run("UI write error returned when stdout succeeds", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := runAgentTUI(
+			&stdout,
+			failingTranscriptWriter{err: uiWriteErr},
+			func() (tea.Model, error) { return model, nil },
+		)
+		if !errors.Is(err, uiWriteErr) {
+			t.Errorf("runAgentTUI() error = %v, want %v", err, uiWriteErr)
+		}
+	})
 }

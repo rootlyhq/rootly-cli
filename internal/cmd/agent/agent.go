@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	"github.com/mattn/go-isatty"
 	rootly "github.com/rootlyhq/rootly-go"
@@ -129,7 +130,7 @@ var AgentCmd = &cobra.Command{
 			return err
 		}
 		program := tea.NewProgram(model, options...)
-		return runAgentTUI(cmd.OutOrStdout(), program.Run)
+		return runAgentTUI(cmd.OutOrStdout(), uiWriter, program.Run)
 	},
 }
 
@@ -219,11 +220,21 @@ func getAPIClient() (*api.Client, error) {
 	})
 }
 
-func runAgentTUI(writer io.Writer, run func() (tea.Model, error)) error {
+func runAgentTUI(stdout, uiWriter io.Writer, run func() (tea.Model, error)) error {
 	finalModel, runErr := run()
 	if model, ok := finalModel.(*aiagent.TUIModel); ok {
-		if _, err := io.WriteString(writer, model.Transcript()); err != nil && runErr == nil {
-			return err
+		transcript := model.Transcript()
+		stdoutTranscript := transcript
+		if !isTerminalWriter(stdout) {
+			stdoutTranscript = ansi.Strip(transcript)
+		}
+		if _, err := io.WriteString(stdout, stdoutTranscript); err != nil && runErr == nil {
+			runErr = err
+		}
+		if uiWriter != stdout {
+			if _, err := io.WriteString(uiWriter, transcript); err != nil && runErr == nil {
+				runErr = err
+			}
 		}
 	}
 	return runErr
