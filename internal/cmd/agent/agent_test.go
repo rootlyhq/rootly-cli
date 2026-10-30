@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -286,28 +285,54 @@ func TestAgentPrintModeDoesNotEmitTerminalClear(t *testing.T) {
 	}
 }
 
-func TestRunAgentTUIPrintsTranscriptAfterRunOnlyForTTY(t *testing.T) {
+func TestRunAgentTUIPrintsTranscriptAfterRun(t *testing.T) {
 	model := aiagent.NewTUIModel(context.Background(), nil, aiagent.TUIOptions{NoColor: true})
 	runErr := errors.New("run failed")
-	for _, terminal := range []bool{true, false} {
-		t.Run(fmt.Sprintf("terminal_%t", terminal), func(t *testing.T) {
-			var output bytes.Buffer
-			err := runAgentTUI(&output, terminal, func() (tea.Model, error) {
-				_, _ = output.WriteString("after run\n")
-				return model, runErr
+	var output bytes.Buffer
+	err := runAgentTUI(&output, func() (tea.Model, error) {
+		_, _ = output.WriteString("after run\n")
+		return model, runErr
+	})
+	if !errors.Is(err, runErr) {
+		t.Errorf("runAgentTUI() error = %v, want %v", err, runErr)
+	}
+	got := output.String()
+	if !strings.HasPrefix(got, "after run\n") {
+		t.Fatalf("output = %q, want run output first", got)
+	}
+	if !strings.Contains(got, "New session") {
+		t.Errorf("redirected output = %q, want final transcript after Run", got)
+	}
+}
+
+type failingTranscriptWriter struct {
+	err error
+}
+
+func (w failingTranscriptWriter) Write([]byte) (int, error) {
+	return 0, w.err
+}
+
+func TestRunAgentTUITranscriptWriteErrorPrecedence(t *testing.T) {
+	model := aiagent.NewTUIModel(context.Background(), nil, aiagent.TUIOptions{NoColor: true})
+	runErr := errors.New("run failed")
+	writeErr := errors.New("write failed")
+	tests := []struct {
+		name   string
+		runErr error
+		want   error
+	}{
+		{name: "run error takes precedence", runErr: runErr, want: runErr},
+		{name: "write error returned when run succeeds", want: writeErr},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := runAgentTUI(failingTranscriptWriter{err: writeErr}, func() (tea.Model, error) {
+				return model, test.runErr
 			})
-			if !errors.Is(err, runErr) {
-				t.Errorf("runAgentTUI() error = %v, want %v", err, runErr)
-			}
-			got := output.String()
-			if !strings.HasPrefix(got, "after run\n") {
-				t.Fatalf("output = %q, want run output first", got)
-			}
-			if terminal && !strings.Contains(got, "New session") {
-				t.Errorf("TTY output = %q, want final transcript after Run", got)
-			}
-			if !terminal && strings.Contains(got, "New session") {
-				t.Errorf("non-TTY output = %q, want no transcript", got)
+			if !errors.Is(err, test.want) {
+				t.Errorf("runAgentTUI() error = %v, want %v", err, test.want)
 			}
 		})
 	}

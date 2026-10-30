@@ -120,7 +120,7 @@ var AgentCmd = &cobra.Command{
 			return err
 		}
 		program := tea.NewProgram(model, options...)
-		return runAgentTUI(cmd.OutOrStdout(), isTerminalWriter(cmd.OutOrStdout()), program.Run)
+		return runAgentTUI(cmd.OutOrStdout(), program.Run)
 	},
 }
 
@@ -210,13 +210,11 @@ func getAPIClient() (*api.Client, error) {
 	})
 }
 
-func runAgentTUI(writer io.Writer, terminal bool, run func() (tea.Model, error)) error {
+func runAgentTUI(writer io.Writer, run func() (tea.Model, error)) error {
 	finalModel, runErr := run()
-	if terminal {
-		if model, ok := finalModel.(*aiagent.TUIModel); ok {
-			if _, err := io.WriteString(writer, model.Transcript()); err != nil && runErr == nil {
-				return err
-			}
+	if model, ok := finalModel.(*aiagent.TUIModel); ok {
+		if _, err := io.WriteString(writer, model.Transcript()); err != nil && runErr == nil {
+			return err
 		}
 	}
 	return runErr
