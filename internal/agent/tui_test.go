@@ -473,7 +473,7 @@ func TestLoadSessionHistoryFetchesLastPage(t *testing.T) {
 		testHistoryPage([]rootly.AiChatSessionMessage{lastMessage}, 2),
 	}}
 
-	messages, err := loadSessionHistory(context.Background(), apiClient, uuid.MustParse(testSessionID))
+	messages, _, err := loadSessionHistory(context.Background(), apiClient, uuid.MustParse(testSessionID))
 	if err != nil {
 		t.Fatalf("loadSessionHistory() error = %v", err)
 	}
@@ -486,6 +486,74 @@ func TestLoadSessionHistoryFetchesLastPage(t *testing.T) {
 	}
 	if len(messages) != 2 || messages[0].Content != "old prompt" || messages[1].Content != "latest answer" {
 		t.Errorf("history messages = %#v, want first and last page messages in order", messages)
+	}
+}
+
+func TestTUIResumeByIDLoadsTitleAndPrintsIt(t *testing.T) {
+	apiClient := &fakeTUIAPI{messagePages: []*rootly.ListAiChatSessionMessagesResponse{
+		{
+			Body:                     []byte(`{"title":"Incident review\u001b[2J"}`),
+			ApplicationVndAPIJSON200: &rootly.AiChatSessionMessageList{},
+		},
+	}}
+	sessionID := uuid.MustParse(testSessionID)
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{
+		NoColor:   true,
+		API:       apiClient,
+		SessionID: &sessionID,
+	})
+	initSequence := reflect.ValueOf(model.Init()())
+	if initSequence.Kind() != reflect.Slice || initSequence.Len() != 2 {
+		t.Fatalf("initial resume commands = %v, want focus and history only before the title loads", initSequence)
+	}
+
+	history := model.loadHistory(sessionID, "")().(historyLoadedMsg)
+	updated, cmd := model.Update(history)
+	resumed := updated.(*TUIModel)
+	if resumed.sessionTitle != "Incident review" {
+		t.Fatalf("session title = %q, want sanitized history title", resumed.sessionTitle)
+	}
+	if output := commandSequenceOutput(cmd); !strings.Contains(output, `Resumed "Incident review"`) {
+		t.Errorf("resume output = %q, want the loaded session title", output)
+	}
+	if status := resumed.statusLines(); !strings.Contains(status, "title Incident review") {
+		t.Errorf("status lines = %q, want loaded session title", status)
+	}
+}
+
+func TestTUIResumeByIDFallsBackToShortIDWithoutTitle(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body []byte
+	}{
+		{name: "absent", body: []byte(`{}`)},
+		{name: "untitled", body: []byte(`{"title":"Untitled"}`)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			apiClient := &fakeTUIAPI{messagePages: []*rootly.ListAiChatSessionMessagesResponse{
+				{
+					Body:                     test.body,
+					ApplicationVndAPIJSON200: &rootly.AiChatSessionMessageList{},
+				},
+			}}
+			sessionID := uuid.MustParse(testSessionID)
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{
+				NoColor:   true,
+				API:       apiClient,
+				SessionID: &sessionID,
+			})
+
+			history := model.loadHistory(sessionID, "")().(historyLoadedMsg)
+			updated, cmd := model.Update(history)
+			resumed := updated.(*TUIModel)
+			if resumed.sessionTitle != "" {
+				t.Fatalf("session title = %q, want empty fallback state", resumed.sessionTitle)
+			}
+			want := fmt.Sprintf("Resumed %q", shortSessionID(testSessionID))
+			if output := commandSequenceOutput(cmd); !strings.Contains(output, want) {
+				t.Errorf("resume output = %q, want %q", output, want)
+			}
+		})
 	}
 }
 

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -343,8 +344,8 @@ func (m *TUIModel) loadHistory(sessionID uuid.UUID, title string) tea.Cmd {
 		if apiClient == nil {
 			return historyLoadedMsg{request: request, title: title, err: errors.New("history API unavailable")}
 		}
-		messages, err := loadSessionHistory(ctx, apiClient, sessionID)
-		return historyLoadedMsg{request: request, messages: messages, err: err, title: title}
+		messages, sessionTitle, err := loadSessionHistory(ctx, apiClient, sessionID)
+		return historyLoadedMsg{request: request, messages: messages, err: err, title: title, sessionTitle: sessionTitle}
 	}
 }
 
@@ -693,31 +694,46 @@ func (m *TUIModel) resolveBinding(kind, value string) tea.Cmd {
 	}
 }
 
-func loadSessionHistory(ctx context.Context, apiClient TUIAPI, sessionID uuid.UUID) ([]rootly.AiChatSessionMessage, error) {
+func sessionTitleFromHistoryResponse(body []byte) string {
+	var response struct {
+		Title string `json:"title"`
+	}
+	if json.Unmarshal(body, &response) != nil {
+		return ""
+	}
+	title := strings.TrimSpace(sanitizeTerminalText(response.Title))
+	if title == "" || title == "Untitled" {
+		return ""
+	}
+	return title
+}
+
+func loadSessionHistory(ctx context.Context, apiClient TUIAPI, sessionID uuid.UUID) ([]rootly.AiChatSessionMessage, string, error) {
 	page, size := 1, 100
 	first, err := apiClient.ListAiChatSessionMessagesWithResponse(ctx, sessionID, &rootly.ListAiChatSessionMessagesParams{PageNumber: &page, PageSize: &size})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if first == nil {
-		return nil, errors.New("empty session history response")
+		return nil, "", errors.New("empty session history response")
 	}
 	if first.ApplicationVndAPIJSON200 == nil {
-		return nil, StatusResponseError(first.StatusCode(), first.Body)
+		return nil, "", StatusResponseError(first.StatusCode(), first.Body)
 	}
+	sessionTitle := sessionTitleFromHistoryResponse(first.Body)
 	messages := append([]rootly.AiChatSessionMessage(nil), first.ApplicationVndAPIJSON200.Messages...)
 	pages := historyPageCount(first.ApplicationVndAPIJSON200.Meta)
 	if pages > 1 {
 		last, lastSize := pages, 100
 		response, err := apiClient.ListAiChatSessionMessagesWithResponse(ctx, sessionID, &rootly.ListAiChatSessionMessagesParams{PageNumber: &last, PageSize: &lastSize})
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if response == nil {
-			return nil, errors.New("empty session history response")
+			return nil, "", errors.New("empty session history response")
 		}
 		if response.ApplicationVndAPIJSON200 == nil {
-			return nil, StatusResponseError(response.StatusCode(), response.Body)
+			return nil, "", StatusResponseError(response.StatusCode(), response.Body)
 		}
 		seen := make(map[string]bool, len(messages))
 		for _, message := range messages {
@@ -739,7 +755,7 @@ func loadSessionHistory(ctx context.Context, apiClient TUIAPI, sessionID uuid.UU
 	if len(filtered) > 6 {
 		filtered = filtered[len(filtered)-6:]
 	}
-	return filtered, nil
+	return filtered, sessionTitle, nil
 }
 
 func historyPageCount(meta map[string]interface{}) int {

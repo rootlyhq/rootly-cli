@@ -65,10 +65,11 @@ type transcriptTurn struct {
 }
 
 type historyLoadedMsg struct {
-	request  int
-	messages []rootly.AiChatSessionMessage
-	err      error
-	title    string
+	request      int
+	messages     []rootly.AiChatSessionMessage
+	err          error
+	title        string
+	sessionTitle string
 }
 
 type sessionPageMsg struct {
@@ -129,6 +130,7 @@ type TUIModel struct {
 	alert               *api.Alert
 	incidentUsed        bool
 	alertUsed           bool
+	resumeLinePending   bool
 	historyRequest      int
 	promptHistory       []string
 	historyIndex        int
@@ -177,43 +179,49 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 		user := *options.CurrentUser
 		currentUser = &user
 	}
+	sessionTitle := sanitizeTerminalText(options.SessionTitle)
 
 	return &TUIModel{
-		streamer:     streamer,
-		composer:     composer,
-		spinner:      spin,
-		ctx:          ctx,
-		width:        80,
-		height:       24,
-		noColor:      options.NoColor,
-		api:          options.API,
-		apiHost:      options.APIHost,
-		currentUser:  currentUser,
-		userLoaded:   options.CurrentUser != nil,
-		sessionID:    options.SessionID,
-		sessionTitle: sanitizeTerminalText(options.SessionTitle),
-		incident:     options.Incident,
-		alert:        options.Alert,
-		historyIndex: -1,
+		streamer:          streamer,
+		composer:          composer,
+		spinner:           spin,
+		ctx:               ctx,
+		width:             80,
+		height:            24,
+		noColor:           options.NoColor,
+		api:               options.API,
+		apiHost:           options.APIHost,
+		currentUser:       currentUser,
+		userLoaded:        options.CurrentUser != nil,
+		sessionID:         options.SessionID,
+		sessionTitle:      sessionTitle,
+		resumeLinePending: options.SessionID != nil && sessionTitle == "",
+		incident:          options.Incident,
+		alert:             options.Alert,
+		historyIndex:      -1,
 	}
 }
 
 func (m *TUIModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.composer.Focus()}
 	if m.sessionID != nil {
-		title := m.sessionTitle
-		if title == "" {
-			title = shortSessionID(m.sessionID.String())
+		if !m.resumeLinePending {
+			cmds = append(cmds, tea.Println(m.resumedLine()))
 		}
-		cmds = append(cmds,
-			tea.Println(faint(m.noColor, fmt.Sprintf("Resumed %q", sanitizeTerminalText(title)))),
-			m.loadHistory(*m.sessionID, ""),
-		)
+		cmds = append(cmds, m.loadHistory(*m.sessionID, ""))
 	}
 	if header := m.bindingHeader(); header != "" {
 		cmds = append(cmds, tea.Println(faint(m.noColor, header)))
 	}
 	return tea.Sequence(cmds...)
+}
+
+func (m *TUIModel) resumedLine() string {
+	title := sanitizeTerminalText(m.sessionTitle)
+	if title == "" && m.sessionID != nil {
+		title = shortSessionID(m.sessionID.String())
+	}
+	return faint(m.noColor, fmt.Sprintf("Resumed %q", title))
 }
 
 func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -242,10 +250,25 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.request != m.historyRequest {
 			return m, nil
 		}
+		var resumedCmd tea.Cmd
+		if m.resumeLinePending {
+			if msg.sessionTitle != "" {
+				m.sessionTitle = sanitizeTerminalText(msg.sessionTitle)
+			}
+			m.resumeLinePending = false
+			resumedCmd = tea.Println(m.resumedLine())
+		}
 		if msg.err != nil {
-			return m, tea.Println(faint(m.noColor, "Could not load session history: "+sanitizeTerminalText(msg.err.Error())))
+			errorCmd := tea.Println(faint(m.noColor, "Could not load session history: "+sanitizeTerminalText(msg.err.Error())))
+			if resumedCmd != nil {
+				return m, tea.Sequence(resumedCmd, errorCmd)
+			}
+			return m, errorCmd
 		}
 		cmd := m.printHistory(msg.title, msg.messages)
+		if resumedCmd != nil {
+			return m, tea.Sequence(resumedCmd, cmd)
+		}
 		return m, cmd
 	case statusLoadedMsg:
 		if msg.request != m.statusRequest {
