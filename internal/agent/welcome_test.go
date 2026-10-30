@@ -81,6 +81,11 @@ func TestWelcomeBannerNoColorAndSanitizesUser(t *testing.T) {
 		),
 	})
 
+	textRows := model.welcomeTextRows()
+	if strings.Contains(textRows, "\x1b") {
+		t.Errorf("welcome text rows = %q, want no ANSI escapes in no-color mode", textRows)
+	}
+
 	banner := model.welcomeBanner()
 	for _, unwanted := range []string{"\x1b", "]52;", "[2J"} {
 		if strings.Contains(banner, unwanted) {
@@ -96,6 +101,24 @@ func TestWelcomeBannerNoColorAndSanitizesUser(t *testing.T) {
 	}
 	if !strings.Contains(banner, "Avery Rootly") {
 		t.Errorf("welcome banner = %q, want safe user name text", banner)
+	}
+}
+
+func TestWelcomeTitleStyling(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{Version: "1.2.3"})
+	title := strings.Split(model.welcomeTextRows(), "\n")[0]
+	if got := ansi.Strip(title); got != "✦ Rootly AI v1.2.3" {
+		t.Fatalf("plain title = %q, want title and version", got)
+	}
+
+	orange := strings.Index(title, "\x1b[38;2;245;162;79m")
+	bold := strings.Index(title, "\x1b[1m")
+	faint := strings.Index(title, "\x1b[2m")
+	if orange < 0 || bold < 0 {
+		t.Fatalf("title = %q, want orange and bold SGR styling", title)
+	}
+	if faint < 0 || faint < orange || faint < bold {
+		t.Errorf("title = %q, want only the version faint after the accented title", title)
 	}
 }
 

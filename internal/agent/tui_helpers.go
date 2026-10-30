@@ -187,8 +187,18 @@ func (m *TUIModel) renderAssistantAnswer(markdown string) string {
 }
 
 func (m *TUIModel) renderAssistantAnswerPart(markdown string, first bool) string {
-	rendered := strings.TrimSpace(m.renderMarkdown(markdown, max(20, m.width-3)))
-	lines := strings.Split(rendered, "\n")
+	lines := strings.Split(m.renderMarkdown(markdown, max(20, m.width-3)), "\n")
+	start, end := 0, len(lines)
+	for start < end && strings.TrimSpace(ansi.Strip(lines[start])) == "" {
+		start++
+	}
+	for end > start && strings.TrimSpace(ansi.Strip(lines[end-1])) == "" {
+		end--
+	}
+	lines = lines[start:end]
+	if len(lines) == 0 {
+		return ""
+	}
 	for index, line := range lines {
 		line = trimLeadingANSIWhitespace(line)
 		if index == 0 && first {

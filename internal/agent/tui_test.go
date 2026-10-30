@@ -489,6 +489,17 @@ func TestTUIRenderedAnswerLinesStayInsideTerminalWidth(t *testing.T) {
 	}
 }
 
+func TestTUIAnswerBulletStartsOnFirstRenderedListLine(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.width = 80
+
+	rendered := model.renderAssistantAnswerPart("1. a\n2. b", true)
+	lines := strings.Split(ansi.Strip(rendered), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "● 1. a" {
+		t.Errorf("rendered answer = %q, want first line to begin with bullet and first list item", rendered)
+	}
+}
+
 func TestTUIBindingHeaderIsPrintedOnceAfterWelcomeSettles(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{
 		Incident: &api.Incident{SequentialID: "INC-8", Title: "Database latency"},

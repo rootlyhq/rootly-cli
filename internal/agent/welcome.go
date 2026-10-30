@@ -42,10 +42,18 @@ func (m *TUIModel) welcomeBannerContent(logo string) string {
 }
 
 func (m *TUIModel) welcomeTextRows() string {
-	title := "✦ Rootly AI"
 	version := strings.TrimPrefix(sanitizeTerminalText(m.version), "v")
+	versionText := ""
 	if version != "" && version != "dev" {
-		title += " v" + version
+		versionText = " v" + version
+	}
+	title := sanitizeTerminalText("✦") + " " + sanitizeTerminalText("Rootly AI") + sanitizeTerminalText(versionText)
+	if !m.noColor {
+		title = lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A24F")).Render(sanitizeTerminalText("✦")) +
+			" " + lipgloss.NewStyle().Bold(true).Render(sanitizeTerminalText("Rootly AI"))
+		if versionText != "" {
+			title += faint(false, sanitizeTerminalText(versionText))
+		}
 	}
 
 	userLine := ""
@@ -69,7 +77,8 @@ func (m *TUIModel) welcomeTextRows() string {
 	hostLine := host
 	contextLine := m.sessionHeaderContext()
 	lines := []string{title, userLine, hostLine, contextLine}
-	for index, line := range lines {
+	for index := 1; index < len(lines); index++ {
+		line := lines[index]
 		line = sanitizeTerminalText(line)
 		if !m.noColor {
 			line = faint(false, line)
