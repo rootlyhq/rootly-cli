@@ -267,6 +267,58 @@ func TestDebugTransportRedactsAuthorization(t *testing.T) {
 	}
 }
 
+func TestDebugTransportRedactsMessageQueryParameter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if values := r.URL.Query()["message"]; len(values) == 2 && values[0] == "first-private-prompt" && values[1] == "second-private-prompt" && r.URL.Query().Get("other") == "visible" {
+			w.Header().Set("X-Original-Query-Preserved", "true")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	dt := &debugTransport{transport: http.DefaultTransport}
+	req, err := http.NewRequestWithContext(context.Background(), "GET", server.URL+"/v1/ai/chat/stream?message=first-private-prompt&other=visible&message=second-private-prompt", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldStderr := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = writer
+	resp, roundTripErr := dt.RoundTrip(req)
+	writer.Close()
+	os.Stderr = oldStderr
+	if roundTripErr != nil {
+		reader.Close()
+		t.Fatalf("RoundTrip failed: %v", roundTripErr)
+	}
+	resp.Body.Close()
+	outputBytes, err := io.ReadAll(reader)
+	reader.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output := string(outputBytes)
+	for _, privateValue := range []string{"first-private-prompt", "second-private-prompt"} {
+		if strings.Contains(output, privateValue) {
+			t.Errorf("debug output contains private message query value %q: %s", privateValue, output)
+		}
+	}
+	if got := strings.Count(output, "message=%5BREDACTED%5D"); got != 2 {
+		t.Errorf("redacted message query count = %d, want two: %s", got, output)
+	}
+	if !strings.Contains(output, "other=visible") {
+		t.Errorf("debug output = %s, want unrelated query parameter preserved", output)
+	}
+	if got := resp.Header.Get("X-Original-Query-Preserved"); got != "true" {
+		t.Errorf("original query preserved = %q, want true", got)
+	}
+}
+
 func TestDebugTransportPreservesActualAuthHeader(t *testing.T) {
 	var receivedAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -41,6 +41,16 @@ func (dt *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if auth := safeReq.Header.Get("Authorization"); auth != "" {
 		safeReq.Header.Set("Authorization", "Bearer [REDACTED]")
 	}
+	if safeReq.URL != nil {
+		query := safeReq.URL.Query()
+		if values, ok := query["message"]; ok {
+			for index := range values {
+				values[index] = "[REDACTED]"
+			}
+			query["message"] = values
+			safeReq.URL.RawQuery = query.Encode()
+		}
+	}
 	safeReq.Body = http.NoBody
 	dump, _ := httputil.DumpRequestOut(safeReq, false)
 	fmt.Fprintf(os.Stderr, "\n--- DEBUG REQUEST ---\n%s\n", dump)
