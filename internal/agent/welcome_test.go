@@ -155,6 +155,70 @@ func TestWelcomeBannerAnimationSettlesInPlace(t *testing.T) {
 	}
 }
 
+func TestWelcomeAnimationRestartsForNewSessionCommands(t *testing.T) {
+	for _, command := range []string{"/new", "/clear"} {
+		t.Run(command, func(t *testing.T) {
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+			_, _ = model.Update(tea.ColorProfileMsg{Profile: colorprofile.TrueColor})
+			model.Init()
+			settleWelcomeAnimationForTest(t, model)
+
+			cmd := model.runSlashCommand(command)
+			if !model.welcomeAnimating || model.welcomeFrame != 0 || cmd == nil {
+				t.Fatalf("after %s: animating=%t frame=%d cmd=%v; want restarted animation and tick", command, model.welcomeAnimating, model.welcomeFrame, cmd)
+			}
+			for range welcomeSettleFrame {
+				_, _ = model.Update(welcomeBannerTickMsg{generation: model.welcomeGeneration})
+			}
+			if model.welcomeAnimating {
+				t.Errorf("animation did not settle after %d current-generation ticks", welcomeSettleFrame)
+			}
+		})
+	}
+}
+
+func TestWelcomeAnimationRestartIgnoresStaleTick(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	_, _ = model.Update(tea.ColorProfileMsg{Profile: colorprofile.TrueColor})
+	model.Init()
+	if !model.welcomeAnimating {
+		t.Fatal("welcome animation did not start")
+	}
+	oldGeneration := model.welcomeGeneration
+
+	if cmd := model.restartWelcomeAnimation(); cmd == nil {
+		t.Fatal("restart returned no tick command")
+	}
+	if model.welcomeGeneration == oldGeneration || model.welcomeFrame != 0 || !model.welcomeAnimating {
+		t.Fatalf("restart state: generation=%d frame=%d animating=%t", model.welcomeGeneration, model.welcomeFrame, model.welcomeAnimating)
+	}
+	_, _ = model.Update(welcomeBannerTickMsg{generation: oldGeneration})
+	if model.welcomeFrame != 0 {
+		t.Errorf("stale tick advanced frame to %d, want 0", model.welcomeFrame)
+	}
+}
+
+func TestWelcomeAnimationDoesNotRestartWithoutColor(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.Init()
+	if cmd := model.runSlashCommand("/new"); cmd != nil {
+		t.Errorf("no-color /new command = %v, want no tick", cmd)
+	}
+	if model.welcomeAnimating {
+		t.Error("no-color /new started the welcome animation")
+	}
+}
+
+func settleWelcomeAnimationForTest(t *testing.T, model *TUIModel) {
+	t.Helper()
+	for frame := 0; frame < welcomeSettleFrame; frame++ {
+		_, _ = model.Update(welcomeBannerTickMsg{generation: model.welcomeGeneration})
+	}
+	if model.welcomeAnimating {
+		t.Fatalf("welcome animation remained active after %d ticks", welcomeSettleFrame)
+	}
+}
+
 func TestWelcomeGlimmerReachesLogoEdges(t *testing.T) {
 	topLeftColumn := -1
 	for column, character := range []rune(welcomeLogoLines[0]) {

@@ -162,6 +162,7 @@ type TUIModel struct {
 	welcomePending       bool
 	welcomeAnimating     bool
 	welcomeFrame         int
+	welcomeGeneration    int
 	quitting             bool
 	lastAnswer           string
 	transcript           []transcriptBlock
@@ -273,6 +274,9 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case welcomeBannerTickMsg:
+		if msg.generation != m.welcomeGeneration {
+			return m, nil
+		}
 		if !m.welcomeAnimating {
 			return m, nil
 		}
@@ -360,7 +364,8 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.incidentUsed, m.alertUsed = false, false
 		m.status = ""
 		m.println(faint(m.noColor, m.bindingHeader()))
-		return m, nil
+		cmd := m.restartWelcomeAnimation()
+		return m, cmd
 	case tea.KeyPressMsg:
 		return m.updateKey(msg)
 	default:
@@ -876,6 +881,7 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 	case "/new", "/clear":
 		m.startNewSession()
 		m.status = "Started a new session."
+		return m.restartWelcomeAnimation()
 	case "/help":
 		m.status = m.helpView()
 	case "/status":

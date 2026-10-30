@@ -509,7 +509,7 @@ func (m *TUIModel) selectPickerItem(item sessionPickerItem) tea.Cmd {
 	m.resetTranscript()
 	m.incident, m.alert = nil, nil
 	m.incidentUsed, m.alertUsed = false, false
-	return m.loadHistory(id)
+	return tea.Batch(m.loadHistory(id), m.restartWelcomeAnimation())
 }
 
 func (m *TUIModel) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -635,7 +635,8 @@ func (m *TUIModel) handleSessionAction(message sessionActionMsg) tea.Cmd {
 	text := sanitizeTerminalText(message.message)
 	if message.action == "archive" || message.action == "delete" {
 		m.startNewSession()
-		return m.println(faint(m.noColor, text))
+		m.println(faint(m.noColor, text))
+		return m.restartWelcomeAnimation()
 	}
 	return m.println(faint(m.noColor, text))
 }

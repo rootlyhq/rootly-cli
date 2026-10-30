@@ -16,6 +16,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	"github.com/oapi-codegen/nullable"
@@ -1052,6 +1053,23 @@ func TestTUISessionPickerLoadsMoreAndResumesSelection(t *testing.T) {
 	}
 	if model.sessionTitle != "Second" || model.pickerOpen {
 		t.Errorf("selection state title/open = %q/%v, want Second/closed", model.sessionTitle, model.pickerOpen)
+	}
+}
+
+func TestTUISessionPickerSelectionRestartsWelcomeAnimation(t *testing.T) {
+	apiClient := &fakeTUIAPI{sessionPages: []*rootly.ListAiChatSessionsResponse{
+		testSessionPage([]rootly.AiChatSession{testSession(testSessionID, "First")}, false, ""),
+	}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+	_, _ = model.Update(tea.ColorProfileMsg{Profile: colorprofile.TrueColor})
+	model.Init()
+	settleWelcomeAnimationForTest(t, model)
+
+	page := model.openSessionPicker()().(sessionPageMsg)
+	_, _ = model.Update(page)
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil || !model.welcomeAnimating || model.welcomeFrame != 0 {
+		t.Fatalf("picker selection: cmd=%v animating=%t frame=%d; want restarted animation and command", cmd, model.welcomeAnimating, model.welcomeFrame)
 	}
 }
 

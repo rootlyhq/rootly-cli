@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 const (
@@ -24,12 +25,26 @@ var (
 	welcomeSettleFrame = welcomeDrawFrames + welcomeGlimmerFrames() + 4
 )
 
-type welcomeBannerTickMsg struct{}
+type welcomeBannerTickMsg struct {
+	generation int
+}
 
 func (m *TUIModel) welcomeBannerTick() tea.Cmd {
+	generation := m.welcomeGeneration
 	return tea.Tick(welcomeBannerFrameInterval, func(time.Time) tea.Msg {
-		return welcomeBannerTickMsg{}
+		return welcomeBannerTickMsg{generation: generation}
 	})
+}
+
+func (m *TUIModel) restartWelcomeAnimation() tea.Cmd {
+	if m.noColor || !m.colorProfileKnown || m.colorProfile < colorprofile.ANSI256 {
+		m.welcomeAnimating = false
+		return nil
+	}
+	m.welcomeGeneration++
+	m.welcomeFrame = 0
+	m.welcomeAnimating = true
+	return m.welcomeBannerTick()
 }
 
 func welcomeDrawMaxDistance() float64 {
