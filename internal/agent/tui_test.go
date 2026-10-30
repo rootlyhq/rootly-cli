@@ -389,7 +389,7 @@ func TestTUIHistoryRecallAndFooter(t *testing.T) {
 	sessionID := uuid.MustParse(testSessionID)
 	model.sessionID = &sessionID
 	model.turnStartedAt = time.Now().Add(-1200 * time.Millisecond)
-	if footer := model.turnFooter(); !strings.Contains(footer, "session "+testSessionID[:8]) || !strings.Contains(footer, "s · session ") {
+	if footer := model.turnFooter(); !strings.Contains(footer, "✻ Triaged for ") || !strings.Contains(footer, " · done ") || !strings.Contains(footer, "session "+testSessionID[:8]) {
 		t.Errorf("turn footer = %q, want elapsed and short session id", footer)
 	}
 }
@@ -503,8 +503,8 @@ func TestTUIResumeByIDLoadsTitleAndPrintsIt(t *testing.T) {
 		SessionID: &sessionID,
 	})
 	initSequence := reflect.ValueOf(model.Init()())
-	if initSequence.Kind() != reflect.Slice || initSequence.Len() != 2 {
-		t.Fatalf("initial resume commands = %v, want focus and history only before the title loads", initSequence)
+	if initSequence.Kind() != reflect.Slice || initSequence.Len() != 4 {
+		t.Fatalf("initial resume commands = %v, want clear, welcome, focus and history before the title loads", initSequence)
 	}
 
 	history := model.loadHistory(sessionID, "")().(historyLoadedMsg)

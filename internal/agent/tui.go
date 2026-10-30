@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -39,6 +40,7 @@ type streamMessage struct {
 
 type TUIOptions struct {
 	NoColor      bool
+	Version      string
 	API          TUIAPI
 	SessionID    *uuid.UUID
 	SessionTitle string
@@ -137,6 +139,11 @@ type TUIModel struct {
 	historyDraft        string
 	currentPrompt       string
 	turnStartedAt       time.Time
+	turnVerbIndex       int
+	verbIndex           func(int) int
+	now                 func() time.Time
+	version             string
+	showWelcomeBanner   bool
 	lastAnswer          string
 	transcript          []transcriptTurn
 	activities          activityTracker
@@ -189,6 +196,10 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 		width:             80,
 		height:            24,
 		noColor:           options.NoColor,
+		version:           options.Version,
+		verbIndex:         rand.IntN,
+		now:               time.Now,
+		showWelcomeBanner: true,
 		api:               options.API,
 		apiHost:           options.APIHost,
 		currentUser:       currentUser,
@@ -203,7 +214,7 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 }
 
 func (m *TUIModel) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.composer.Focus()}
+	cmds := []tea.Cmd{tea.ClearScreen, tea.Println(m.welcomeBanner()), m.composer.Focus()}
 	if m.sessionID != nil {
 		if !m.resumeLinePending {
 			cmds = append(cmds, tea.Println(m.resumedLine()))
@@ -643,6 +654,7 @@ func (m *TUIModel) submit() tea.Cmd {
 	if message == "" {
 		return nil
 	}
+	m.showWelcomeBanner = false
 	if isExitAlias(message) {
 		return m.quitCommand()
 	}
@@ -655,7 +667,7 @@ func (m *TUIModel) submit() tea.Cmd {
 	m.promptHistory = append(m.promptHistory, message)
 	m.historyIndex = -1
 	m.actionRequest++
-	m.turnStartedAt = time.Now()
+	m.startNewTurn()
 	m.activities.Reset()
 	params := &rootly.StreamAiChatParams{Message: &message, SessionID: m.sessionID}
 	if m.incident != nil && !m.incidentUsed {
@@ -759,7 +771,7 @@ func (m *TUIModel) beginStream(params *rootly.StreamAiChatParams) tea.Cmd {
 	m.pending = nil
 	m.doneStatus = ""
 	if m.turnStartedAt.IsZero() {
-		m.turnStartedAt = time.Now()
+		m.startNewTurn()
 	}
 	m.startedAt = m.turnStartedAt
 	m.currentParams = params
@@ -821,7 +833,7 @@ func (m *TUIModel) waitForStream() tea.Cmd {
 }
 
 func (m *TUIModel) View() tea.View {
-	var content strings.Builder
+	var sections []string
 	switch m.state {
 	case tuiStreaming:
 		markdown := m.answer.String()
@@ -829,43 +841,53 @@ func (m *TUIModel) View() tea.View {
 			markdown = trimIncompleteTrailingMarkdownLink(markdown)
 		}
 		if rendered := m.renderMarkdown(markdown, m.width-2); rendered != "" {
-			content.WriteString(rendered)
-			content.WriteString("\n")
+			sections = append(sections, rendered)
 		}
-		elapsed := time.Since(m.startedAt).Truncate(time.Second)
+		elapsed := m.now().Sub(m.startedAt).Truncate(time.Second)
 		status := m.status
 		if status == "" {
-			status = "Thinking"
+			status = statusVerbs[m.turnVerbIndex].Active + "…"
 		}
-		fmt.Fprintf(&content, "%s %s · %s\n", m.spinner.View(), status, elapsed)
+		sections = append(sections, fmt.Sprintf("%s %s · %s", m.spinner.View(), status, elapsed))
 	case tuiConfirming:
 		if m.pending != nil {
-			fmt.Fprintf(&content, "%s\n", renderConfirmationCard(m.pending, m.width, m.noColor, time.Now()))
+			sections = append(sections, renderConfirmationCard(m.pending, m.width, m.noColor, m.now()))
 		}
 	default:
 		if header := m.bindingHeader(); header != "" {
-			content.WriteString(faint(m.noColor, header))
-			content.WriteString("\n")
+			sections = append(sections, faint(m.noColor, header))
 		}
 		if m.status != "" {
-			content.WriteString(m.status)
-			content.WriteString("\n")
+			sections = append(sections, m.status)
 		}
 	}
 	if m.deleteConfirming {
-		content.WriteString("Delete this session? This can't be undone.\n")
-		content.WriteString("y delete · n/Esc cancel\n")
+		sections = append(sections, "Delete this session? This can't be undone.\ny delete · n/Esc cancel")
 	} else if m.pickerOpen {
-		content.WriteString(m.sessionPicker.View())
-		content.WriteString("\n")
+		sections = append(sections, m.sessionPicker.View())
 	} else if m.commandMenuOpen {
-		content.WriteString(m.commandMenu.View())
-		content.WriteString("\n")
+		sections = append(sections, m.commandMenu.View())
 	}
 	if m.state != tuiConfirming && !m.deleteConfirming {
-		content.WriteString(m.composer.View())
+		sections = append(sections,
+			faint(m.noColor, strings.Repeat("─", max(1, m.width))),
+			m.composer.View(),
+			faint(m.noColor, strings.Repeat("─", max(1, m.width))),
+			faint(m.noColor, "/ for commands · exit to quit"),
+		)
 	}
-	view := tea.NewView(content.String())
+	body := strings.Join(sections, "\n")
+	if m.showWelcomeBanner {
+		banner := strings.TrimSuffix(m.welcomeBanner(), "\n")
+		if height := lipgloss.Height(banner + "\n\n" + body); height < m.height {
+			body = banner + strings.Repeat("\n", m.height-height) + "\n\n" + body
+		} else {
+			body = banner + "\n\n" + body
+		}
+	} else if height := lipgloss.Height(body); height < m.height {
+		body = strings.Repeat("\n", m.height-height) + body
+	}
+	view := tea.NewView(body)
 	return view
 }
 

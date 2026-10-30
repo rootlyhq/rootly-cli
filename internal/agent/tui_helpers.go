@@ -232,7 +232,25 @@ func (m *TUIModel) turnFooter() string {
 	if m.sessionID != nil {
 		session = shortSessionID(m.sessionID.String())
 	}
-	return faint(m.noColor, fmt.Sprintf("%.1fs · session %s", time.Since(m.turnStartedAt).Seconds(), session))
+	now := m.now()
+	duration := now.Sub(m.turnStartedAt).Round(time.Second)
+	verb := statusVerbs[m.turnVerbIndex].Done
+	return faint(m.noColor, fmt.Sprintf("✻ %s for %s · done %s · session %s", verb, formatTurnDuration(duration), now.Format("3:04 PM"), session))
+}
+
+func (m *TUIModel) startNewTurn() {
+	m.turnStartedAt = m.now()
+	m.turnVerbIndex = m.verbIndex(len(statusVerbs))
+}
+
+func formatTurnDuration(duration time.Duration) string {
+	if duration < 0 {
+		duration = 0
+	}
+	if duration < time.Minute {
+		return fmt.Sprintf("%ds", int(duration/time.Second))
+	}
+	return fmt.Sprintf("%dm %ds", int(duration/time.Minute), int(duration/time.Second)%60)
 }
 
 func shortSessionID(id string) string {
@@ -311,10 +329,7 @@ func (m *TUIModel) statusLines() string {
 	user := "unknown"
 	if m.currentUser != nil {
 		attributes := m.currentUser.Data.Attributes
-		name := attributes.FullName.GetOrEmpty()
-		if name == "" {
-			name = strings.TrimSpace(attributes.FirstName.GetOrEmpty() + " " + attributes.LastName.GetOrEmpty())
-		}
+		name := currentUserName(attributes)
 		user = sanitizeTerminalText(strings.TrimSpace(name + " (" + attributes.Email + ")"))
 	}
 	host := m.apiHost

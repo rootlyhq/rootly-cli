@@ -103,7 +103,7 @@ var AgentCmd = &cobra.Command{
 
 		noColor := viper.GetBool("no-color")
 		model := aiagent.NewTUIModel(cmd.Context(), client, aiagent.TUIOptions{
-			NoColor: noColor, API: client, SessionID: sessionID, SessionTitle: sessionTitle,
+			NoColor: noColor, Version: cmd.Root().Version, API: client, SessionID: sessionID, SessionTitle: sessionTitle,
 			APIHost: client.APIHost(), CurrentUser: currentUser,
 			Incident: incident, Alert: boundAlert,
 		})
