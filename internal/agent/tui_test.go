@@ -336,6 +336,143 @@ func TestTUIFixedFooterAtCommonTerminalSizes(t *testing.T) {
 	}
 }
 
+func setTUIStreamingTestClock(model *TUIModel) {
+	now := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	model.now = func() time.Time { return now }
+	model.startedAt = now.Add(-3 * time.Second)
+	model.turnStartedAt = model.startedAt
+	model.turnVerbIndex = 0
+}
+
+func TestTUIStreamingStatusIsPinnedAndRemovedAfterDone(t *testing.T) {
+	model := newSizedTUITestModel(80, 24)
+	setTUIStreamingTestClock(model)
+	model.state = tuiStreaming
+
+	footer := strings.Split(model.footerContent(), "\n")
+	if len(footer) != 6 {
+		t.Fatalf("streaming footer has %d rows, want 6: %q", len(footer), footer)
+	}
+	if got := ansi.Strip(footer[0]); !strings.Contains(got, "Triaging… · 3s") {
+		t.Errorf("streaming footer status = %q", got)
+	}
+	if footer[1] != "" {
+		t.Errorf("row between status and rule = %q, want blank", footer[1])
+	}
+	if got := ansi.Strip(footer[2]); !strings.Contains(got, "─") {
+		t.Errorf("streaming footer top rule = %q", got)
+	}
+	if got := ansi.Strip(model.liveSection()); strings.Contains(got, "Triaging") {
+		t.Errorf("live section contains streaming status: %q", got)
+	}
+	if got := ansi.Strip(model.transcriptContent()); strings.Contains(got, "Triaging") {
+		t.Errorf("transcript content contains streaming status: %q", got)
+	}
+	if got := ansi.Strip(model.Transcript()); strings.Contains(got, "Triaging") {
+		t.Errorf("exit transcript contains streaming status: %q", got)
+	}
+
+	model.currentPrompt = "Question"
+	model.answer.WriteString("Answer")
+	model.doneReceived = true
+	model.doneStatus = "complete"
+	_, _ = model.finishTurn(nil)
+
+	footer = strings.Split(model.footerContent(), "\n")
+	if len(footer) != 4 {
+		t.Fatalf("completed footer has %d rows, want 4: %q", len(footer), footer)
+	}
+	if got := ansi.Strip(footer[0]); !strings.Contains(got, "─") || strings.Contains(got, "Triaging") {
+		t.Errorf("completed footer starts with %q, want the rule and no status", got)
+	}
+	transcript := ansi.Strip(model.Transcript())
+	if !strings.Contains(transcript, "✻ Triaged for 3s") {
+		t.Errorf("completed transcript lost turn footer: %q", transcript)
+	}
+	if strings.Contains(transcript, "Triaging") {
+		t.Errorf("completed transcript contains streaming status: %q", transcript)
+	}
+}
+
+func TestTUIStreamingFooterHeightPreservesViewportPosition(t *testing.T) {
+	bottomModel := newSizedTUITestModel(80, 24)
+	for index := 0; index < 60; index++ {
+		bottomModel.println(fmt.Sprintf("history block %02d", index+1))
+	}
+	bottomModel.View()
+	if !bottomModel.viewport.AtBottom() {
+		t.Fatal("viewport did not start at the bottom")
+	}
+	setTUIStreamingTestClock(bottomModel)
+	bottomModel.state = tuiStreaming
+	bottomModel.View()
+	if !bottomModel.viewport.AtBottom() {
+		t.Fatal("viewport left the bottom when the streaming footer grew")
+	}
+
+	scrolledModel := newSizedTUITestModel(80, 24)
+	for index := 0; index < 60; index++ {
+		scrolledModel.println(fmt.Sprintf("history block %02d", index+1))
+	}
+	scrolledModel.View()
+	scrolledModel.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+	offset := scrolledModel.viewport.YOffset()
+	if offset == 0 {
+		t.Fatal("PgUp did not scroll the viewport")
+	}
+	setTUIStreamingTestClock(scrolledModel)
+	scrolledModel.state = tuiStreaming
+	scrolledModel.View()
+	if got := scrolledModel.viewport.YOffset(); got != offset {
+		t.Errorf("footer growth moved scrolled offset from %d to %d", offset, got)
+	}
+}
+
+func TestTUIStreamingFooterStaysVisibleWhileScrolled(t *testing.T) {
+	const height = 24
+	model := newSizedTUITestModel(80, height)
+	setTUIStreamingTestClock(model)
+	model.state = tuiStreaming
+	model.answer.WriteString(strings.Repeat("streamed answer paragraph with enough text to wrap\n\n", 40))
+	model.View()
+	model.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+	offset := model.viewport.YOffset()
+	if offset == 0 {
+		t.Fatal("PgUp did not scroll the streamed answer")
+	}
+
+	model.answer.WriteString("additional streamed answer")
+	view := model.View().Content
+	if got := model.viewport.YOffset(); got != offset {
+		t.Errorf("new streamed content moved scrolled offset from %d to %d", offset, got)
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) != height {
+		t.Fatalf("view rendered %d rows, want %d", len(lines), height)
+	}
+	statusRow := height - 6
+	if got := ansi.Strip(lines[statusRow]); !strings.Contains(got, "Triaging… · 3s") {
+		t.Errorf("row %d = %q, want streaming status", statusRow, got)
+	}
+	if got := ansi.Strip(lines[height-3]); !strings.Contains(got, "Ask Rootly") {
+		t.Errorf("composer row = %q", got)
+	}
+	if got := ansi.Strip(model.transcriptContent()); strings.Contains(got, "Triaging") {
+		t.Errorf("streaming transcript contains status line: %q", got)
+	}
+}
+
+func TestTUIStreamingStatusTruncatesAtNarrowWidth(t *testing.T) {
+	model := newSizedTUITestModel(20, 12)
+	setTUIStreamingTestClock(model)
+	model.state = tuiStreaming
+	model.status = strings.Repeat("streaming status ", 5)
+
+	if got := lipgloss.Width(model.streamingStatusLine()); got != model.width-1 {
+		t.Errorf("streaming status width = %d, want %d", got, model.width-1)
+	}
+}
+
 func TestTUIViewportFollowControls(t *testing.T) {
 	model := newSizedTUITestModel(80, 24)
 	for index := 0; index < 60; index++ {

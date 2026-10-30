@@ -1154,12 +1154,6 @@ func (m *TUIModel) liveSection() string {
 		if strings.TrimSpace(markdown) != "" {
 			sections = append(sections, m.renderAssistantAnswerPart(markdown, m.committedOffset == 0))
 		}
-		elapsed := m.now().Sub(m.startedAt).Truncate(time.Second)
-		status := m.status
-		if status == "" {
-			status = statusVerbs[m.turnVerbIndex].Active + "…"
-		}
-		sections = append(sections, fmt.Sprintf("%s %s · %s", m.spinner.View(), status, elapsed))
 	case tuiConfirming:
 		if m.pending != nil {
 			sections = append(sections, renderConfirmationCard(m.pending, m.width, m.noColor, m.now()))
@@ -1170,6 +1164,19 @@ func (m *TUIModel) liveSection() string {
 		}
 	}
 	return strings.Join(sections, "\n")
+}
+
+func (m *TUIModel) streamingStatusLine() string {
+	if m.state != tuiStreaming {
+		return ""
+	}
+	elapsed := m.now().Sub(m.startedAt).Truncate(time.Second)
+	status := m.status
+	if status == "" {
+		status = statusVerbs[m.turnVerbIndex].Active + "…"
+	}
+	line := fmt.Sprintf("%s %s · %s", m.spinner.View(), status, elapsed)
+	return ansi.Truncate(line, max(1, m.width-1), "")
 }
 
 func (m *TUIModel) liveAnswerRemainder() string {
@@ -1198,7 +1205,11 @@ func (m *TUIModel) footerContent() string {
 		hint += " · " + faint(m.noColor, "↓ new output · ctrl+end to jump")
 	}
 	hint = ansi.Truncate(hint, max(1, m.width-1), "")
-	return strings.Join([]string{rule, m.composer.View(), rule, faint(m.noColor, hint)}, "\n")
+	footer := []string{rule, m.composer.View(), rule, faint(m.noColor, hint)}
+	if statusLine := m.streamingStatusLine(); statusLine != "" {
+		footer = append([]string{statusLine, ""}, footer...)
+	}
+	return strings.Join(footer, "\n")
 }
 
 func (m *TUIModel) updateNewOutputIndicator() {
