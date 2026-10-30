@@ -32,10 +32,10 @@ func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
 
 	banner := ansi.Strip(model.welcomeBanner())
 	for _, expected := range []string{
-		"  ▄ ██ ▄  ",
-		" ▄█▀▄▄▀█▄ ",
-		"▄██▄▀▀▄██▄",
-		"▀▀▀▀██▀▀▀▀",
+		"     ▄█       ",
+		"    ▄▀ █      ",
+		"▀▀▀▀▀  █ ▄▀▀▀▀",
+		"       ▀█     ",
 		"Rootly AI",
 		"v1.2.3",
 		"Avery Rootly · Incident Response",
@@ -58,9 +58,9 @@ func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
 			t.Errorf("welcome banner row %d = %q, want logo row %q at its start", index+1, bannerLines[index], expected)
 		}
 	}
-	for index, line := range strings.Split(sproutLogo(true), "\n") {
+	for index, line := range strings.Split(pulseLogo(true), "\n") {
 		if width := lipgloss.Width(line); width != welcomeLogoWidth {
-			t.Errorf("sprout row %d width = %d, want %d", index+1, width, welcomeLogoWidth)
+			t.Errorf("pulse row %d width = %d, want %d", index+1, width, welcomeLogoWidth)
 		}
 	}
 	model.Init()
@@ -183,7 +183,7 @@ func TestWelcomeGlimmerReachesLogoEdges(t *testing.T) {
 		{name: "bottom-right", row: bottomRow, column: bottomRightColumn},
 	} {
 		t.Run(cell.name, func(t *testing.T) {
-			for frame := welcomeBloomFrames + 1; frame <= welcomeBloomFrames+welcomeGlimmerFrames(); frame++ {
+			for frame := welcomeDrawFrames + 1; frame <= welcomeDrawFrames+welcomeGlimmerFrames(); frame++ {
 				if color := welcomeCellColor(frame, cell.row, cell.column); color != "" && color != "#7C5CE6" {
 					return
 				}
@@ -191,6 +191,35 @@ func TestWelcomeGlimmerReachesLogoEdges(t *testing.T) {
 			t.Errorf("cell (%d,%d) never gets a glimmer color", cell.row, cell.column)
 		})
 	}
+}
+
+func TestWelcomePulseDrawsLeftToRight(t *testing.T) {
+	midDrawFrame := welcomeDrawFrames / 2
+	if color := welcomeCellColor(midDrawFrame, 2, 0); color == "" {
+		t.Error("left edge of pulse is still blank midway through drawing")
+	}
+	if color := welcomeCellColor(midDrawFrame, 2, 13); color != "" {
+		t.Errorf("right edge of pulse has color %q midway through drawing, want blank", color)
+	}
+	for _, column := range []int{0, 13} {
+		if color := welcomeCellColor(welcomeSettleFrame, 2, column); color != "#7C5CE6" {
+			t.Errorf("settled cell (2,%d) color = %q, want #7C5CE6", column, color)
+		}
+	}
+}
+
+func TestWelcomeGlimmerStartsAtLeftEdge(t *testing.T) {
+	for frame := welcomeDrawFrames + 1; frame <= welcomeDrawFrames+welcomeGlimmerFrames(); frame++ {
+		color := welcomeCellColor(frame, 2, 0)
+		if color == "" || color == "#7C5CE6" {
+			continue
+		}
+		if rightColor := welcomeCellColor(frame, 2, 13); rightColor != "#7C5CE6" {
+			t.Errorf("right edge glimmer color = %q at frame %d, want settled purple while beat starts left", rightColor, frame)
+		}
+		return
+	}
+	t.Fatal("no glimmer frame lights the left edge with a non-settled color")
 }
 
 func TestEarlyPromptSettlesWelcomeBannerBeforePromptEcho(t *testing.T) {

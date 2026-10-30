@@ -9,23 +9,23 @@ import (
 )
 
 const (
-	welcomeLogoWidth  = 10
+	welcomeLogoWidth  = 14
 	welcomeLogoHeight = 4
 )
 
 var welcomeLogoLines = []string{
-	"  ▄ ██ ▄  ",
-	" ▄█▀▄▄▀█▄ ",
-	"▄██▄▀▀▄██▄",
-	"▀▀▀▀██▀▀▀▀",
+	"     ▄█       ",
+	"    ▄▀ █      ",
+	"▀▀▀▀▀  █ ▄▀▀▀▀",
+	"       ▀█     ",
 }
 
 func (m *TUIModel) welcomeBanner() string {
-	return m.welcomeBannerContent(sproutLogo(m.noColor)) + "\n"
+	return m.welcomeBannerContent(pulseLogo(m.noColor)) + "\n"
 }
 
 func (m *TUIModel) welcomeBannerFrame() string {
-	return m.welcomeBannerContent(renderSproutFrame(m.welcomeFrame))
+	return m.welcomeBannerContent(renderPulseFrame(m.welcomeFrame))
 }
 
 func (m *TUIModel) welcomeBannerContent(logo string) string {
@@ -114,7 +114,7 @@ func (m *TUIModel) sessionHeaderContext() string {
 	return "New session"
 }
 
-func sproutLogo(noColor bool) string {
+func pulseLogo(noColor bool) string {
 	logo := strings.Join(welcomeLogoLines, "\n")
 	if noColor {
 		return logo
