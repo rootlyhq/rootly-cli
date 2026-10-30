@@ -115,6 +115,10 @@ var AgentCmd = &cobra.Command{
 		if noColor {
 			options = append(options, tea.WithColorProfile(colorprofile.Ascii))
 		}
+		noClear, _ := cmd.Flags().GetBool("no-clear")
+		if err := clearTerminalForAgent(cmd.OutOrStdout(), !noClear, isTerminalWriter(cmd.OutOrStdout())); err != nil {
+			return err
+		}
 		program := tea.NewProgram(model, options...)
 		_, err = program.Run()
 		return err
@@ -128,6 +132,7 @@ func init() {
 	AgentCmd.Flags().String("incident", "", "Bind the chat to an incident")
 	AgentCmd.Flags().String("alert", "", "Bind the chat to an alert")
 	AgentCmd.Flags().String("output-format", "text", "Print output format: text, json, or stream-json")
+	AgentCmd.Flags().Bool("no-clear", false, "Don't clear the terminal and scrollback on start")
 	AgentCmd.MarkFlagsMutuallyExclusive("resume", "continue", "incident", "alert")
 }
 
@@ -214,4 +219,12 @@ func isTerminalReader(reader io.Reader) bool {
 func isTerminalWriter(writer io.Writer) bool {
 	file, ok := writer.(*os.File)
 	return ok && isatty.IsTerminal(file.Fd())
+}
+
+func clearTerminalForAgent(writer io.Writer, enabled, terminal bool) error {
+	if !enabled || !terminal {
+		return nil
+	}
+	_, err := io.WriteString(writer, "\x1b[2J\x1b[3J\x1b[H")
+	return err
 }

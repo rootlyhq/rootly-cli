@@ -203,3 +203,82 @@ func TestContinueFlagHelp(t *testing.T) {
 		t.Errorf("continue help = %q, want %q", flag.Usage, want)
 	}
 }
+
+func TestClearTerminalForAgent(t *testing.T) {
+	tests := []struct {
+		name     string
+		enabled  bool
+		terminal bool
+		want     string
+	}{
+		{name: "terminal", enabled: true, terminal: true, want: "\x1b[2J\x1b[3J\x1b[H"},
+		{name: "disabled", enabled: false, terminal: true},
+		{name: "non-terminal", enabled: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			if err := clearTerminalForAgent(&output, test.enabled, test.terminal); err != nil {
+				t.Fatalf("clearTerminalForAgent() error = %v", err)
+			}
+			if got := output.String(); got != test.want {
+				t.Errorf("clear output = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestAgentPrintModeDoesNotEmitTerminalClear(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/users/me":
+			writer.Header().Set("Content-Type", "application/vnd.api+json")
+			_, _ = writer.Write([]byte(`{"data":{"id":"user-1","type":"users","attributes":{"email":"test@example.com","feature_flags":{"ai-chat":true}}}}`))
+		case "/v1/ai/chat/stream":
+			writer.Header().Set("Content-Type", "text/event-stream")
+			_, _ = writer.Write([]byte("event: text\ndata: {\"content\":\"answer\"}\n\nevent: done\ndata: {\"status\":\"complete\"}\n\n"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	oldAPIKey, oldAPIHost := viper.GetString("api_key"), viper.GetString("api_host")
+	oldNoColor, oldQuiet := viper.GetBool("no-color"), viper.GetBool("quiet")
+	viper.Set("api_key", "test-key")
+	viper.Set("api_host", server.URL)
+	viper.Set("no-color", true)
+	viper.Set("quiet", false)
+	t.Cleanup(func() {
+		viper.Set("api_key", oldAPIKey)
+		viper.Set("api_host", oldAPIHost)
+		viper.Set("no-color", oldNoColor)
+		viper.Set("quiet", oldQuiet)
+	})
+
+	cmd := &cobra.Command{}
+	cmd.Flags().StringP("print", "p", "", "")
+	cmd.Flags().StringP("resume", "r", "", "")
+	cmd.Flags().BoolP("continue", "c", false, "")
+	cmd.Flags().String("incident", "", "")
+	cmd.Flags().String("alert", "", "")
+	cmd.Flags().String("output-format", "text", "")
+	if err := cmd.Flags().Set("print", "question"); err != nil {
+		t.Fatalf("set print flag: %v", err)
+	}
+	cmd.SetContext(context.Background())
+	cmd.SetIn(bytes.NewBuffer(nil))
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	if err := AgentCmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("AgentCmd.RunE() error = %v", err)
+	}
+	if got := stdout.String(); got != "answer\n" {
+		t.Errorf("stdout = %q, want print answer", got)
+	}
+	if strings.Contains(stdout.String(), "\x1b") || strings.Contains(stderr.String(), "\x1b") {
+		t.Errorf("print output contains escape bytes: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
