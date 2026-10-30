@@ -132,6 +132,44 @@ func TestWelcomeBannerAnimationSettlesAndPrintsOnce(t *testing.T) {
 	}
 }
 
+func TestWelcomeGlimmerReachesLogoEdges(t *testing.T) {
+	topLeftColumn := -1
+	for column, character := range []rune(welcomeLogoLines[0]) {
+		if character != ' ' {
+			topLeftColumn = column
+			break
+		}
+	}
+	bottomRow := len(welcomeLogoLines) - 1
+	bottomRightColumn := -1
+	for column, character := range []rune(welcomeLogoLines[bottomRow]) {
+		if character != ' ' {
+			bottomRightColumn = column
+		}
+	}
+	if topLeftColumn < 0 || bottomRightColumn < 0 {
+		t.Fatal("welcome logo has no edge cells")
+	}
+
+	for _, cell := range []struct {
+		name   string
+		row    int
+		column int
+	}{
+		{name: "top-left", row: 0, column: topLeftColumn},
+		{name: "bottom-right", row: bottomRow, column: bottomRightColumn},
+	} {
+		t.Run(cell.name, func(t *testing.T) {
+			for frame := welcomeBloomFrames + 1; frame <= welcomeBloomFrames+welcomeGlimmerFrames(); frame++ {
+				if color := welcomeCellColor(frame, cell.row, cell.column); color != "" && color != "#7C5CE6" {
+					return
+				}
+			}
+			t.Errorf("cell (%d,%d) never gets a glimmer color", cell.row, cell.column)
+		})
+	}
+}
+
 func TestEarlyPromptSettlesWelcomeBannerBeforePromptEcho(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{}}}, TUIOptions{})
 	model.width = 100

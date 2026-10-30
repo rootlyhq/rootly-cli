@@ -58,7 +58,7 @@ func welcomeCellColor(frame, row, column int) string {
 		return "#7C5CE6"
 	}
 	if frame > welcomeBloomFrames && frame <= welcomeBloomFrames+welcomeGlimmerFrames() {
-		phase := welcomeBloomFrames + 1 + (frame-welcomeBloomFrames-1)*2
+		phase := (frame - welcomeBloomFrames - 1) * 2
 		index := column + row - phase + welcomeGlimmerCenter
 		if index >= 0 && index < len(welcomeGlimmer) {
 			return welcomeGlimmer[index]
