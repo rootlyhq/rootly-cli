@@ -141,6 +141,33 @@ func TestRunPrintReturnsErrorEvent(t *testing.T) {
 	}
 }
 
+func TestRunPrintTreatsMissingDoneAsError(t *testing.T) {
+	for _, outputFormat := range []string{"text", "json"} {
+		t.Run(outputFormat, func(t *testing.T) {
+			streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{
+				eventOf(rootly.AiChatStreamEventText, `{"content":"Partial answer"}`),
+			}}}
+			var stdout, stderr bytes.Buffer
+			options := newPrintOptions(&stdout, &stderr)
+			options.OutputFormat = outputFormat
+
+			err := RunPrint(context.Background(), streamer, options)
+			if err == nil || err.Error() != "AI chat stream ended before the turn finished" {
+				t.Fatalf("RunPrint() error = %v, want truncated-stream error", err)
+			}
+			if outputFormat == "json" {
+				var result map[string]any
+				if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+					t.Fatalf("stdout is not a JSON result: %v (%q)", err, stdout.String())
+				}
+				if result["status"] != "error" || result["result"] != "Partial answer" {
+					t.Errorf("result = %#v, want error status and retained partial answer", result)
+				}
+			}
+		})
+	}
+}
+
 func TestRunPrintHaltedStatusPrintsAnswerAndNote(t *testing.T) {
 	streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{
 		eventOf(rootly.AiChatStreamEventText, `{"content":"Partial answer"}`),

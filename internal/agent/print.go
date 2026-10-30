@@ -94,6 +94,7 @@ type printRun struct {
 	activities   activityTracker
 	confirmation *rootly.AiChatStreamConfirmationRequired
 	doneStatus   string
+	doneReceived bool
 	streamError  error
 }
 
@@ -109,6 +110,7 @@ func (r *printRun) run(ctx context.Context) error {
 func (r *printRun) runTurn(ctx context.Context) (bool, error) {
 	r.confirmation = nil
 	r.doneStatus = ""
+	r.doneReceived = false
 	r.streamError = nil
 	resumeTextSeparator := r.params.CheckpointID != nil
 	err := StreamTurn(ctx, r.streamer, r.params, func(event Event) bool {
@@ -120,6 +122,9 @@ func (r *printRun) runTurn(ctx context.Context) (bool, error) {
 	}
 	if r.streamError != nil {
 		return false, finishPrintError(r.options, r.answer.String(), r.streamError)
+	}
+	if !r.doneReceived {
+		return false, finishPrintError(r.options, r.answer.String(), errors.New("AI chat stream ended before the turn finished"))
 	}
 	if r.doneStatus == "error" {
 		return false, finishPrintError(r.options, r.answer.String(), errors.New("AI chat turn failed"))
@@ -181,6 +186,7 @@ func (r *printRun) handleEvent(event Event, resumeTextSeparator *bool) bool {
 			return false
 		}
 	case rootly.AiChatStreamEventDone:
+		r.doneReceived = true
 		if event.Done != nil {
 			r.doneStatus = event.Done.Status
 		}

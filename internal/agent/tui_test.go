@@ -171,6 +171,7 @@ func TestTUIModelCommitsStreamedBlocksAndRendersOnlyTail(t *testing.T) {
 		t.Errorf("live view = %q, want only the remaining tail", model.View().Content)
 	}
 
+	model.handleEvent(activityDoneEvent("complete"))
 	_, cmd = model.Update(streamMessage{turn: 1, done: true})
 	printed.WriteString(commandSequenceOutput(cmd))
 	for _, block := range []string{"First block.", "Second block.", "Tail"} {
@@ -359,8 +360,8 @@ func TestConfirmationRequiredPrintsOnlyUncommittedStreamRemainder(t *testing.T) 
 	model.state = tuiStreaming
 	model.answer.WriteString("Committed block\n\nUncommitted tail")
 	model.committedOffset = len("Committed block\n\n")
-	model.doneStatus = "confirmation_required"
 	model.pending = &rootly.AiChatStreamConfirmationRequired{Question: "Approve?"}
+	model.handleEvent(activityDoneEvent("confirmation_required"))
 
 	_, cmd := model.Update(streamMessage{turn: model.turn, done: true})
 	output := commandSequenceOutput(cmd)
@@ -476,6 +477,7 @@ func TestTUIModelDonePrintsAndReturnsIdle(t *testing.T) {
 	model.state = tuiStreaming
 	model.answer.WriteString("assistant reply")
 	model.doneStatus = "complete"
+	model.doneReceived = true
 
 	updated, cmd := model.Update(streamMessage{done: true})
 	if got := updated.(*TUIModel).state; got != tuiIdle {
@@ -999,6 +1001,7 @@ func TestTUIFinishTurnRequestsWindowSizeAfterPrintedAnswer(t *testing.T) {
 	model.answer.WriteString("Answer")
 	model.currentPrompt = "Question"
 	model.doneStatus = "complete"
+	model.doneReceived = true
 
 	_, cmd := model.finishTurn(nil)
 	if cmd == nil {
@@ -1259,10 +1262,11 @@ func TestTUIModelSeparatesResumedText(t *testing.T) {
 
 func TestTUIModelStreamErrorsPrintPartialAnswer(t *testing.T) {
 	tests := []struct {
-		name        string
-		message     streamMessage
-		doneStatus  string
-		wantMessage string
+		name         string
+		message      streamMessage
+		doneStatus   string
+		doneReceived bool
+		wantMessage  string
 	}{
 		{
 			name: "error event",
@@ -1273,10 +1277,16 @@ func TestTUIModelStreamErrorsPrintPartialAnswer(t *testing.T) {
 			wantMessage: "event failed",
 		},
 		{
-			name:        "done error",
+			name:         "done error",
+			message:      streamMessage{done: true},
+			doneStatus:   "error",
+			doneReceived: true,
+			wantMessage:  "AI chat turn failed",
+		},
+		{
+			name:        "truncated stream",
 			message:     streamMessage{done: true},
-			doneStatus:  "error",
-			wantMessage: "AI chat turn failed",
+			wantMessage: "AI chat stream ended before the turn finished",
 		},
 		{
 			name:        "transport error",
@@ -1289,6 +1299,7 @@ func TestTUIModelStreamErrorsPrintPartialAnswer(t *testing.T) {
 			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 			model.state = tuiStreaming
 			model.doneStatus = test.doneStatus
+			model.doneReceived = test.doneReceived
 			model.answer.WriteString("partial answer")
 
 			_, cmd := model.Update(test.message)
@@ -1346,6 +1357,7 @@ func TestTUIModelResumeStatuses(t *testing.T) {
 			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 			model.state = tuiStreaming
 			model.doneStatus = test.status
+			model.doneReceived = true
 			model.answer.WriteString("reply")
 
 			_, cmd := model.Update(streamMessage{done: true})

@@ -116,6 +116,7 @@ type TUIModel struct {
 	stream              chan streamMessage
 	startedAt           time.Time
 	doneStatus          string
+	doneReceived        bool
 	idleInterrupt       bool
 	currentParams       *rootly.StreamAiChatParams
 	turn                int
@@ -460,6 +461,7 @@ func (m *TUIModel) handleEvent(event Event) {
 			m.status = sanitizeTerminalText(event.Error.Message)
 		}
 	case rootly.AiChatStreamEventDone:
+		m.doneReceived = true
 		if event.Done != nil {
 			m.doneStatus = sanitizeTerminalText(event.Done.Status)
 		}
@@ -542,6 +544,10 @@ func markdownFence(line string) (marker rune, length int, closing, ok bool) {
 }
 
 func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
+	if err == nil && !m.doneReceived {
+		err = errors.New("AI chat stream ended before the turn finished")
+	}
+	m.doneReceived = false
 	if m.cancel != nil {
 		m.cancel()
 	}
@@ -931,6 +937,7 @@ func (m *TUIModel) beginStream(params *rootly.StreamAiChatParams) tea.Cmd {
 	m.resumeTextSeparator = params.CheckpointID != nil
 	m.pending = nil
 	m.doneStatus = ""
+	m.doneReceived = false
 	if m.turnStartedAt.IsZero() {
 		m.startNewTurn()
 	}
