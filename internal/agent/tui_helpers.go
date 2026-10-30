@@ -17,6 +17,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	rootly "github.com/rootlyhq/rootly-go"
 
@@ -166,7 +167,40 @@ func (m *TUIModel) println(text string) tea.Cmd {
 		m.pendingPrints = append(m.pendingPrints, text)
 		return nil
 	}
-	return tea.Println(text)
+	if m.height <= 0 || text == "" {
+		return tea.Println(text)
+	}
+	chunks := m.scrollbackPrintChunks(text)
+	commands := make([]tea.Cmd, 0, len(chunks))
+	for _, chunk := range chunks {
+		if chunk == "" {
+			chunk = " "
+		}
+		commands = append(commands, tea.Println(chunk))
+	}
+	return sequenceTUICommands(commands...)
+}
+
+func (m *TUIModel) scrollbackPrintChunks(text string) []string {
+	width := max(1, m.width-1)
+	wrapped := ansi.Wrap(text, width, "")
+	viewRows := rendererPhysicalRows(m.View().Content, width)
+	maxLiveViewRows := min(m.height-1, viewRows+1)
+	rowsPerChunk := max(1, m.height-maxLiveViewRows-1)
+	lines := strings.Split(wrapped, "\n")
+	chunks := make([]string, 0, (len(lines)+rowsPerChunk-1)/rowsPerChunk)
+	for start := 0; start < len(lines); start += rowsPerChunk {
+		end := min(start+rowsPerChunk, len(lines))
+		chunks = append(chunks, strings.Join(lines[start:end], "\n"))
+	}
+	return chunks
+}
+
+func rendererPhysicalRows(text string, width int) int {
+	if text == "" {
+		return 0
+	}
+	return len(strings.Split(ansi.Wrap(text, max(1, width), ""), "\n"))
 }
 
 func (m *TUIModel) printWelcomeBanner() tea.Cmd {
@@ -212,7 +246,7 @@ func (m *TUIModel) renderAssistantAnswer(markdown string) string {
 }
 
 func (m *TUIModel) renderAssistantAnswerPart(markdown string, first bool) string {
-	rendered := strings.TrimSpace(m.renderMarkdown(markdown, max(20, m.width-2)))
+	rendered := strings.TrimSpace(m.renderMarkdown(markdown, max(20, m.width-3)))
 	lines := strings.Split(rendered, "\n")
 	for index, line := range lines {
 		line = trimLeadingANSIWhitespace(line)
@@ -222,7 +256,7 @@ func (m *TUIModel) renderAssistantAnswerPart(markdown string, first bool) string
 			lines[index] = "  " + line
 		}
 	}
-	return strings.Join(lines, "\n")
+	return ansi.Wrap(strings.Join(lines, "\n"), max(1, m.width-1), " ")
 }
 
 func trimLeadingANSIWhitespace(line string) string {

@@ -587,6 +587,7 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 			m.activities.Reset()
 			return m, sequenceTUICommands(append(commands, cmd)...)
 		}
+		m.state = tuiConfirming
 		if rawAnswer := m.answer.String(); strings.TrimSpace(rawAnswer) != "" {
 			m.lastAnswer = rawAnswer
 			if remainder := m.uncommittedAnswer(); strings.TrimSpace(remainder) != "" {
@@ -595,7 +596,6 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 			}
 			m.committedOffset = len(rawAnswer)
 		}
-		m.state = tuiConfirming
 		return m, sequenceTUICommands(commands...)
 	}
 	if m.doneStatus == "cancelled" {
@@ -1006,7 +1006,8 @@ func (m *TUIModel) View() tea.View {
 			markdown = trimIncompleteTrailingMarkdownLink(markdown)
 		}
 		if rendered := m.renderMarkdown(markdown, m.width-2); rendered != "" {
-			sections = append(sections, rendered)
+			chromeRows := 1 + lipgloss.Height(m.composer.View()) + 3
+			sections = append(sections, m.clipStreamingAnswer(rendered, chromeRows))
 		}
 		elapsed := m.now().Sub(m.startedAt).Truncate(time.Second)
 		status := m.status
@@ -1032,15 +1033,15 @@ func (m *TUIModel) View() tea.View {
 	}
 	if m.state != tuiConfirming && !m.deleteConfirming {
 		sections = append(sections,
-			faint(m.noColor, strings.Repeat("─", max(1, m.width))),
+			faint(m.noColor, strings.Repeat("─", max(1, m.width-1))),
 			m.composer.View(),
-			faint(m.noColor, strings.Repeat("─", max(1, m.width))),
+			faint(m.noColor, strings.Repeat("─", max(1, m.width-1))),
 			faint(m.noColor, "/ for commands · exit to quit"),
 		)
 	}
 	body := strings.Join(sections, "\n")
 	if m.height > 0 {
-		wrapped := ansi.Wrap(body, max(1, m.width), " ")
+		wrapped := ansi.Wrap(body, max(1, m.width-1), " ")
 		limit := m.height - 1
 		if lipgloss.Height(wrapped) > limit {
 			if limit == 0 {
@@ -1056,6 +1057,19 @@ func (m *TUIModel) View() tea.View {
 	}
 	view := tea.NewView(body)
 	return view
+}
+
+func (m *TUIModel) clipStreamingAnswer(rendered string, chromeRows int) string {
+	if m.height <= 0 {
+		return rendered
+	}
+	limit := max(3, m.height/2-chromeRows)
+	wrapped := ansi.Wrap(rendered, max(1, m.width-1), " ")
+	lines := strings.Split(wrapped, "\n")
+	if len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *TUIModel) renderMarkdown(markdown string, width int) string {

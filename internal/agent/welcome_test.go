@@ -228,9 +228,9 @@ func TestTUIViewDoesNotPadComposerToTerminalBottom(t *testing.T) {
 	if strings.Contains(view, "Rootly AI") {
 		t.Errorf("idle view contains welcome banner, which should be printed once to scrollback: %q", view)
 	}
-	rule := strings.Repeat("─", model.width)
+	rule := strings.Repeat("─", model.width-1)
 	if got := strings.Count(view, rule); got != 2 {
-		t.Errorf("idle view has %d full-width rules, want 2: %q", got, view)
+		t.Errorf("idle view has %d frame rules one cell inside the terminal width, want 2: %q", got, view)
 	}
 }
 
