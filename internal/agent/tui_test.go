@@ -245,6 +245,67 @@ func TestTUIPrintlnChunksResumedHistory(t *testing.T) {
 	}
 }
 
+func TestTUIWelcomePrintChunksUseLastAnimatedFrameHeight(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.width = 80
+	model.height = 24
+	model.composer.SetWidth(78)
+	model.welcomeStarted = true
+	model.welcomeAnimating = true
+	model.welcomeFrame = welcomeBloomFrames + 2
+
+	model.View()
+	lastFrameRows := model.lastViewRows
+	bannerFrameRows := rendererPhysicalRows(model.welcomeBannerFrame(), model.width-1)
+	chromeRows := lastFrameRows - bannerFrameRows
+	maxRows := model.height - (bannerFrameRows + chromeRows) - 1
+	if lastFrameRows <= 0 || bannerFrameRows <= 0 || chromeRows <= 0 || maxRows <= 0 {
+		t.Fatalf("frame/banner/chrome rows = %d/%d/%d, want positive rows and free space", lastFrameRows, bannerFrameRows, chromeRows)
+	}
+
+	historyRows := make([]string, 70)
+	for index := range historyRows {
+		historyRows[index] = fmt.Sprintf("history row %02d with details", index+1)
+	}
+	history := strings.Join(historyRows, "\n")
+	if cmd := model.println(history); cmd != nil {
+		t.Fatal("println while the welcome is animating returned a command; want buffered history")
+	}
+	if len(model.pendingPrints) != 1 {
+		t.Fatalf("pending prints = %d, want one queued history block", len(model.pendingPrints))
+	}
+
+	bannerChunks := model.scrollbackPrintChunks(model.welcomeBanner())
+	historyChunks := model.scrollbackPrintChunks(model.pendingPrints[0])
+	cmd := model.printWelcomeBanner()
+	bodies := printedLineBodies(cmd)
+	expected := make([]string, 0, len(bannerChunks)+len(historyChunks))
+	expected = append(expected, bannerChunks...)
+	expected = append(expected, historyChunks...)
+	for index, chunk := range expected {
+		if chunk == "" {
+			expected[index] = " "
+		}
+	}
+	if len(bodies) != len(expected) {
+		t.Fatalf("welcome settle emitted %d Println chunks, want %d for banner and pending history", len(bodies), len(expected))
+	}
+	for index, body := range bodies {
+		if rows := rendererPhysicalRows(body, model.width-1); rows > maxRows {
+			t.Errorf("Println chunk %d has %d rows, want at most %d (24 - banner frame %d - chrome %d - safety row)", index, rows, maxRows, bannerFrameRows, chromeRows)
+		}
+		if body != expected[index] {
+			t.Errorf("Println chunk %d = %q, want %q", index, body, expected[index])
+		}
+	}
+	if model.welcomeAnimating || !model.welcomePrinted || len(model.pendingPrints) != 0 {
+		t.Errorf("welcome state after settle = animating %t, printed %t, pending %d; want settled, printed once, and empty queue", model.welcomeAnimating, model.welcomePrinted, len(model.pendingPrints))
+	}
+	if currentRows := rendererPhysicalRows(model.viewContent(), model.width-1); currentRows >= lastFrameRows {
+		t.Errorf("settled view rows = %d, want fewer than last animated frame %d", currentRows, lastFrameRows)
+	}
+}
+
 func TestLastTopLevelBlockBoundaryIgnoresFencedBlankLines(t *testing.T) {
 	for _, marker := range []string{"```", "~~~"} {
 		answer := "Intro.\n\n" + marker + "go\nfirst\n\nsecond\n" + marker + "\n\nTail"

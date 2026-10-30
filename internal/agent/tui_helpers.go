@@ -184,8 +184,8 @@ func (m *TUIModel) println(text string) tea.Cmd {
 func (m *TUIModel) scrollbackPrintChunks(text string) []string {
 	width := max(1, m.width-1)
 	wrapped := ansi.Wrap(text, width, "")
-	viewRows := rendererPhysicalRows(m.View().Content, width)
-	maxLiveViewRows := min(m.height-1, viewRows+1)
+	currentViewRows := rendererPhysicalRows(m.viewContent(), width)
+	maxLiveViewRows := min(m.height-1, max(m.lastViewRows, currentViewRows)+1)
 	rowsPerChunk := max(1, m.height-maxLiveViewRows-1)
 	lines := strings.Split(wrapped, "\n")
 	chunks := make([]string, 0, (len(lines)+rowsPerChunk-1)/rowsPerChunk)

@@ -155,6 +155,7 @@ type TUIModel struct {
 	welcomeFrame        int
 	pendingPrints       []string
 	quitting            bool
+	lastViewRows        int
 	lastAnswer          string
 	transcript          []transcriptTurn
 	activities          activityTracker
@@ -231,6 +232,7 @@ func (m *TUIModel) Init() tea.Cmd {
 	m.welcomeFrame = 0
 	m.pendingPrints = nil
 	m.quitting = false
+	m.lastViewRows = 0
 	cmds := make([]tea.Cmd, 0, 5)
 	if m.noColor || (m.colorProfileKnown && m.colorProfile < colorprofile.ANSI256) {
 		cmds = append(cmds, m.printWelcomeBanner())
@@ -992,8 +994,14 @@ func (m *TUIModel) waitForStream() tea.Cmd {
 }
 
 func (m *TUIModel) View() tea.View {
+	content := m.viewContent()
+	m.lastViewRows = rendererPhysicalRows(content, max(1, m.width-1))
+	return tea.NewView(content)
+}
+
+func (m *TUIModel) viewContent() string {
 	if m.quitting {
-		return tea.NewView("")
+		return ""
 	}
 	var sections []string
 	if m.welcomeAnimating {
@@ -1055,8 +1063,7 @@ func (m *TUIModel) View() tea.View {
 			}
 		}
 	}
-	view := tea.NewView(body)
-	return view
+	return body
 }
 
 func (m *TUIModel) clipStreamingAnswer(rendered string, chromeRows int) string {
