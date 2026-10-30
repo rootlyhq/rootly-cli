@@ -48,7 +48,7 @@ func (tracker *activityTracker) Handle(event Event) []string {
 			tracker.dropConfirmation()
 			return nil
 		}
-		tracker.finishPending(event.Done != nil && event.Done.Status == "complete", false, false)
+		tracker.finishPending(event.Done != nil && isSuccessfulDoneStatus(event.Done.Status), false, false)
 		return tracker.flushCompleted()
 	case rootly.AiChatStreamEventConfirmationRequired:
 		tracker.dropConfirmation()
@@ -59,6 +59,10 @@ func (tracker *activityTracker) Handle(event Event) []string {
 		return tracker.handleTaskUpdate(event.TaskUpdate)
 	}
 	return nil
+}
+
+func isSuccessfulDoneStatus(status string) bool {
+	return status == "complete" || status == "confirmed"
 }
 
 func (tracker *activityTracker) Finish(success bool) []string {

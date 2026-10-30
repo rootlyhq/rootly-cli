@@ -936,6 +936,18 @@ func TestTUIStatusActivityIsPersisted(t *testing.T) {
 	}
 }
 
+func TestTUIFinishTurnTreatsConfirmedActivityAsSuccessful(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.activities.Handle(activityStatusEvent("Get incidents..."))
+	model.doneStatus = "confirmed"
+	model.doneReceived = true
+
+	_, cmd := model.finishTurn(nil)
+	if output := commandSequenceOutput(cmd); !strings.Contains(output, "✓ Get incidents (") {
+		t.Errorf("finish output = %q, want successful activity line", output)
+	}
+}
+
 func TestTUIConfirmationDefersTextFinalizedActivityUntilResumedTurn(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
 	model.state = tuiStreaming

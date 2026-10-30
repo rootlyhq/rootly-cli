@@ -35,6 +35,16 @@ func TestActivityTrackerStatusSequence(t *testing.T) {
 	}
 }
 
+func TestActivityTrackerConfirmedDoneIsSuccessful(t *testing.T) {
+	tracker := activityTracker{}
+	tracker.Handle(activityStatusEvent("Get incidents..."))
+
+	lines := tracker.Handle(activityDoneEvent("confirmed"))
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "✓ Get incidents (") {
+		t.Fatalf("activity lines = %#v, want one successful Get incidents line", lines)
+	}
+}
+
 func TestActivityTrackerCompletesConsecutiveStatusesInOrder(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	tracker := activityTracker{now: func() time.Time { return now }}

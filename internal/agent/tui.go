@@ -564,7 +564,7 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 			m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, line)))
 		}
 	} else if m.doneStatus != "" {
-		for _, line := range m.activities.Finish(m.doneStatus == "complete") {
+		for _, line := range m.activities.Finish(isSuccessfulDoneStatus(m.doneStatus)) {
 			m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, line)))
 		}
 	}
