@@ -146,20 +146,43 @@ func (m *TUIModel) historyKey(msg tea.KeyPressMsg) bool {
 }
 
 func (m *TUIModel) quitCommand() tea.Cmd {
+	welcomeCmd := m.printWelcomeBanner()
+	m.quitting = true
 	if m.sessionID == nil {
-		return tea.Quit
+		if welcomeCmd == nil {
+			return tea.Quit
+		}
+		return tea.Sequence(welcomeCmd, tea.Quit)
 	}
 	hint := "Resume with: rootly agent --resume " + m.sessionID.String()
-	return tea.Sequence(m.println(faint(m.noColor, hint)), tea.Quit)
+	hintCmd := m.println(faint(m.noColor, hint))
+	if welcomeCmd == nil {
+		return tea.Sequence(hintCmd, tea.Quit)
+	}
+	return tea.Sequence(welcomeCmd, hintCmd, tea.Quit)
 }
 
 func (m *TUIModel) println(text string) tea.Cmd {
-	width := max(1, m.width)
-	for _, line := range strings.Split(text, "\n") {
-		lineWidth := lipgloss.Width(line)
-		m.printedRows += max(1, (lineWidth+width-1)/width)
+	if m.welcomePending || m.welcomeAnimating {
+		m.pendingPrints = append(m.pendingPrints, text)
+		return nil
 	}
 	return tea.Println(text)
+}
+
+func (m *TUIModel) printWelcomeBanner() tea.Cmd {
+	if !m.welcomeStarted || m.welcomePrinted {
+		return nil
+	}
+	m.welcomePending = false
+	m.welcomeAnimating = false
+	m.welcomePrinted = true
+	commands := []tea.Cmd{m.println(m.welcomeBanner())}
+	for _, text := range m.pendingPrints {
+		commands = append(commands, m.println(text))
+	}
+	m.pendingPrints = nil
+	return sequenceTUICommands(commands...)
 }
 
 func isExitAlias(message string) bool {
@@ -179,7 +202,7 @@ func renderPromptEcho(prompt string, width int, noColor bool) string {
 		}
 		lines[index] = prefix + line
 		if !noColor {
-			lines[index] = lipgloss.NewStyle().Background(lipgloss.Color("236")).Width(max(1, width)).Render(lines[index])
+			lines[index] = lipgloss.NewStyle().Background(lipgloss.Color("236")).Width(max(1, width-1)).Render(lines[index])
 		}
 	}
 	return strings.Join(lines, "\n")

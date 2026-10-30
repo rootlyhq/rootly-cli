@@ -186,8 +186,8 @@ func TestTUITranscriptUsesClaudeCodeStyle(t *testing.T) {
 	}
 	colored := renderPromptEcho("hello\nworld", 40, false)
 	for _, line := range strings.Split(colored, "\n") {
-		if width := ansi.StringWidth(line); width != 40 {
-			t.Errorf("prompt echo width = %d, want 40: %q", width, line)
+		if width := ansi.StringWidth(line); width != 39 {
+			t.Errorf("prompt echo width = %d, want 39: %q", width, line)
 		}
 	}
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
@@ -258,13 +258,9 @@ func TestTUIComposerStartsAtOneRowAndGrows(t *testing.T) {
 	if filledRows < 3 || filledRows > model.composer.MaxHeight {
 		t.Errorf("multiline composer rows = %d, want between 3 and %d", filledRows, model.composer.MaxHeight)
 	}
-	model.printedRows = 5
 	_, _ = model.Update(tea.WindowSizeMsg{Width: 60, Height: 18})
 	if model.composer.MaxHeight != 6 {
 		t.Errorf("composer max height after resize = %d, want 6", model.composer.MaxHeight)
-	}
-	if model.printedRows != 5 {
-		t.Errorf("printed rows after resize = %d, want 5", model.printedRows)
 	}
 }
 
@@ -507,8 +503,8 @@ func TestTUIResumeByIDLoadsTitleAndPrintsIt(t *testing.T) {
 		SessionID: &sessionID,
 	})
 	initSequence := reflect.ValueOf(model.Init()())
-	if initSequence.Kind() != reflect.Slice || initSequence.Len() != 4 {
-		t.Fatalf("initial resume commands = %v, want clear, welcome, focus and history before the title loads", initSequence)
+	if initSequence.Kind() != reflect.Slice || initSequence.Len() != 3 {
+		t.Fatalf("initial resume commands = %v, want inline welcome, focus and history before the title loads", initSequence)
 	}
 
 	history := model.loadHistory(sessionID, "")().(historyLoadedMsg)
@@ -837,6 +833,9 @@ func TestTUIModelCtrlCTwiceWhileIdleQuits(t *testing.T) {
 	}
 	if _, ok := secondCmd().(tea.QuitMsg); !ok {
 		t.Errorf("second Ctrl+C command result = %T, want tea.QuitMsg", secondCmd())
+	}
+	if view := model.View().Content; view != "" {
+		t.Errorf("quitting view = %q, want empty view", view)
 	}
 }
 

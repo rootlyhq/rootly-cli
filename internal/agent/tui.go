@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/google/uuid"
 	"github.com/oapi-codegen/nullable"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -143,7 +144,15 @@ type TUIModel struct {
 	verbIndex           func(int) int
 	now                 func() time.Time
 	version             string
-	printedRows         int
+	colorProfile        colorprofile.Profile
+	colorProfileKnown   bool
+	welcomeStarted      bool
+	welcomePending      bool
+	welcomeAnimating    bool
+	welcomePrinted      bool
+	welcomeFrame        int
+	pendingPrints       []string
+	quitting            bool
 	lastAnswer          string
 	transcript          []transcriptTurn
 	activities          activityTracker
@@ -213,8 +222,21 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 }
 
 func (m *TUIModel) Init() tea.Cmd {
-	m.printedRows = 0
-	cmds := []tea.Cmd{tea.ClearScreen, m.println(m.welcomeBanner()), m.composer.Focus()}
+	m.welcomeStarted = true
+	m.welcomePending = !m.noColor
+	m.welcomeAnimating = false
+	m.welcomePrinted = false
+	m.welcomeFrame = 0
+	m.pendingPrints = nil
+	m.quitting = false
+	cmds := make([]tea.Cmd, 0, 5)
+	if m.noColor || (m.colorProfileKnown && m.colorProfile < colorprofile.ANSI256) {
+		cmds = append(cmds, m.printWelcomeBanner())
+	} else if m.colorProfileKnown {
+		m.welcomePending = false
+		m.welcomeAnimating = true
+	}
+	cmds = append(cmds, m.composer.Focus())
 	if m.sessionID != nil {
 		if !m.resumeLinePending {
 			cmds = append(cmds, m.println(m.resumedLine()))
@@ -223,6 +245,9 @@ func (m *TUIModel) Init() tea.Cmd {
 	}
 	if header := m.bindingHeader(); header != "" {
 		cmds = append(cmds, m.println(faint(m.noColor, header)))
+	}
+	if m.welcomeAnimating {
+		cmds = append(cmds, m.welcomeBannerTick())
 	}
 	return tea.Sequence(cmds...)
 }
@@ -237,6 +262,32 @@ func (m *TUIModel) resumedLine() string {
 
 func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
+	case tea.ColorProfileMsg:
+		m.colorProfile = msg.Profile
+		m.colorProfileKnown = true
+		if !m.welcomePending {
+			return m, nil
+		}
+		if !m.noColor && msg.Profile >= colorprofile.ANSI256 {
+			m.welcomePending = false
+			m.welcomeAnimating = true
+			m.welcomeFrame = 0
+			cmd := m.welcomeBannerTick()
+			return m, cmd
+		}
+		cmd := m.printWelcomeBanner()
+		return m, cmd
+	case welcomeBannerTickMsg:
+		if !m.welcomeAnimating {
+			return m, nil
+		}
+		m.welcomeFrame++
+		if m.welcomeFrame >= welcomeSettleFrame {
+			cmd := m.printWelcomeBanner()
+			return m, cmd
+		}
+		cmd := m.welcomeBannerTick()
+		return m, cmd
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -498,10 +549,16 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 }
 
 func sequenceTUICommands(commands ...tea.Cmd) tea.Cmd {
-	if len(commands) == 0 {
+	sequence := make([]tea.Cmd, 0, len(commands))
+	for _, command := range commands {
+		if command != nil {
+			sequence = append(sequence, command)
+		}
+	}
+	if len(sequence) == 0 {
 		return nil
 	}
-	return tea.Sequence(commands...)
+	return tea.Sequence(sequence...)
 }
 
 func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
@@ -650,19 +707,20 @@ func (m *TUIModel) handleConfirmationDecision(decision rootly.StreamAiChatParams
 }
 
 func (m *TUIModel) submit() tea.Cmd {
+	welcomeCmd := m.printWelcomeBanner()
 	message := strings.TrimSpace(m.composer.Value())
 	m.composer.Reset()
 	m.idleInterrupt = false
 	m.status = ""
 	if message == "" {
-		return nil
+		return welcomeCmd
 	}
 	if isExitAlias(message) {
-		return m.quitCommand()
+		return sequenceTUICommands(welcomeCmd, m.quitCommand())
 	}
 	if strings.HasPrefix(message, "/") {
 		m.commandMenuOpen = false
-		return m.runSlashCommand(message)
+		return sequenceTUICommands(welcomeCmd, m.runSlashCommand(message))
 	}
 
 	m.currentPrompt = message
@@ -685,7 +743,7 @@ func (m *TUIModel) submit() tea.Cmd {
 		m.alertUsed = true
 	}
 	cmd := m.startStream(params)
-	return tea.Sequence(m.println(renderPromptEcho(message, m.width, m.noColor)), cmd)
+	return sequenceTUICommands(welcomeCmd, m.println(renderPromptEcho(message, m.width, m.noColor)), cmd)
 }
 
 func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
@@ -835,7 +893,13 @@ func (m *TUIModel) waitForStream() tea.Cmd {
 }
 
 func (m *TUIModel) View() tea.View {
+	if m.quitting {
+		return tea.NewView("")
+	}
 	var sections []string
+	if m.welcomeAnimating {
+		sections = append(sections, m.welcomeBannerFrame())
+	}
 	switch m.state {
 	case tuiStreaming:
 		markdown := m.answer.String()
@@ -879,10 +943,6 @@ func (m *TUIModel) View() tea.View {
 		)
 	}
 	body := strings.Join(sections, "\n")
-	padding := m.height - m.printedRows - lipgloss.Height(body)
-	if padding > 0 {
-		body = strings.Repeat("\n", padding) + body
-	}
 	view := tea.NewView(body)
 	return view
 }

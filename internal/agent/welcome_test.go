@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	"github.com/oapi-codegen/nullable"
@@ -17,7 +19,7 @@ import (
 func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{
 		NoColor: true,
-		Version: "1.2.3",
+		Version: "v1.2.3",
 		APIHost: "api.rootly.com",
 		CurrentUser: currentUserForWelcome(
 			"Avery Rootly",
@@ -28,14 +30,16 @@ func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
 
 	banner := ansi.Strip(model.welcomeBanner())
 	for _, expected := range []string{
-		"        ▄█▄",
-		"    ▄▄  ███  ▄▄",
-		"    ▀██  ▀  ██▀",
-		" ▄▄▄▄    ▄    ▄▄▄▄",
-		"  ▀▀▀   ███   ▀▀▀",
-		"▄▄▄▄▄▄▄  ▀  ▄▄▄▄▄▄▄",
-		"▀▀▀▀▀▀▀██▄██▀▀▀▀▀▀▀",
-		"        ███",
+		"        ▄",
+		"       ███",
+		"   ███ ▀█▀ ███",
+		"    ▀█▀   ▀█▀",
+		" ▄██▄   ▄   ▄██▄",
+		"  ▀█▀  ███  ▀█▀",
+		" ▄▄▄    ▀    ▄▄▄",
+		"███████▄ ▄███████",
+		"     ▀▀███▀▀",
+		"       ███",
 		"Rootly AI",
 		"v1.2.3",
 		"Avery Rootly · Incident Response",
@@ -45,18 +49,21 @@ func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
 			t.Errorf("welcome banner = %q, want %q", banner, expected)
 		}
 	}
+	if strings.Contains(banner, "vv1.2.3") {
+		t.Errorf("welcome banner = %q, want one leading v", banner)
+	}
 	bannerLines := strings.Split(strings.TrimSuffix(banner, "\n"), "\n")
-	if len(bannerLines) != 8 {
-		t.Errorf("welcome banner rows = %d, want 8", len(bannerLines))
+	if len(bannerLines) != welcomeLogoHeight {
+		t.Errorf("welcome banner rows = %d, want %d", len(bannerLines), welcomeLogoHeight)
 	}
 	for index, line := range strings.Split(sproutLogo(true), "\n") {
-		if width := lipgloss.Width(line); width != 19 {
-			t.Errorf("sprout row %d width = %d, want 19", index+1, width)
+		if width := lipgloss.Width(line); width != welcomeLogoWidth {
+			t.Errorf("sprout row %d width = %d, want %d", index+1, width, welcomeLogoWidth)
 		}
 	}
 	model.Init()
-	if model.printedRows != 9 {
-		t.Errorf("printed rows after welcome Init = %d, want 9 including the banner's final blank row", model.printedRows)
+	if !model.welcomePrinted {
+		t.Error("no-color welcome banner was not printed during Init")
 	}
 }
 
@@ -81,8 +88,74 @@ func TestWelcomeBannerNoColorAndSanitizesUser(t *testing.T) {
 	if strings.Contains(banner, "vdev") {
 		t.Errorf("welcome banner = %q, want development version omitted", banner)
 	}
+	model.Init()
+	if strings.Contains(banner, "\x1b") || model.welcomeAnimating || !model.welcomePrinted {
+		t.Errorf("no-color welcome banner = %q, animating = %t", banner, model.welcomeAnimating)
+	}
 	if !strings.Contains(banner, "Avery Rootly") {
 		t.Errorf("welcome banner = %q, want safe user name text", banner)
+	}
+}
+
+func TestWelcomeBannerAnimationSettlesAndPrintsOnce(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{Version: "1.2.3"})
+	if welcomeSettleFrame != 67 {
+		t.Fatalf("welcome settle frame = %d, want 67", welcomeSettleFrame)
+	}
+	_, _ = model.Update(tea.ColorProfileMsg{Profile: colorprofile.TrueColor})
+	model.Init()
+	if !model.welcomeAnimating || model.welcomePrinted {
+		t.Fatalf("animation started = %t, banner printed = %t; want animation without printing", model.welcomeAnimating, model.welcomePrinted)
+	}
+	view := ansi.Strip(model.View().Content)
+	if !strings.Contains(view, "Rootly AI") || strings.HasPrefix(view, "\n") {
+		t.Errorf("animated view = %q, want inline banner and no leading padding", view)
+	}
+
+	for frame := 0; frame < welcomeSettleFrame-1; frame++ {
+		_, _ = model.Update(welcomeBannerTickMsg{})
+		if !model.welcomeAnimating || model.welcomePrinted {
+			t.Fatalf("animation settled early at frame %d", frame+1)
+		}
+	}
+	_, command := model.Update(welcomeBannerTickMsg{})
+	if model.welcomeAnimating || !model.welcomePrinted {
+		t.Fatal("animation did not settle at the expected frame")
+	}
+	if got := strings.Count(commandSequenceOutput(command), "Rootly AI"); got != 1 {
+		t.Errorf("settled banner command printed Rootly AI %d times, want once", got)
+	}
+	_, _ = model.Update(welcomeBannerTickMsg{})
+	if !model.welcomePrinted {
+		t.Error("an extra tick unset the printed banner state")
+	}
+}
+
+func TestEarlyPromptSettlesWelcomeBannerBeforePromptEcho(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{}}}, TUIOptions{})
+	model.width = 100
+	model.Init()
+	_, _ = model.Update(tea.ColorProfileMsg{Profile: colorprofile.TrueColor})
+	model.composer.SetValue("hi")
+
+	_ = model.submit()
+	if model.welcomeAnimating || !model.welcomePrinted {
+		t.Fatal("early prompt did not settle the welcome banner")
+	}
+}
+
+func TestQuitLeavesNoPinnedFrame(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.width = 100
+	model.height = 30
+	model.Init()
+	model.quitCommand()
+
+	if !model.quitting {
+		t.Fatal("quit command did not mark the model as quitting")
+	}
+	if view := model.View().Content; view != "" {
+		t.Errorf("quitting view = %q, want empty view", view)
 	}
 }
 
@@ -101,14 +174,14 @@ func TestWelcomeBannerWithNilUserStillShowsTitleAndHost(t *testing.T) {
 	}
 }
 
-func TestTUIViewPinsComposerHintToTerminalBottom(t *testing.T) {
+func TestTUIViewDoesNotPadComposerToTerminalBottom(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
 	model.width = 100
 	model.height = 24
 
 	view := model.View().Content
-	if got := lipgloss.Height(view); got != model.height {
-		t.Fatalf("idle view height = %d, want %d", got, model.height)
+	if got := lipgloss.Height(view); got != 4 {
+		t.Fatalf("idle view height = %d, want frame height 4", got)
 	}
 	if got := lastLine(view); got != "/ for commands · exit to quit" {
 		t.Errorf("last idle view line = %q, want composer hint", got)
@@ -119,42 +192,6 @@ func TestTUIViewPinsComposerHintToTerminalBottom(t *testing.T) {
 	rule := strings.Repeat("─", model.width)
 	if got := strings.Count(view, rule); got != 2 {
 		t.Errorf("idle view has %d full-width rules, want 2: %q", got, view)
-	}
-}
-
-func TestTUIViewPaddingAccountsForPrintedAndWrappedRows(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	model.width = 20
-	model.height = 24
-	model.println("one\ntwo")
-
-	if model.printedRows != 2 {
-		t.Fatalf("printed rows = %d, want 2", model.printedRows)
-	}
-	if got := lipgloss.Height(model.View().Content); got != model.height-2 {
-		t.Errorf("view height after two printed rows = %d, want %d", got, model.height-2)
-	}
-
-	wrapped := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	wrapped.width = 20
-	wrapped.height = 24
-	wrapped.println(strings.Repeat("x", 41))
-	if wrapped.printedRows != 3 {
-		t.Fatalf("printed rows for a wrapped line = %d, want 3", wrapped.printedRows)
-	}
-	if got := lipgloss.Height(wrapped.View().Content); got != wrapped.height-3 {
-		t.Errorf("view height after wrapped output = %d, want %d", got, wrapped.height-3)
-	}
-
-	full := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	full.width = 20
-	full.height = 24
-	full.printedRows = 24
-	bodyHeight := lipgloss.Height(full.View().Content)
-	full.printedRows = 0
-	full.println(strings.Repeat("row\n", 24))
-	if got := lipgloss.Height(full.View().Content); got != bodyHeight {
-		t.Errorf("view height after filling scrollback = %d, want body height %d", got, bodyHeight)
 	}
 }
 
@@ -173,15 +210,15 @@ func TestTUIViewDoesNotPadTallBody(t *testing.T) {
 	}
 }
 
-func TestTUIConfirmingViewAnchorsCardWithoutComposerHint(t *testing.T) {
+func TestTUIConfirmingViewHasNoPaddingOrComposerHint(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
 	model.height = 24
 	model.state = tuiConfirming
 	model.pending = &rootly.AiChatStreamConfirmationRequired{Question: "Approve this action?"}
 
 	view := model.View().Content
-	if got := lipgloss.Height(view); got != model.height {
-		t.Fatalf("confirming view height = %d, want %d", got, model.height)
+	if got := lipgloss.Height(view); got >= model.height {
+		t.Fatalf("confirming view height = %d, want no padding within %d", got, model.height)
 	}
 	if got := lastLine(view); !strings.Contains(got, "y approve") {
 		t.Errorf("last confirming view line = %q, want confirmation card footer", got)
