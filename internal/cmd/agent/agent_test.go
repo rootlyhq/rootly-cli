@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -203,6 +204,51 @@ func TestContinueFlagHelp(t *testing.T) {
 	want := "Continue the most recent AI chat session (incident/alert chats: use --resume <id>)"
 	if flag.Usage != want {
 		t.Errorf("continue help = %q, want %q", flag.Usage, want)
+	}
+}
+
+func TestAgentUIWriter(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	tests := []struct {
+		name       string
+		stdoutTTY  bool
+		stderrTTY  bool
+		wantWriter io.Writer
+		wantError  string
+	}{
+		{name: "stdout terminal", stdoutTTY: true, stderrTTY: true, wantWriter: &stdout},
+		{name: "stderr terminal fallback", stderrTTY: true, wantWriter: &stderr},
+		{name: "no terminal", wantError: `interactive mode needs a terminal; use -p "<prompt>" for non-interactive output`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			isTTY := func(writer io.Writer) bool {
+				switch writer {
+				case &stdout:
+					return test.stdoutTTY
+				case &stderr:
+					return test.stderrTTY
+				default:
+					return false
+				}
+			}
+			got, err := agentUIWriter(&stdout, &stderr, isTTY)
+			if test.wantError != "" {
+				if err == nil || err.Error() != test.wantError {
+					t.Fatalf("agentUIWriter() error = %v, want %q", err, test.wantError)
+				}
+				if got != nil {
+					t.Errorf("agentUIWriter() writer = %v, want nil", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("agentUIWriter() error = %v", err)
+			}
+			if got != test.wantWriter {
+				t.Errorf("agentUIWriter() writer = %v, want %v", got, test.wantWriter)
+			}
+		})
 	}
 }
 

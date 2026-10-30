@@ -28,11 +28,6 @@ var AgentCmd = &cobra.Command{
 	Hidden:  true,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		client, err := getAPIClient()
-		if err != nil {
-			return err
-		}
-
 		prompt, _ := cmd.Flags().GetString("print")
 		stdin := cmd.InOrStdin()
 		resumeValue, _ := cmd.Flags().GetString("resume")
@@ -46,6 +41,20 @@ var AgentCmd = &cobra.Command{
 		}
 		if outputFormat != "text" && outputFormat != "json" && outputFormat != "stream-json" {
 			return fmt.Errorf("invalid output format %q (expected text, json, or stream-json)", outputFormat)
+		}
+		var (
+			uiWriter io.Writer
+			err      error
+		)
+		if !printMode {
+			uiWriter, err = agentUIWriter(cmd.OutOrStdout(), cmd.ErrOrStderr(), isTerminalWriter)
+			if err != nil {
+				return err
+			}
+		}
+		client, err := getAPIClient()
+		if err != nil {
+			return err
 		}
 		var sessionID *uuid.UUID
 		sessionTitle := ""
@@ -109,14 +118,14 @@ var AgentCmd = &cobra.Command{
 		})
 		options := []tea.ProgramOption{
 			tea.WithInput(stdin),
-			tea.WithOutput(cmd.OutOrStdout()),
+			tea.WithOutput(uiWriter),
 			tea.WithContext(cmd.Context()),
 		}
 		if noColor {
 			options = append(options, tea.WithColorProfile(colorprofile.Ascii))
 		}
 		noClear, _ := cmd.Flags().GetBool("no-clear")
-		if err := clearTerminalForAgent(cmd.OutOrStdout(), !noClear, isTerminalWriter(cmd.OutOrStdout())); err != nil {
+		if err := clearTerminalForAgent(uiWriter, !noClear, isTerminalWriter(uiWriter)); err != nil {
 			return err
 		}
 		program := tea.NewProgram(model, options...)
@@ -228,6 +237,16 @@ func isTerminalReader(reader io.Reader) bool {
 func isTerminalWriter(writer io.Writer) bool {
 	file, ok := writer.(*os.File)
 	return ok && isatty.IsTerminal(file.Fd())
+}
+
+func agentUIWriter(stdout, stderr io.Writer, isTTY func(io.Writer) bool) (io.Writer, error) {
+	if isTTY(stdout) {
+		return stdout, nil
+	}
+	if isTTY(stderr) {
+		return stderr, nil
+	}
+	return nil, errors.New(`interactive mode needs a terminal; use -p "<prompt>" for non-interactive output`)
 }
 
 func clearTerminalForAgent(writer io.Writer, enabled, terminal bool) error {
