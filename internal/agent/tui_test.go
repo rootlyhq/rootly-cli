@@ -181,6 +181,104 @@ func TestTUIModelCommitsStreamedBlocksIntoTranscript(t *testing.T) {
 	}
 }
 
+func TestTUIStreamedMarkdownKeepsBlankLinesAcrossBlocks(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		done bool
+	}{
+		{name: "completed"},
+		{name: "live"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+			model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+			model.state = tuiStreaming
+			model.turn = 1
+			model.startNewTurn()
+
+			for _, chunk := range []string{
+				"Para one.\n\n",
+				"Para two.\n\n",
+				"```sh\necho hi\n\necho bye\n```\n\nAfter.",
+			} {
+				_, _ = model.Update(streamMessage{turn: 1, event: Event{
+					Type: rootly.AiChatStreamEventText,
+					Text: &rootly.AiChatStreamText{Content: chunk},
+				}})
+			}
+
+			if test.done {
+				model.handleEvent(activityDoneEvent("complete"))
+				_, _ = model.Update(streamMessage{turn: 1, done: true})
+			} else if got := model.uncommittedAnswer(); got != "After." {
+				t.Fatalf("live remainder = %q, want After.", got)
+			}
+
+			transcript := ansi.Strip(model.Transcript())
+			assertStreamedMarkdownBlockSpacing(t, transcript)
+			if !test.done {
+				assertStreamedMarkdownBlockSpacing(t, ansi.Strip(model.View().Content))
+			}
+		})
+	}
+}
+
+func assertStreamedMarkdownBlockSpacing(t *testing.T, output string) {
+	t.Helper()
+	lines := strings.Split(output, "\n")
+	findLine := func(fragment string, start int) int {
+		for index := start; index < len(lines); index++ {
+			if strings.Contains(strings.TrimSpace(lines[index]), fragment) {
+				return index
+			}
+		}
+		return -1
+	}
+
+	paragraphOne := findLine("● Para one.", 0)
+	paragraphTwo := findLine("Para two.", paragraphOne+1)
+	echoHi := findLine("echo hi", paragraphTwo+1)
+	echoBye := findLine("echo bye", echoHi+1)
+	after := findLine("After.", echoBye+1)
+	if paragraphOne < 0 || paragraphTwo < 0 || echoHi < 0 || echoBye < 0 || after < 0 {
+		t.Fatalf("streamed answer content missing from output: %q", output)
+	}
+	for index, want := range map[int]string{
+		paragraphOne: "● Para one.",
+		paragraphTwo: "  Para two.",
+		after:        "  After.",
+	} {
+		if got := strings.TrimRight(lines[index], " "); got != want {
+			t.Errorf("answer line = %q, want %q", got, want)
+		}
+	}
+
+	for _, pair := range [][2]int{{paragraphOne, paragraphTwo}, {echoHi, echoBye}} {
+		if pair[1]-pair[0] != 2 || strings.TrimSpace(lines[pair[0]+1]) != "" {
+			t.Errorf("lines between %q and %q = %q, want exactly one blank row", lines[pair[0]], lines[pair[1]], lines[pair[0]+1:pair[1]])
+		}
+	}
+	if strings.TrimSpace(lines[paragraphTwo+1]) != "" {
+		t.Errorf("paragraph/code separator = %q, want one blank row", lines[paragraphTwo+1])
+	}
+	if after-echoBye < 2 || strings.TrimSpace(lines[after-1]) != "" {
+		t.Errorf("code/paragraph separator = %q, want one blank row before After.", lines[echoBye+1:after])
+	}
+
+	blankRun := 0
+	for _, line := range lines[paragraphOne : after+1] {
+		if strings.TrimSpace(line) == "" {
+			blankRun++
+			if blankRun > 1 {
+				t.Errorf("answer contains multiple adjacent blank rows: %q", lines[paragraphOne:after+1])
+				return
+			}
+		} else {
+			blankRun = 0
+		}
+	}
+}
+
 func TestTUIStreamedFortyFiveStepsPreserveFenceAndBlankLine(t *testing.T) {
 	model := newSizedTUITestModel(125, 34)
 	model.state = tuiStreaming

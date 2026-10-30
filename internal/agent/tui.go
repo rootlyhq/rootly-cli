@@ -69,6 +69,11 @@ type transcriptTurn struct {
 	assistant string
 }
 
+type transcriptBlock struct {
+	text      string
+	gapBefore bool
+}
+
 type historyLoadedMsg struct {
 	request      int
 	messages     []rootly.AiChatSessionMessage
@@ -159,7 +164,7 @@ type TUIModel struct {
 	welcomeFrame         int
 	quitting             bool
 	lastAnswer           string
-	transcript           []string
+	transcript           []transcriptBlock
 	transcriptCache      string
 	transcriptCacheWidth int
 	transcriptCacheDirty bool
@@ -463,9 +468,10 @@ func (m *TUIModel) commitCompleteAnswerBlocks() tea.Cmd {
 	if strings.TrimSpace(chunk) == "" {
 		return nil
 	}
+	gapBefore := m.committedOffset > 0
 	rendered := m.renderAssistantAnswerPart(chunk, m.committedOffset == 0)
 	m.committedOffset = boundary
-	return m.println("\n" + rendered)
+	return m.printlnWithGap(rendered, gapBefore)
 }
 
 func lastTopLevelBlockBoundary(answer string, committed int) int {
@@ -573,7 +579,7 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 			m.lastAnswer = rawAnswer
 			if remainder := m.uncommittedAnswer(); strings.TrimSpace(remainder) != "" {
 				rendered := m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
-				commands = append(commands, m.println("\n"+rendered))
+				commands = append(commands, m.printlnWithGap(rendered, m.committedOffset > 0))
 			}
 			m.committedOffset = len(rawAnswer)
 		}
@@ -605,7 +611,7 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 		footer := "\n" + m.turnFooter()
 		if strings.TrimSpace(remainder) != "" {
 			rendered := m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
-			commands = append(commands, m.println("\n"+rendered+footer))
+			commands = append(commands, m.printlnWithGap(rendered+footer, m.committedOffset > 0))
 		} else {
 			commands = append(commands, m.println(footer))
 		}
@@ -644,7 +650,7 @@ func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
 		m.lastAnswer = rawAnswer
 		if remainder := m.uncommittedAnswer(); strings.TrimSpace(remainder) != "" {
 			rendered := m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
-			lines = append(lines, "", rendered)
+			m.appendTranscriptBlockWithGap(rendered, m.committedOffset > 0)
 		}
 	}
 	if m.noColor {
@@ -1069,10 +1075,9 @@ func (m *TUIModel) transcriptContent() string {
 	if !m.welcomeAnimating {
 		header = strings.TrimSuffix(m.welcomeBanner(), "\n")
 	}
-	if live := m.liveSection(); live != "" {
-		return joinHeaderAndConversation(header, m.transcriptCache, live)
-	}
-	return joinHeaderAndConversation(header, m.transcriptCache, "")
+	live := m.liveSection()
+	liveGapBefore := m.committedOffset > 0 && strings.TrimSpace(m.liveAnswerRemainder()) != ""
+	return joinHeaderAndConversation(header, m.transcriptCache, live, liveGapBefore)
 }
 
 func (m *TUIModel) rebuildTranscriptCache() {
@@ -1080,37 +1085,40 @@ func (m *TUIModel) rebuildTranscriptCache() {
 	if !m.transcriptCacheDirty && m.transcriptCacheWidth == width {
 		return
 	}
-	blocks := make([]string, 0, max(0, len(m.transcript)-1))
+	blocks := make([]transcriptBlock, 0, max(0, len(m.transcript)-1))
 	for _, block := range m.transcript[1:] {
-		blocks = append(blocks, ansi.Wrap(block, width, ""))
+		blocks = append(blocks, transcriptBlock{
+			text:      ansi.Wrap(block.text, width, ""),
+			gapBefore: block.gapBefore,
+		})
 	}
 	m.transcriptCache = joinTranscriptBlocks(blocks)
 	m.transcriptCacheWidth = width
 	m.transcriptCacheDirty = false
 }
 
-func joinTranscriptBlocks(blocks []string) string {
+func joinTranscriptBlocks(blocks []transcriptBlock) string {
 	var joined strings.Builder
 	hasBlock := false
 	for _, block := range blocks {
-		block = strings.Trim(block, "\n")
-		if block == "" {
+		text := strings.Trim(block.text, "\n")
+		if text == "" {
 			continue
 		}
 		if hasBlock {
-			if strings.HasPrefix(strings.TrimSpace(ansi.Strip(block)), "❯ ") {
+			if block.gapBefore || strings.HasPrefix(strings.TrimSpace(ansi.Strip(text)), "❯ ") {
 				joined.WriteString("\n\n")
 			} else {
 				joined.WriteByte('\n')
 			}
 		}
-		joined.WriteString(block)
+		joined.WriteString(text)
 		hasBlock = true
 	}
 	return joined.String()
 }
 
-func joinHeaderAndConversation(header, committed, live string) string {
+func joinHeaderAndConversation(header, committed, live string, liveGapBefore bool) string {
 	header = strings.TrimRight(header, "\n")
 	committed = strings.Trim(committed, "\n")
 	live = strings.Trim(live, "\n")
@@ -1127,7 +1135,11 @@ func joinHeaderAndConversation(header, committed, live string) string {
 		if committed == "" && header != "" {
 			joined.WriteString("\n\n")
 		} else if committed != "" || header != "" {
-			joined.WriteByte('\n')
+			if committed != "" && liveGapBefore {
+				joined.WriteString("\n\n")
+			} else {
+				joined.WriteByte('\n')
+			}
 		}
 		joined.WriteString(live)
 	}
@@ -1138,10 +1150,7 @@ func (m *TUIModel) liveSection() string {
 	var sections []string
 	switch m.state {
 	case tuiStreaming:
-		markdown := m.uncommittedAnswer()
-		if !m.noColor {
-			markdown = trimIncompleteTrailingMarkdownLink(markdown)
-		}
+		markdown := m.liveAnswerRemainder()
 		if strings.TrimSpace(markdown) != "" {
 			sections = append(sections, m.renderAssistantAnswerPart(markdown, m.committedOffset == 0))
 		}
@@ -1161,6 +1170,14 @@ func (m *TUIModel) liveSection() string {
 		}
 	}
 	return strings.Join(sections, "\n")
+}
+
+func (m *TUIModel) liveAnswerRemainder() string {
+	markdown := m.uncommittedAnswer()
+	if !m.noColor {
+		markdown = trimIncompleteTrailingMarkdownLink(markdown)
+	}
+	return markdown
 }
 
 func (m *TUIModel) overlayContent() string {
@@ -1202,12 +1219,16 @@ func clipViewRows(text string, rows, width int) string {
 }
 
 func (m *TUIModel) appendTranscriptBlock(text string) {
-	m.transcript = append(m.transcript, text)
+	m.appendTranscriptBlockWithGap(text, false)
+}
+
+func (m *TUIModel) appendTranscriptBlockWithGap(text string, gapBefore bool) {
+	m.transcript = append(m.transcript, transcriptBlock{text: text, gapBefore: gapBefore})
 	m.transcriptCacheDirty = true
 }
 
 func (m *TUIModel) resetTranscript() {
-	m.transcript = []string{""}
+	m.transcript = []transcriptBlock{{text: ""}}
 	m.transcriptCache = ""
 	m.transcriptCacheWidth = 0
 	m.transcriptCacheDirty = true
@@ -1219,14 +1240,21 @@ func (m *TUIModel) println(text string) tea.Cmd {
 	return nil
 }
 
+func (m *TUIModel) printlnWithGap(text string, gapBefore bool) tea.Cmd {
+	m.appendTranscriptBlockWithGap(text, gapBefore)
+	return nil
+}
+
 func (m *TUIModel) Transcript() string {
 	m.rebuildTranscriptCache()
 	header := strings.TrimSuffix(m.welcomeBanner(), "\n")
 	live := ""
+	liveGapBefore := false
 	if remainder := m.uncommittedAnswer(); strings.TrimSpace(remainder) != "" {
 		live = m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
+		liveGapBefore = m.committedOffset > 0
 	}
-	return joinHeaderAndConversation(header, m.transcriptCache, live) + "\n"
+	return joinHeaderAndConversation(header, m.transcriptCache, live, liveGapBefore) + "\n"
 }
 
 func (m *TUIModel) renderMarkdown(markdown string, width int) string {
