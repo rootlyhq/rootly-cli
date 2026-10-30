@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -209,11 +208,15 @@ func renderPromptEcho(prompt string, width int, noColor bool) string {
 }
 
 func (m *TUIModel) renderAssistantAnswer(markdown string) string {
+	return m.renderAssistantAnswerPart(markdown, true)
+}
+
+func (m *TUIModel) renderAssistantAnswerPart(markdown string, first bool) string {
 	rendered := strings.TrimSpace(m.renderMarkdown(markdown, max(20, m.width-2)))
 	lines := strings.Split(rendered, "\n")
 	for index, line := range lines {
 		line = trimLeadingANSIWhitespace(line)
-		if index == 0 {
+		if index == 0 && first {
 			lines[index] = "● " + line
 		} else {
 			lines[index] = "  " + line
@@ -374,7 +377,7 @@ func (m *TUIModel) statusLines() string {
 	}
 	lines = append(lines, "user "+user, "API "+sanitizeTerminalText(host))
 	if header := m.bindingHeader(); header != "" {
-		lines = append(lines, header)
+		lines = append(lines, "binding "+strings.TrimPrefix(header, "Chatting about "))
 	}
 	for index := range lines {
 		lines[index] = faint(m.noColor, lines[index])
@@ -532,7 +535,7 @@ func (m *TUIModel) selectPickerItem(item sessionPickerItem) tea.Cmd {
 	m.actionRequest++
 	m.sessionID = &id
 	m.sessionTitle = sanitizeTerminalText(item.Title())
-	m.answer.Reset()
+	m.resetAnswer()
 	m.lastAnswer = ""
 	m.transcript = nil
 	m.incident, m.alert = nil, nil
@@ -674,7 +677,7 @@ func (m *TUIModel) startNewSession() {
 	m.pickerRequest++
 	m.sessionID = nil
 	m.sessionTitle = ""
-	m.answer.Reset()
+	m.resetAnswer()
 	m.transcript = nil
 	m.lastAnswer = ""
 	m.currentPrompt = ""
@@ -741,14 +744,8 @@ func (m *TUIModel) resolveBinding(kind, value string) tea.Cmd {
 	}
 }
 
-func sessionTitleFromHistoryResponse(body []byte) string {
-	var response struct {
-		Title string `json:"title"`
-	}
-	if json.Unmarshal(body, &response) != nil {
-		return ""
-	}
-	title := strings.TrimSpace(sanitizeTerminalText(response.Title))
+func normalizeSessionTitle(title string) string {
+	title = strings.TrimSpace(sanitizeTerminalText(title))
 	if title == "" || title == "Untitled" {
 		return ""
 	}
@@ -767,7 +764,7 @@ func loadSessionHistory(ctx context.Context, apiClient TUIAPI, sessionID uuid.UU
 	if first.ApplicationVndAPIJSON200 == nil {
 		return nil, "", StatusResponseError(first.StatusCode(), first.Body)
 	}
-	sessionTitle := sessionTitleFromHistoryResponse(first.Body)
+	sessionTitle := normalizeSessionTitle(first.ApplicationVndAPIJSON200.Title)
 	messages := append([]rootly.AiChatSessionMessage(nil), first.ApplicationVndAPIJSON200.Messages...)
 	pages := historyPageCount(first.ApplicationVndAPIJSON200.Meta)
 	if pages > 1 {

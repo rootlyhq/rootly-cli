@@ -15,6 +15,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	"github.com/oapi-codegen/nullable"
@@ -141,6 +143,164 @@ func TestTUIModelAccumulatesTextChunks(t *testing.T) {
 	}
 	if got := model.answer.String(); got != "first second" {
 		t.Errorf("answer = %q, want accumulated chunks", got)
+	}
+}
+
+func TestTUIModelCommitsStreamedBlocksAndRendersOnlyTail(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.state = tuiStreaming
+	model.turn = 1
+	model.startNewTurn()
+	var printed strings.Builder
+
+	_, cmd := model.Update(streamMessage{turn: 1, event: Event{
+		Type: rootly.AiChatStreamEventText,
+		Text: &rootly.AiChatStreamText{Content: "First block.\n\nSecond"},
+	}})
+	printed.WriteString(commandSequenceOutput(cmd))
+	if !strings.Contains(model.View().Content, "Second") || strings.Contains(model.View().Content, "First block") {
+		t.Errorf("live view = %q, want only the uncommitted tail", model.View().Content)
+	}
+
+	_, cmd = model.Update(streamMessage{turn: 1, event: Event{
+		Type: rootly.AiChatStreamEventText,
+		Text: &rootly.AiChatStreamText{Content: " block.\n\nTail"},
+	}})
+	printed.WriteString(commandSequenceOutput(cmd))
+	if !strings.Contains(model.View().Content, "Tail") || strings.Contains(model.View().Content, "Second block") {
+		t.Errorf("live view = %q, want only the remaining tail", model.View().Content)
+	}
+
+	_, cmd = model.Update(streamMessage{turn: 1, done: true})
+	printed.WriteString(commandSequenceOutput(cmd))
+	for _, block := range []string{"First block.", "Second block.", "Tail"} {
+		if got := strings.Count(printed.String(), block); got != 1 {
+			t.Errorf("printed %q %d times, want once: %q", block, got, printed.String())
+		}
+	}
+	if got := model.answer.String(); got != "First block.\n\nSecond block.\n\nTail" {
+		t.Errorf("full answer = %q, want complete untruncated Markdown", got)
+	}
+}
+
+func TestLastTopLevelBlockBoundaryIgnoresFencedBlankLines(t *testing.T) {
+	for _, marker := range []string{"```", "~~~"} {
+		answer := "Intro.\n\n" + marker + "go\nfirst\n\nsecond\n" + marker + "\n\nTail"
+		boundary := lastTopLevelBlockBoundary(answer, 0)
+		if got := answer[boundary:]; got != "Tail" {
+			t.Errorf("tail after %s fence = %q, want Tail", marker, got)
+		}
+		if block := answer[:boundary]; !strings.Contains(block, "first\n\nsecond") {
+			t.Errorf("committed block split %s fence contents: %q", marker, block)
+		}
+	}
+}
+
+func TestStreamedOrderedListKeepsNumberAcrossCommittedBlocks(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.state = tuiStreaming
+	model.turn = 1
+
+	_, first := model.Update(streamMessage{turn: 1, event: Event{
+		Type: rootly.AiChatStreamEventText,
+		Text: &rootly.AiChatStreamText{Content: "1. First item\n\n"},
+	}})
+	_, second := model.Update(streamMessage{turn: 1, event: Event{
+		Type: rootly.AiChatStreamEventText,
+		Text: &rootly.AiChatStreamText{Content: "2. Second item\n\n3. Third item"},
+	}})
+	got := ansi.Strip(commandSequenceOutput(first) + commandSequenceOutput(second))
+	if !strings.Contains(got, "1. First item") || !strings.Contains(got, "2. Second item") {
+		t.Errorf("printed list blocks lost their explicit numbering: %q", got)
+	}
+}
+
+func TestCtrlCPrintsOnlyUncommittedStreamRemainder(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.state = tuiStreaming
+	model.answer.WriteString("Committed block\n\nUncommitted tail")
+	model.committedOffset = len("Committed block\n\n")
+
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	output := commandOutput(cmd)
+	if strings.Contains(output, "Committed block") || strings.Count(output, "Uncommitted tail") != 1 {
+		t.Errorf("Ctrl+C output = %q, want only the uncommitted remainder", output)
+	}
+	if strings.Count(output, "Stopped locally.") != 1 {
+		t.Errorf("Ctrl+C notice count in %q, want one", output)
+	}
+}
+
+func TestConfirmationRequiredPrintsOnlyUncommittedStreamRemainder(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.state = tuiStreaming
+	model.answer.WriteString("Committed block\n\nUncommitted tail")
+	model.committedOffset = len("Committed block\n\n")
+	model.doneStatus = "confirmation_required"
+	model.pending = &rootly.AiChatStreamConfirmationRequired{Question: "Approve?"}
+
+	_, cmd := model.Update(streamMessage{turn: model.turn, done: true})
+	output := commandSequenceOutput(cmd)
+	if strings.Contains(output, "Committed block") || strings.Count(output, "Uncommitted tail") != 1 {
+		t.Errorf("confirmation output = %q, want only the uncommitted remainder", output)
+	}
+	if model.state != tuiConfirming {
+		t.Errorf("state = %v, want confirming", model.state)
+	}
+}
+
+func TestResumedHistoryPrintsFullAssistantMessageRegardlessOfCommitOffset(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.committedOffset = len("old answer")
+
+	output := commandSequenceOutput(model.printHistory("", []rootly.AiChatSessionMessage{{
+		Role: rootly.AiChatSessionMessageRole("assistant"), Content: "historical answer",
+	}}))
+	if got := strings.Count(output, "historical answer"); got != 1 {
+		t.Errorf("history output = %q, want the complete assistant message once", output)
+	}
+}
+
+func TestTUIViewClipsTallContentAboveComposer(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.width = 40
+	model.height = 10
+	model.status = strings.Repeat("long status content that wraps around the terminal width\n", 30)
+
+	view := model.View().Content
+	if got := lipgloss.Height(view); got > 9 {
+		t.Fatalf("clipped view height = %d, want at most 9", got)
+	}
+	lines := strings.Split(view, "\n")
+	if got := lines[len(lines)-1]; got != "/ for commands · exit to quit" {
+		t.Errorf("last clipped line = %q, want composer hint", got)
+	}
+	if !strings.Contains(lines[len(lines)-3], "❯ ") {
+		t.Errorf("composer is not visible before the bottom rule: %q", view)
+	}
+}
+
+func TestTUIBindingHeaderIsPrintedOnceAfterWelcomeSettles(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{
+		Incident: &api.Incident{SequentialID: "INC-8", Title: "Database latency"},
+	})
+	model.colorProfileKnown = true
+	model.colorProfile = colorprofile.TrueColor
+	model.Init()
+
+	var printed strings.Builder
+	for range welcomeSettleFrame {
+		_, cmd := model.Update(welcomeBannerTickMsg{})
+		printed.WriteString(commandSequenceOutput(cmd))
+	}
+	header := "Chatting about INC-8: Database latency"
+	view := model.View().Content
+	if got := strings.Count(printed.String()+view, header); got != 1 {
+		t.Errorf("header occurs %d times across printed output and view, want once: output=%q view=%q", got, printed.String(), view)
+	}
+	status := model.statusLines()
+	if strings.Contains(status, header) || !strings.Contains(status, "binding INC-8: Database latency") {
+		t.Errorf("status = %q, want binding as a field without repeating the header", status)
 	}
 }
 
@@ -492,8 +652,7 @@ func TestLoadSessionHistoryFetchesLastPage(t *testing.T) {
 func TestTUIResumeByIDLoadsTitleAndPrintsIt(t *testing.T) {
 	apiClient := &fakeTUIAPI{messagePages: []*rootly.ListAiChatSessionMessagesResponse{
 		{
-			Body:                     []byte(`{"title":"Incident review\u001b[2J"}`),
-			ApplicationVndAPIJSON200: &rootly.AiChatSessionMessageList{},
+			ApplicationVndAPIJSON200: &rootly.AiChatSessionMessageList{Title: "Incident review\x1b[2J"},
 		},
 	}}
 	sessionID := uuid.MustParse(testSessionID)
@@ -523,17 +682,16 @@ func TestTUIResumeByIDLoadsTitleAndPrintsIt(t *testing.T) {
 
 func TestTUIResumeByIDFallsBackToShortIDWithoutTitle(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		body []byte
+		name  string
+		title string
 	}{
-		{name: "absent", body: []byte(`{}`)},
-		{name: "untitled", body: []byte(`{"title":"Untitled"}`)},
+		{name: "absent"},
+		{name: "untitled", title: "Untitled"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			apiClient := &fakeTUIAPI{messagePages: []*rootly.ListAiChatSessionMessagesResponse{
 				{
-					Body:                     test.body,
-					ApplicationVndAPIJSON200: &rootly.AiChatSessionMessageList{},
+					ApplicationVndAPIJSON200: &rootly.AiChatSessionMessageList{Title: test.title},
 				},
 			}}
 			sessionID := uuid.MustParse(testSessionID)

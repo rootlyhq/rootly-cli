@@ -99,8 +99,9 @@ func TestWelcomeBannerNoColorAndSanitizesUser(t *testing.T) {
 
 func TestWelcomeBannerAnimationSettlesAndPrintsOnce(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{Version: "1.2.3"})
-	if welcomeSettleFrame != 67 {
-		t.Fatalf("welcome settle frame = %d, want 67", welcomeSettleFrame)
+	animationDuration := time.Duration(welcomeSettleFrame) * welcomeBannerFrameInterval
+	if animationDuration <= time.Second || animationDuration > 2200*time.Millisecond {
+		t.Fatalf("welcome animation duration = %s, want >1s and <=2.2s", animationDuration)
 	}
 	_, _ = model.Update(tea.ColorProfileMsg{Profile: colorprofile.TrueColor})
 	model.Init()
@@ -192,21 +193,6 @@ func TestTUIViewDoesNotPadComposerToTerminalBottom(t *testing.T) {
 	rule := strings.Repeat("─", model.width)
 	if got := strings.Count(view, rule); got != 2 {
 		t.Errorf("idle view has %d full-width rules, want 2: %q", got, view)
-	}
-}
-
-func TestTUIViewDoesNotPadTallBody(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	model.width = 100
-	model.height = 24
-	model.status = strings.Repeat("status line\n", 30)
-
-	view := model.View().Content
-	if got := lipgloss.Height(view); got <= model.height {
-		t.Errorf("tall view height = %d, want greater than %d", got, model.height)
-	}
-	if strings.HasPrefix(view, "\n") {
-		t.Errorf("tall view has leading padding: %q", view)
 	}
 }
 

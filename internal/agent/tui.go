@@ -16,6 +16,7 @@ import (
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	"github.com/oapi-codegen/nullable"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -107,6 +108,7 @@ type TUIModel struct {
 	height              int
 	status              string
 	answer              strings.Builder
+	committedOffset     int
 	sessionID           *uuid.UUID
 	pending             *rootly.AiChatStreamConfirmationRequired
 	ctx                 context.Context
@@ -360,7 +362,7 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		m.sessionID = nil
-		m.answer.Reset()
+		m.resetAnswer()
 		m.transcript = nil
 		m.lastAnswer = ""
 		m.sessionTitle = ""
@@ -400,11 +402,16 @@ func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
 	if message.event.Type == rootly.AiChatStreamEventError && message.event.Error != nil {
 		return m.finishTurn(errors.New(sanitizeTerminalText(message.event.Error.Message)))
 	}
-	if len(m.activityCommands) > 0 {
-		commands := append([]tea.Cmd(nil), m.activityCommands...)
-		m.activityCommands = nil
+	commands := append([]tea.Cmd(nil), m.activityCommands...)
+	m.activityCommands = nil
+	if message.event.Type == rootly.AiChatStreamEventText {
+		if command := m.commitCompleteAnswerBlocks(); command != nil {
+			commands = append(commands, command)
+		}
+	}
+	if len(commands) > 0 {
 		commands = append(commands, tea.Batch(m.waitForStream(), m.spinner.Tick))
-		return m, tea.Sequence(commands...)
+		return m, sequenceTUICommands(commands...)
 	}
 	cmd := m.waitForStream()
 	return m, cmd
@@ -457,6 +464,81 @@ func (m *TUIModel) handleEvent(event Event) {
 	}
 }
 
+func (m *TUIModel) resetAnswer() {
+	m.answer.Reset()
+	m.committedOffset = 0
+}
+
+func (m *TUIModel) uncommittedAnswer() string {
+	answer := m.answer.String()
+	offset := min(max(m.committedOffset, 0), len(answer))
+	return answer[offset:]
+}
+
+func (m *TUIModel) commitCompleteAnswerBlocks() tea.Cmd {
+	answer := m.answer.String()
+	boundary := lastTopLevelBlockBoundary(answer, m.committedOffset)
+	if boundary <= m.committedOffset {
+		return nil
+	}
+	chunk := answer[m.committedOffset:boundary]
+	if strings.TrimSpace(chunk) == "" {
+		return nil
+	}
+	rendered := m.renderAssistantAnswerPart(chunk, m.committedOffset == 0)
+	m.committedOffset = boundary
+	return m.println("\n" + rendered)
+}
+
+func lastTopLevelBlockBoundary(answer string, committed int) int {
+	boundary := committed
+	inFence := false
+	var fenceMarker rune
+	fenceLength := 0
+	for lineStart := 0; lineStart < len(answer); {
+		lineEnd := strings.IndexByte(answer[lineStart:], '\n')
+		if lineEnd < 0 {
+			break
+		}
+		lineEnd += lineStart
+		line := answer[lineStart:lineEnd]
+		if marker, length, closing, ok := markdownFence(line); ok {
+			if !inFence {
+				inFence = true
+				fenceMarker, fenceLength = marker, length
+			} else if closing && marker == fenceMarker && length >= fenceLength {
+				inFence = false
+			}
+		}
+		if !inFence && lineEnd+1 < len(answer) && answer[lineEnd+1] == '\n' && lineEnd+2 > committed {
+			boundary = lineEnd + 2
+		}
+		lineStart = lineEnd + 1
+	}
+	return boundary
+}
+
+func markdownFence(line string) (marker rune, length int, closing, ok bool) {
+	indent := len(line) - len(strings.TrimLeft(line, " "))
+	if indent > 3 {
+		return 0, 0, false, false
+	}
+	line = line[indent:]
+	if line == "" || (line[0] != '`' && line[0] != '~') {
+		return 0, 0, false, false
+	}
+	marker = rune(line[0])
+	length = 0
+	for length < len(line) && rune(line[length]) == marker {
+		length++
+	}
+	if length < 3 {
+		return 0, 0, false, false
+	}
+	closing = strings.TrimSpace(line[length:]) == ""
+	return marker, length, closing, true
+}
+
 func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	if m.cancel != nil {
 		m.cancel()
@@ -505,6 +587,14 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 			m.activities.Reset()
 			return m, sequenceTUICommands(append(commands, cmd)...)
 		}
+		if rawAnswer := m.answer.String(); strings.TrimSpace(rawAnswer) != "" {
+			m.lastAnswer = rawAnswer
+			if remainder := m.uncommittedAnswer(); strings.TrimSpace(remainder) != "" {
+				rendered := m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
+				commands = append(commands, m.println("\n"+rendered))
+			}
+			m.committedOffset = len(rawAnswer)
+		}
 		m.state = tuiConfirming
 		return m, sequenceTUICommands(commands...)
 	}
@@ -530,10 +620,16 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	if answer != "" {
 		m.lastAnswer = rawAnswer
 		m.transcript = append(m.transcript, transcriptTurn{user: m.currentPrompt, assistant: rawAnswer})
-		commands = append(commands,
-			m.println("\n"+m.renderAssistantAnswer(rawAnswer)+"\n"+m.turnFooter()),
-			tea.RequestWindowSize,
-		)
+		remainder := m.uncommittedAnswer()
+		footer := "\n" + m.turnFooter()
+		if strings.TrimSpace(remainder) != "" {
+			rendered := m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
+			commands = append(commands, m.println("\n"+rendered+footer))
+		} else {
+			commands = append(commands, m.println(footer))
+		}
+		m.committedOffset = len(rawAnswer)
+		commands = append(commands, tea.RequestWindowSize)
 	}
 	if m.doneStatus != "" && m.doneStatus != "complete" && m.doneStatus != "confirmed" {
 		m.status = "turn halted: " + sanitizeTerminalText(m.doneStatus)
@@ -566,7 +662,10 @@ func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
 	rawAnswer := m.answer.String()
 	if strings.TrimSpace(rawAnswer) != "" {
 		m.lastAnswer = rawAnswer
-		lines = append(lines, "", m.renderAssistantAnswer(rawAnswer))
+		if remainder := m.uncommittedAnswer(); strings.TrimSpace(remainder) != "" {
+			rendered := m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
+			lines = append(lines, "", rendered)
+		}
 	}
 	if m.noColor {
 		lines = append(lines, message)
@@ -576,7 +675,7 @@ func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
 	if !m.turnStartedAt.IsZero() && m.sessionID != nil {
 		lines = append(lines, m.turnFooter())
 	}
-	m.answer.Reset()
+	m.resetAnswer()
 	m.turnStartedAt = time.Time{}
 	m.currentPrompt = ""
 	return m.println(strings.Join(lines, "\n"))
@@ -819,7 +918,7 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 }
 
 func (m *TUIModel) startStream(params *rootly.StreamAiChatParams) tea.Cmd {
-	m.answer.Reset()
+	m.resetAnswer()
 	return m.beginStream(params)
 }
 
@@ -902,7 +1001,7 @@ func (m *TUIModel) View() tea.View {
 	}
 	switch m.state {
 	case tuiStreaming:
-		markdown := m.answer.String()
+		markdown := m.uncommittedAnswer()
 		if !m.noColor {
 			markdown = trimIncompleteTrailingMarkdownLink(markdown)
 		}
@@ -920,9 +1019,6 @@ func (m *TUIModel) View() tea.View {
 			sections = append(sections, renderConfirmationCard(m.pending, m.width, m.noColor, m.now()))
 		}
 	default:
-		if header := m.bindingHeader(); header != "" {
-			sections = append(sections, faint(m.noColor, header))
-		}
 		if m.status != "" {
 			sections = append(sections, m.status)
 		}
@@ -943,6 +1039,21 @@ func (m *TUIModel) View() tea.View {
 		)
 	}
 	body := strings.Join(sections, "\n")
+	if m.height > 0 {
+		wrapped := ansi.Wrap(body, max(1, m.width), " ")
+		limit := m.height - 1
+		if lipgloss.Height(wrapped) > limit {
+			if limit == 0 {
+				body = ""
+			} else {
+				lines := strings.Split(wrapped, "\n")
+				if len(lines) > limit {
+					lines = lines[len(lines)-limit:]
+				}
+				body = strings.Join(lines, "\n")
+			}
+		}
+	}
 	view := tea.NewView(body)
 	return view
 }

@@ -11,7 +11,7 @@ import (
 
 const (
 	welcomeBloomSpeed          = 1.2
-	welcomeBannerFrameInterval = 70 * time.Millisecond
+	welcomeBannerFrameInterval = 45 * time.Millisecond
 	welcomeGlimmerCenter       = 3
 )
 
@@ -21,7 +21,7 @@ var (
 		"#9D86F0", "#C9BEF7", "#E0DAFB", "#FFFFFF", "#E0DAFB", "#C9BEF7", "#9D86F0",
 	}
 	welcomeBloomFrames = int(math.Ceil((welcomeBloomMaxDistance() + float64(len(welcomeCrest))) / welcomeBloomSpeed))
-	welcomeSettleFrame = welcomeBloomFrames + welcomeGlimmerPeriod() + 4
+	welcomeSettleFrame = welcomeBloomFrames + welcomeGlimmerFrames() + 4
 )
 
 type welcomeBannerTickMsg struct{}
@@ -57,11 +57,15 @@ func welcomeCellColor(frame, row, column int) string {
 	if frame >= welcomeSettleFrame {
 		return "#7C5CE6"
 	}
-	if frame > welcomeBloomFrames {
-		index := column + row - frame%welcomeGlimmerPeriod() + welcomeGlimmerCenter
+	if frame > welcomeBloomFrames && frame <= welcomeBloomFrames+welcomeGlimmerFrames() {
+		phase := welcomeBloomFrames + 1 + (frame-welcomeBloomFrames-1)*2
+		index := column + row - phase + welcomeGlimmerCenter
 		if index >= 0 && index < len(welcomeGlimmer) {
 			return welcomeGlimmer[index]
 		}
+		return "#7C5CE6"
+	}
+	if frame > welcomeBloomFrames {
 		return "#7C5CE6"
 	}
 	edge := float64(frame)*welcomeBloomSpeed - welcomeBloomDistance(row, column)
@@ -73,6 +77,10 @@ func welcomeCellColor(frame, row, column int) string {
 
 func welcomeGlimmerPeriod() int {
 	return welcomeLogoWidth + welcomeLogoHeight + 16
+}
+
+func welcomeGlimmerFrames() int {
+	return (welcomeGlimmerPeriod() + 1) / 2
 }
 
 func renderSproutFrame(frame int) string {
