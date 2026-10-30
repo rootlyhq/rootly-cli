@@ -16,7 +16,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	"github.com/oapi-codegen/nullable"
@@ -146,37 +145,35 @@ func TestTUIModelAccumulatesTextChunks(t *testing.T) {
 	}
 }
 
-func TestTUIModelCommitsStreamedBlocksAndRendersOnlyTail(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+func TestTUIModelCommitsStreamedBlocksIntoTranscript(t *testing.T) {
+	model := newSizedTUITestModel(80, 24)
 	model.state = tuiStreaming
 	model.turn = 1
 	model.startNewTurn()
-	var printed strings.Builder
 
 	_, cmd := model.Update(streamMessage{turn: 1, event: Event{
 		Type: rootly.AiChatStreamEventText,
 		Text: &rootly.AiChatStreamText{Content: "First block.\n\nSecond"},
 	}})
-	printed.WriteString(commandSequenceOutput(cmd))
-	if !strings.Contains(model.View().Content, "Second") || strings.Contains(model.View().Content, "First block") {
-		t.Errorf("live view = %q, want only the uncommitted tail", model.View().Content)
+	_ = cmd
+	if got := ansi.Strip(model.Transcript()); strings.Count(got, "First block.") != 1 || strings.Count(got, "Second") != 1 {
+		t.Errorf("transcript after first chunk = %q, want committed and live text once", got)
 	}
 
-	_, cmd = model.Update(streamMessage{turn: 1, event: Event{
+	_, _ = model.Update(streamMessage{turn: 1, event: Event{
 		Type: rootly.AiChatStreamEventText,
 		Text: &rootly.AiChatStreamText{Content: " block.\n\nTail"},
 	}})
-	printed.WriteString(commandSequenceOutput(cmd))
-	if !strings.Contains(model.View().Content, "Tail") || strings.Contains(model.View().Content, "Second block") {
-		t.Errorf("live view = %q, want only the remaining tail", model.View().Content)
+	if got := ansi.Strip(model.Transcript()); strings.Count(got, "First block.") != 1 || strings.Count(got, "Second block.") != 1 || strings.Count(got, "Tail") != 1 {
+		t.Errorf("transcript after second chunk = %q, want each block once", got)
 	}
 
 	model.handleEvent(activityDoneEvent("complete"))
-	_, cmd = model.Update(streamMessage{turn: 1, done: true})
-	printed.WriteString(commandSequenceOutput(cmd))
+	_, _ = model.Update(streamMessage{turn: 1, done: true})
+	transcript := ansi.Strip(model.Transcript())
 	for _, block := range []string{"First block.", "Second block.", "Tail"} {
-		if got := strings.Count(printed.String(), block); got != 1 {
-			t.Errorf("printed %q %d times, want once: %q", block, got, printed.String())
+		if got := strings.Count(transcript, block); got != 1 {
+			t.Errorf("transcript contains %q %d times, want once: %q", block, got, transcript)
 		}
 	}
 	if got := model.answer.String(); got != "First block.\n\nSecond block.\n\nTail" {
@@ -184,127 +181,115 @@ func TestTUIModelCommitsStreamedBlocksAndRendersOnlyTail(t *testing.T) {
 	}
 }
 
-func TestTUIPrintlnChunksToFitFreeRowsAboveView(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	model.width = 80
-	model.height = 24
-	model.composer.SetWidth(78)
-
-	lines := make([]string, 60)
-	for index := range lines {
-		lines[index] = fmt.Sprintf("printed row %02d", index+1)
+func TestTUIStreamedFortyFiveStepsPreserveFenceAndBlankLine(t *testing.T) {
+	model := newSizedTUITestModel(125, 34)
+	model.state = tuiStreaming
+	model.turn = 1
+	model.startNewTurn()
+	var answer strings.Builder
+	for step := 1; step <= 45; step++ {
+		fmt.Fprintf(&answer, "Step %d: perform the action.\n\n", step)
 	}
-	text := strings.Join(lines, "\n")
-	wrapped := ansi.Wrap(text, model.width-1, "")
-	viewHeight := rendererPhysicalRows(model.View().Content, model.width-1)
-	maxRows := max(1, model.height-viewHeight-1)
-	chunks := model.scrollbackPrintChunks(text)
-	if len(chunks) < 3 {
-		t.Fatalf("print chunks = %d, want at least 3", len(chunks))
-	}
-	if got := strings.Join(chunks, "\n"); got != wrapped {
-		t.Fatalf("rejoined chunks differ from wrapped text")
-	}
-	for index, chunk := range chunks {
-		if rows := rendererPhysicalRows(chunk, model.width-1); rows > maxRows {
-			t.Errorf("chunk %d has %d physical rows, want at most %d (height %d - view %d - safety row)", index, rows, maxRows, model.height, viewHeight)
-		}
-	}
-	if got := len(printedLineBodies(model.println(text))); got != len(chunks) {
-		t.Errorf("Println chunk count = %d, want %d", got, len(chunks))
-	}
-}
-
-func TestTUIPrintlnChunksResumedHistory(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	model.width = 80
-	model.height = 24
-	model.composer.SetWidth(78)
-
-	history := make([]string, 60)
-	for index := range history {
-		history[index] = fmt.Sprintf("history-row-%02d %s", index+1, strings.Repeat("detail ", 8))
-	}
-	content := strings.Join(history, "\n\n")
-	cmd := model.printHistory("qa5405 long history", []rootly.AiChatSessionMessage{{
-		Role: rootly.AiChatSessionMessageRole("assistant"), Content: content,
+	answer.WriteString("```sh\nprintf 'first command'\n\necho second command\n```\n\n")
+	_, _ = model.Update(streamMessage{turn: 1, event: Event{
+		Type: rootly.AiChatStreamEventText,
+		Text: &rootly.AiChatStreamText{Content: answer.String()},
 	}})
-	bodies := printedLineBodies(cmd)
-	if len(bodies) < 3 {
-		t.Fatalf("resumed history Println chunks = %d, want at least 3", len(bodies))
-	}
-	printed := strings.Join(bodies, "\n")
-	for _, line := range history {
-		marker := strings.Fields(line)[0]
-		if got := strings.Count(printed, marker); got != 1 {
-			t.Errorf("history marker %q appears %d times in printed output, want once", marker, got)
+	model.handleEvent(activityDoneEvent("complete"))
+	_, _ = model.Update(streamMessage{turn: 1, done: true})
+	transcript := ansi.Strip(model.Transcript())
+	for step := 1; step <= 45; step++ {
+		marker := fmt.Sprintf("Step %d:", step)
+		if got := strings.Count(transcript, marker); got != 1 {
+			t.Errorf("%q appears %d times in transcript, want once", marker, got)
 		}
 	}
-	view := ansi.Strip(model.View().Content)
-	if !strings.Contains(view, "❯ Ask Rootly...") || !strings.Contains(view, "/ for commands · exit to quit") {
-		t.Errorf("view after history print = %q, want composer and hint visible", view)
+	for _, fragment := range []string{"```sh", "printf 'first command'", "echo second command"} {
+		if !strings.Contains(transcript, fragment) {
+			t.Errorf("transcript lost fenced content %q: %q", fragment, transcript)
+		}
+	}
+	if !strings.Contains(transcript, "printf 'first command'\n  \n  echo") {
+		t.Errorf("transcript lost the blank line inside the fenced block: %q", transcript)
 	}
 }
 
-func TestTUIWelcomePrintChunksUseLastAnimatedFrameHeight(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
-	model.width = 80
-	model.height = 24
-	model.composer.SetWidth(78)
-	model.welcomeStarted = true
-	model.welcomeAnimating = true
-	model.welcomeFrame = welcomeBloomFrames + 2
+func TestTUIFixedFooterAtCommonTerminalSizes(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{80, 24}, {125, 34}} {
+		for _, blocks := range []int{0, 60} {
+			model := newSizedTUITestModel(size.width, size.height)
+			for index := 0; index < blocks; index++ {
+				model.println(fmt.Sprintf("transcript block %02d", index+1))
+			}
+			lines := strings.Split(model.View().Content, "\n")
+			if len(lines) != size.height {
+				t.Fatalf("%dx%d with %d blocks rendered %d rows", size.width, size.height, blocks, len(lines))
+			}
+			if got := ansi.Strip(lines[size.height-1]); !strings.Contains(got, "/ for commands · exit to quit") {
+				t.Errorf("%dx%d hint row = %q", size.width, size.height, got)
+			}
+			if got := ansi.Strip(lines[size.height-2]); !strings.Contains(got, "─") {
+				t.Errorf("%dx%d bottom rule = %q", size.width, size.height, got)
+			}
+			if got := ansi.Strip(lines[size.height-3]); !strings.Contains(got, "Ask Rootly") {
+				t.Errorf("%dx%d composer row = %q", size.width, size.height, got)
+			}
+		}
+	}
+}
 
+func TestTUIViewportFollowControls(t *testing.T) {
+	model := newSizedTUITestModel(80, 24)
+	for index := 0; index < 60; index++ {
+		model.println(fmt.Sprintf("history block %02d", index+1))
+	}
 	model.View()
-	lastFrameRows := model.lastViewRows
-	bannerFrameRows := rendererPhysicalRows(model.welcomeBannerFrame(), model.width-1)
-	chromeRows := lastFrameRows - bannerFrameRows
-	maxRows := model.height - (bannerFrameRows + chromeRows) - 1
-	if lastFrameRows <= 0 || bannerFrameRows <= 0 || chromeRows <= 0 || maxRows <= 0 {
-		t.Fatalf("frame/banner/chrome rows = %d/%d/%d, want positive rows and free space", lastFrameRows, bannerFrameRows, chromeRows)
+	model.println("bottom-followed")
+	model.View()
+	if !strings.Contains(model.viewport.GetContent(), "bottom-followed") || !model.viewport.AtBottom() {
+		t.Fatal("viewport did not follow appended content while at bottom")
 	}
 
-	historyRows := make([]string, 70)
-	for index := range historyRows {
-		historyRows[index] = fmt.Sprintf("history row %02d with details", index+1)
+	model.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+	offset := model.viewport.YOffset()
+	if offset == 0 {
+		t.Fatal("PgUp did not scroll the viewport")
 	}
-	history := strings.Join(historyRows, "\n")
-	if cmd := model.println(history); cmd != nil {
-		t.Fatal("println while the welcome is animating returned a command; want buffered history")
+	model.println("new output while scrolled")
+	view := ansi.Strip(model.View().Content)
+	if model.viewport.YOffset() != offset {
+		t.Errorf("append moved scrolled offset from %d to %d", offset, model.viewport.YOffset())
 	}
-	if len(model.pendingPrints) != 1 {
-		t.Fatalf("pending prints = %d, want one queued history block", len(model.pendingPrints))
+	if !strings.Contains(view, "↓ new output · End to jump") {
+		t.Errorf("scrolled hint = %q, want new-output indicator", lastLine(view))
 	}
 
-	bannerChunks := model.scrollbackPrintChunks(model.welcomeBanner())
-	historyChunks := model.scrollbackPrintChunks(model.pendingPrints[0])
-	cmd := model.printWelcomeBanner()
-	bodies := printedLineBodies(cmd)
-	expected := make([]string, 0, len(bannerChunks)+len(historyChunks))
-	expected = append(expected, bannerChunks...)
-	expected = append(expected, historyChunks...)
-	for index, chunk := range expected {
-		if chunk == "" {
-			expected[index] = " "
-		}
+	model.Update(tea.KeyPressMsg{Code: tea.KeyEnd})
+	view = ansi.Strip(model.View().Content)
+	if !model.viewport.AtBottom() || strings.Contains(view, "↓ new output") {
+		t.Errorf("End did not return to bottom and clear the indicator")
 	}
-	if len(bodies) != len(expected) {
-		t.Fatalf("welcome settle emitted %d Println chunks, want %d for banner and pending history", len(bodies), len(expected))
+
+	model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	if model.viewport.AtBottom() {
+		t.Fatal("mouse wheel up did not scroll away from the bottom")
 	}
-	for index, body := range bodies {
-		if rows := rendererPhysicalRows(body, model.width-1); rows > maxRows {
-			t.Errorf("Println chunk %d has %d rows, want at most %d (24 - banner frame %d - chrome %d - safety row)", index, rows, maxRows, bannerFrameRows, chromeRows)
-		}
-		if body != expected[index] {
-			t.Errorf("Println chunk %d = %q, want %q", index, body, expected[index])
-		}
+	offset = model.viewport.YOffset()
+	for _, text := range []string{"j", "k", " "} {
+		model.Update(tea.KeyPressMsg{Code: rune(text[0]), Text: text})
 	}
-	if model.welcomeAnimating || !model.welcomePrinted || len(model.pendingPrints) != 0 {
-		t.Errorf("welcome state after settle = animating %t, printed %t, pending %d; want settled, printed once, and empty queue", model.welcomeAnimating, model.welcomePrinted, len(model.pendingPrints))
+	if model.viewport.YOffset() != offset {
+		t.Errorf("typed j/k/space moved viewport from %d to %d", offset, model.viewport.YOffset())
 	}
-	if currentRows := rendererPhysicalRows(model.viewContent(), model.width-1); currentRows >= lastFrameRows {
-		t.Errorf("settled view rows = %d, want fewer than last animated frame %d", currentRows, lastFrameRows)
+	if got := model.composer.Value(); got != "jk " {
+		t.Errorf("composer value = %q, want typed j/k/space", got)
 	}
+}
+
+func newSizedTUITestModel(width, height int) *TUIModel {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: width, Height: height})
+	return model
 }
 
 func TestLastTopLevelBlockBoundaryIgnoresFencedBlankLines(t *testing.T) {
@@ -325,15 +310,15 @@ func TestStreamedOrderedListKeepsNumberAcrossCommittedBlocks(t *testing.T) {
 	model.state = tuiStreaming
 	model.turn = 1
 
-	_, first := model.Update(streamMessage{turn: 1, event: Event{
+	_, _ = model.Update(streamMessage{turn: 1, event: Event{
 		Type: rootly.AiChatStreamEventText,
 		Text: &rootly.AiChatStreamText{Content: "1. First item\n\n"},
 	}})
-	_, second := model.Update(streamMessage{turn: 1, event: Event{
+	_, _ = model.Update(streamMessage{turn: 1, event: Event{
 		Type: rootly.AiChatStreamEventText,
 		Text: &rootly.AiChatStreamText{Content: "2. Second item\n\n3. Third item"},
 	}})
-	got := ansi.Strip(commandSequenceOutput(first) + commandSequenceOutput(second))
+	got := ansi.Strip(model.Transcript())
 	if !strings.Contains(got, "1. First item") || !strings.Contains(got, "2. Second item") {
 		t.Errorf("printed list blocks lost their explicit numbering: %q", got)
 	}
@@ -346,7 +331,8 @@ func TestCtrlCPrintsOnlyUncommittedStreamRemainder(t *testing.T) {
 	model.committedOffset = len("Committed block\n\n")
 
 	_, cmd := model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-	output := commandOutput(cmd)
+	_ = cmd
+	output := ansi.Strip(model.Transcript())
 	if strings.Contains(output, "Committed block") || strings.Count(output, "Uncommitted tail") != 1 {
 		t.Errorf("Ctrl+C output = %q, want only the uncommitted remainder", output)
 	}
@@ -364,7 +350,8 @@ func TestConfirmationRequiredPrintsOnlyUncommittedStreamRemainder(t *testing.T) 
 	model.handleEvent(activityDoneEvent("confirmation_required"))
 
 	_, cmd := model.Update(streamMessage{turn: model.turn, done: true})
-	output := commandSequenceOutput(cmd)
+	_ = cmd
+	output := ansi.Strip(model.Transcript())
 	if strings.Contains(output, "Committed block") || strings.Count(output, "Uncommitted tail") != 1 {
 		t.Errorf("confirmation output = %q, want only the uncommitted remainder", output)
 	}
@@ -377,38 +364,34 @@ func TestResumedHistoryPrintsFullAssistantMessageRegardlessOfCommitOffset(t *tes
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
 	model.committedOffset = len("old answer")
 
-	output := commandSequenceOutput(model.printHistory("", []rootly.AiChatSessionMessage{{
+	model.printHistory([]rootly.AiChatSessionMessage{{
 		Role: rootly.AiChatSessionMessageRole("assistant"), Content: "historical answer",
-	}}))
+	}})
+	output := ansi.Strip(model.Transcript())
 	if got := strings.Count(output, "historical answer"); got != 1 {
 		t.Errorf("history output = %q, want the complete assistant message once", output)
 	}
 }
 
 func TestTUIViewClipsTallContentAboveComposer(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	model.width = 40
-	model.height = 10
+	model := newSizedTUITestModel(40, 10)
 	model.status = strings.Repeat("long status content that wraps around the terminal width\n", 30)
 
 	view := model.View().Content
-	if got := lipgloss.Height(view); got > 9 {
-		t.Fatalf("clipped view height = %d, want at most 9", got)
+	if got := lipgloss.Height(view); got != 10 {
+		t.Fatalf("full-screen view height = %d, want 10", got)
 	}
 	lines := strings.Split(view, "\n")
 	if got := lines[len(lines)-1]; got != "/ for commands · exit to quit" {
-		t.Errorf("last clipped line = %q, want composer hint", got)
+		t.Errorf("last row = %q, want composer hint", got)
 	}
 	if !strings.Contains(lines[len(lines)-3], "❯ ") {
-		t.Errorf("composer is not visible before the bottom rule: %q", view)
+		t.Errorf("composer is not visible above the bottom rule: %q", view)
 	}
 }
 
 func TestTUIViewBoundsLiveAnswerAndAvoidsTerminalWidthLines(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	model.width = 40
-	model.height = 24
-	model.composer.SetWidth(model.width - 4)
+	model := newSizedTUITestModel(40, 24)
 	model.state = tuiStreaming
 	model.startedAt = time.Now()
 	for step := 1; step <= 45; step++ {
@@ -417,11 +400,9 @@ func TestTUIViewBoundsLiveAnswerAndAvoidsTerminalWidthLines(t *testing.T) {
 	_, _ = fmt.Fprintf(&model.answer, "```sh\n%s\n\n%s\n```\n45. Final marker\n", strings.Repeat("a", 80), strings.Repeat("b", 80))
 
 	view := model.View().Content
-	chromeRows := 1 + lipgloss.Height(model.composer.View()) + 3
-	answerRows := max(3, model.height/2-chromeRows)
 	rendererRows := strings.Count(view, "\n") + 1
-	if rendererRows > answerRows+chromeRows {
-		t.Fatalf("renderer view rows = %d, want at most %d answer + %d chrome rows", rendererRows, answerRows, chromeRows)
+	if rendererRows != model.height {
+		t.Fatalf("renderer view rows = %d, want terminal height %d", rendererRows, model.height)
 	}
 	if !strings.Contains(view, "45. Final marker") {
 		t.Errorf("view tail = %q, want the final answer marker", view)
@@ -430,8 +411,8 @@ func TestTUIViewBoundsLiveAnswerAndAvoidsTerminalWidthLines(t *testing.T) {
 		t.Errorf("view retained the start of the long live answer: %q", view)
 	}
 	for _, line := range strings.Split(view, "\n") {
-		if got := lipgloss.Width(line); got >= model.width {
-			t.Errorf("view line width = %d, want less than terminal width %d: %q", got, model.width, line)
+		if got := lipgloss.Width(line); got > model.width {
+			t.Errorf("view line width = %d, want at most terminal width %d: %q", got, model.width, line)
 		}
 	}
 }
@@ -452,22 +433,13 @@ func TestTUIBindingHeaderIsPrintedOnceAfterWelcomeSettles(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{
 		Incident: &api.Incident{SequentialID: "INC-8", Title: "Database latency"},
 	})
-	model.colorProfileKnown = true
-	model.colorProfile = colorprofile.TrueColor
-	model.Init()
-
-	var printed strings.Builder
-	for range welcomeSettleFrame {
-		_, cmd := model.Update(welcomeBannerTickMsg{})
-		printed.WriteString(commandSequenceOutput(cmd))
-	}
-	header := "Chatting about INC-8: Database latency"
-	view := model.View().Content
-	if got := strings.Count(printed.String()+view, header); got != 1 {
-		t.Errorf("header occurs %d times across printed output and view, want once: output=%q view=%q", got, printed.String(), view)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	header := "INC-8 · Database latency"
+	if got := strings.Count(ansi.Strip(model.welcomeBanner()), header); got != 1 {
+		t.Errorf("header context occurs %d times, want once: %q", got, model.welcomeBanner())
 	}
 	status := model.statusLines()
-	if strings.Contains(status, header) || !strings.Contains(status, "binding INC-8: Database latency") {
+	if strings.Contains(status, "Chatting about") || !strings.Contains(status, "binding INC-8: Database latency") {
 		t.Errorf("status = %q, want binding as a field without repeating the header", status)
 	}
 }
@@ -483,8 +455,11 @@ func TestTUIModelDonePrintsAndReturnsIdle(t *testing.T) {
 	if got := updated.(*TUIModel).state; got != tuiIdle {
 		t.Errorf("state = %v, want idle", got)
 	}
-	if cmd == nil {
-		t.Fatal("done did not return a print command")
+	if cmd != nil {
+		t.Fatalf("done returned %T, want transcript-only update", cmd)
+	}
+	if got := ansi.Strip(model.Transcript()); !strings.Contains(got, "assistant reply") {
+		t.Errorf("transcript = %q, want completed answer", got)
 	}
 }
 
@@ -502,7 +477,8 @@ func TestTUIModelCtrlCCancelsStreaming(t *testing.T) {
 	if model.state != tuiIdle || model.status != "" {
 		t.Errorf("state/status = %v/%q, want idle with no status", model.state, model.status)
 	}
-	output := strings.Join(strings.Fields(ansi.Strip(commandOutput(cmd))), " ")
+	_ = cmd
+	output := strings.Join(strings.Fields(ansi.Strip(model.Transcript())), " ")
 	if !strings.Contains(output, "partial") || !strings.Contains(output, "answer") || !strings.Contains(output, "Stopped locally. The server may still finish this turn and save it to the session.") {
 		t.Errorf("scrollback output = %q, want partial answer and cancellation line", output)
 	}
@@ -526,6 +502,30 @@ func TestTUITranscriptUsesClaudeCodeStyle(t *testing.T) {
 	}
 }
 
+func TestTUITranscriptIncludesHeaderAndConversation(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.println("❯ question")
+	model.println("completed answer")
+	model.state = tuiStreaming
+	model.answer.WriteString("live answer")
+
+	transcript := model.Transcript()
+	for _, text := range []string{"New session", "❯ question", "completed answer", "live answer"} {
+		if !strings.Contains(transcript, text) {
+			t.Errorf("transcript = %q, missing %q", transcript, text)
+		}
+	}
+}
+
+func TestTUIHelpMentionsViewportNavigationAndTextSelection(t *testing.T) {
+	helpText := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{}).helpView()
+	for _, text := range []string{"PgUp/PgDn/wheel scroll · End to jump to bottom", "Hold Option (macOS) / Shift to select text"} {
+		if !strings.Contains(helpText, text) {
+			t.Errorf("help is missing %q", text)
+		}
+	}
+}
+
 func TestTUIAnswerAndHistorySanitizeTerminalControls(t *testing.T) {
 	const (
 		attack = "\x1b]52;c;ZXZpbA==\x07\x1b[2J\x1b]8;;https://evil.example\x07"
@@ -546,11 +546,11 @@ func TestTUIAnswerAndHistorySanitizeTerminalControls(t *testing.T) {
 	}
 
 	historyModel := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	cmd := historyModel.printHistory("History "+attack, []rootly.AiChatSessionMessage{
+	historyModel.printHistory([]rootly.AiChatSessionMessage{
 		{Role: rootly.AiChatSessionMessageRole("user"), Content: "Prompt " + attack},
 		{Role: rootly.AiChatSessionMessageRole("assistant"), Content: "Answer " + attack},
 	})
-	history := commandSequenceOutput(cmd)
+	history := historyModel.Transcript()
 	for _, unwanted := range []string{"]52;", "[2J", "\x1b"} {
 		if strings.Contains(history, unwanted) {
 			t.Errorf("printed history = %q, want no %q", history, unwanted)
@@ -726,9 +726,7 @@ func TestTUIHistoryRecallAndFooter(t *testing.T) {
 func TestTUIHistoryLoadedKeepsComposerAndSchedulesRedraw(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
 	model.historyRequest = 1
-	model.width = 80
-	model.height = 24
-	model.composer.SetWidth(78)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	messages := make([]rootly.AiChatSessionMessage, 0, 40)
 	for index := 0; index < 20; index++ {
 		messages = append(messages,
@@ -737,19 +735,13 @@ func TestTUIHistoryLoadedKeepsComposerAndSchedulesRedraw(t *testing.T) {
 		)
 	}
 
-	updated, cmd := model.Update(historyLoadedMsg{
+	updated, _ := model.Update(historyLoadedMsg{
 		request:  1,
 		title:    "Resumed session",
 		messages: messages,
 	})
 	if updated.(*TUIModel).state != tuiIdle {
 		t.Fatalf("state = %v, want idle after history loads", updated.(*TUIModel).state)
-	}
-	if cmd == nil {
-		t.Fatal("history load did not schedule print and redraw commands")
-	}
-	if got := fmt.Sprintf("%T", cmd()); !strings.Contains(got, "sequenceMsg") {
-		t.Errorf("history command message type = %q, want sequence of prints and redraw", got)
 	}
 	if view := ansi.Strip(model.View().Content); !strings.Contains(view, "❯ Ask Rootly...") || !strings.Contains(view, "/ for commands · exit to quit") {
 		t.Errorf("view after history load = %q, want composer visible", view)
@@ -759,6 +751,7 @@ func TestTUIHistoryLoadedKeepsComposerAndSchedulesRedraw(t *testing.T) {
 func TestTUIStreamingTrimsOnlyIncompleteColorLinks(t *testing.T) {
 	const partial = "see [Rotate](http://x?a_b"
 	colorModel := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	colorModel.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	colorModel.state = tuiStreaming
 	colorModel.answer.WriteString(partial)
 	colorView := colorModel.View().Content
@@ -772,7 +765,7 @@ func TestTUIStreamingTrimsOnlyIncompleteColorLinks(t *testing.T) {
 		t.Errorf("final answer = %q, want unchanged incomplete-link text", final)
 	}
 
-	rawModel := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	rawModel := newSizedTUITestModel(80, 24)
 	rawModel.state = tuiStreaming
 	rawModel.answer.WriteString(partial)
 	if view := rawModel.View().Content; !strings.Contains(view, partial) {
@@ -781,6 +774,7 @@ func TestTUIStreamingTrimsOnlyIncompleteColorLinks(t *testing.T) {
 
 	const completeURL = "http://x?a_b"
 	completeModel := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	completeModel.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	completeModel.state = tuiStreaming
 	completeModel.answer.WriteString("see [Rotate](" + completeURL + ") and more")
 	completeView := completeModel.View().Content
@@ -838,21 +832,24 @@ func TestTUIResumeByIDLoadsTitleAndPrintsIt(t *testing.T) {
 		SessionID: &sessionID,
 	})
 	initSequence := reflect.ValueOf(model.Init()())
-	if initSequence.Kind() != reflect.Slice || initSequence.Len() != 3 {
-		t.Fatalf("initial resume commands = %v, want inline welcome, focus and history before the title loads", initSequence)
+	if initSequence.Kind() != reflect.Slice || initSequence.Len() != 2 {
+		t.Fatalf("initial resume commands = %v, want composer focus and history load", initSequence)
 	}
 
-	history := model.loadHistory(sessionID, "")().(historyLoadedMsg)
-	updated, cmd := model.Update(history)
+	history := model.loadHistory(sessionID)().(historyLoadedMsg)
+	updated, _ := model.Update(history)
 	resumed := updated.(*TUIModel)
 	if resumed.sessionTitle != "Incident review" {
 		t.Fatalf("session title = %q, want sanitized history title", resumed.sessionTitle)
 	}
-	if output := commandSequenceOutput(cmd); !strings.Contains(output, `Resumed "Incident review"`) {
-		t.Errorf("resume output = %q, want the loaded session title", output)
+	if output := ansi.Strip(resumed.Transcript()); !strings.Contains(output, "Incident review") {
+		t.Errorf("resume transcript = %q, want the loaded session title in the header", output)
 	}
 	if status := resumed.statusLines(); !strings.Contains(status, "title Incident review") {
 		t.Errorf("status lines = %q, want loaded session title", status)
+	}
+	if got := strings.Count(ansi.Strip(resumed.Transcript()), "Incident review"); got != 1 {
+		t.Errorf("resumed title appears %d times in transcript, want one header context", got)
 	}
 }
 
@@ -877,15 +874,14 @@ func TestTUIResumeByIDFallsBackToShortIDWithoutTitle(t *testing.T) {
 				SessionID: &sessionID,
 			})
 
-			history := model.loadHistory(sessionID, "")().(historyLoadedMsg)
-			updated, cmd := model.Update(history)
+			history := model.loadHistory(sessionID)().(historyLoadedMsg)
+			updated, _ := model.Update(history)
 			resumed := updated.(*TUIModel)
 			if resumed.sessionTitle != "" {
 				t.Fatalf("session title = %q, want empty fallback state", resumed.sessionTitle)
 			}
-			want := fmt.Sprintf("Resumed %q", shortSessionID(testSessionID))
-			if output := commandSequenceOutput(cmd); !strings.Contains(output, want) {
-				t.Errorf("resume output = %q, want %q", output, want)
+			if got, want := resumed.sessionHeaderContext(), shortSessionID(testSessionID); got != want {
+				t.Errorf("resume header context = %q, want %q", got, want)
 			}
 		})
 	}
@@ -894,21 +890,15 @@ func TestTUIResumeByIDFallsBackToShortIDWithoutTitle(t *testing.T) {
 func TestTUITaskActivityIsTerminalAndDeduplicated(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
 	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-1", Title: "Create incident", Status: "in_progress"}})
-	if len(model.activityCommands) != 0 {
-		t.Fatalf("activity commands after in_progress = %d, want none", len(model.activityCommands))
-	}
 	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-1", Title: "Create incident", Status: "complete"}})
 	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-1", Title: "Create incident", Status: "complete"}})
 	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-2", Title: "Notify owner", Status: "cancelled"}})
 	model.handleEvent(Event{Type: rootly.AiChatStreamEventTaskUpdate, TaskUpdate: &rootly.AiChatStreamTaskUpdate{ID: "task-3", Title: "Searched incidents (1.2s)", Status: "complete"}})
-	if len(model.activityCommands) != 3 {
-		t.Fatalf("activity commands = %d, want one per terminal task", len(model.activityCommands))
+	got := ansi.Strip(model.Transcript())
+	if strings.Count(got, "✓ Create incident") != 1 || strings.Count(got, "✗ Notify owner") != 1 {
+		t.Errorf("task lines = %q; want one success and one failure glyph", got)
 	}
-	first, second := commandOutput(model.activityCommands[0]), commandOutput(model.activityCommands[1])
-	if !strings.Contains(first, "✓ Create incident") || !strings.Contains(second, "✗ Notify owner") {
-		t.Errorf("task lines = %q, %q; want success and failure glyphs", first, second)
-	}
-	if got := commandOutput(model.activityCommands[2]); !strings.Contains(got, "✓ Searched incidents (1.2s)") || strings.Contains(got, "(1.2s) (") {
+	if !strings.Contains(got, "✓ Searched incidents (1.2s)") || strings.Contains(got, "(1.2s) (") {
 		t.Errorf("duration task line = %q, want title duration only", got)
 	}
 }
@@ -916,23 +906,11 @@ func TestTUITaskActivityIsTerminalAndDeduplicated(t *testing.T) {
 func TestTUIStatusActivityIsPersisted(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
 	model.handleEvent(activityStatusEvent("Get incidents..."))
-	if len(model.activityCommands) != 0 {
-		t.Fatalf("activity commands after initial status = %d, want none", len(model.activityCommands))
-	}
 	model.handleEvent(activityStatusEvent("Composing response..."))
-	if len(model.activityCommands) != 0 {
-		t.Fatalf("activity commands after composing status = %d, want none until the turn finishes", len(model.activityCommands))
-	}
 	model.handleEvent(Event{Type: rootly.AiChatStreamEventText, Text: &rootly.AiChatStreamText{Content: "Answer"}})
-	if len(model.activityCommands) != 0 {
-		t.Fatalf("activity commands after text = %d, want none until the turn finishes", len(model.activityCommands))
-	}
 	model.handleEvent(activityDoneEvent("complete"))
-	if len(model.activityCommands) != 1 {
-		t.Fatalf("activity commands after turn completion = %d, want one", len(model.activityCommands))
-	}
-	if got := commandOutput(model.activityCommands[0]); !strings.Contains(got, "✓ Get incidents (") {
-		t.Errorf("activity line = %q, want successful Get incidents", got)
+	if got := ansi.Strip(model.Transcript()); !strings.Contains(got, "✓ Get incidents (") {
+		t.Errorf("activity transcript = %q, want successful Get incidents", got)
 	}
 }
 
@@ -942,8 +920,8 @@ func TestTUIFinishTurnTreatsConfirmedActivityAsSuccessful(t *testing.T) {
 	model.doneStatus = "confirmed"
 	model.doneReceived = true
 
-	_, cmd := model.finishTurn(nil)
-	if output := commandSequenceOutput(cmd); !strings.Contains(output, "✓ Get incidents (") {
+	_, _ = model.finishTurn(nil)
+	if output := ansi.Strip(model.Transcript()); !strings.Contains(output, "✓ Get incidents (") {
 		t.Errorf("finish output = %q, want successful activity line", output)
 	}
 }
@@ -964,8 +942,8 @@ func TestTUIConfirmationDefersTextFinalizedActivityUntilResumedTurn(t *testing.T
 	})
 	model.handleEvent(activityDoneEvent("confirmation_required"))
 
-	_, confirmationCmd := model.finishTurn(nil)
-	if output := commandSequenceOutput(confirmationCmd); strings.Contains(output, "✓ Create action item (") {
+	_, _ = model.finishTurn(nil)
+	if output := ansi.Strip(model.Transcript()); strings.Contains(output, "✓ Create action item (") {
 		t.Fatalf("confirmation output = %q, want no activity before approval", output)
 	}
 	if model.state != tuiConfirming {
@@ -980,8 +958,8 @@ func TestTUIConfirmationDefersTextFinalizedActivityUntilResumedTurn(t *testing.T
 	model.handleEvent(Event{Type: rootly.AiChatStreamEventText, Text: &rootly.AiChatStreamText{Content: "Created."}})
 	model.handleEvent(activityDoneEvent("complete"))
 
-	_, resumedCmd := model.finishTurn(nil)
-	if output := commandSequenceOutput(resumedCmd); strings.Count(output, "✓ Create action item (") != 1 {
+	_, _ = model.finishTurn(nil)
+	if output := ansi.Strip(model.Transcript()); strings.Count(output, "✓ Create action item (") != 1 {
 		t.Fatalf("resumed output = %q, want exactly one completed activity", output)
 	}
 }
@@ -1001,42 +979,35 @@ func TestTUIConfirmationFlushesStatusFinalization(t *testing.T) {
 	})
 	model.handleEvent(activityDoneEvent("confirmation_required"))
 
-	_, cmd := model.finishTurn(nil)
-	output := commandSequenceOutput(cmd)
+	_, _ = model.finishTurn(nil)
+	output := ansi.Strip(model.Transcript())
 	if strings.Count(output, "✓ A (") != 1 || strings.Contains(output, "✓ B (") {
 		t.Fatalf("confirmation output = %q, want retained A line and no B line", output)
 	}
 }
 
-func TestTUIFinishTurnRequestsWindowSizeAfterPrintedAnswer(t *testing.T) {
+func TestTUIFinishTurnAppendsAnswerToTranscript(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.println(renderPromptEcho("Question", model.width, model.noColor))
 	model.answer.WriteString("Answer")
 	model.currentPrompt = "Question"
 	model.doneStatus = "complete"
 	model.doneReceived = true
 
 	_, cmd := model.finishTurn(nil)
-	if cmd == nil {
-		t.Fatal("finishTurn() returned no command")
+	if cmd != nil {
+		t.Fatalf("finishTurn() command = %T, want no inline print command", cmd)
 	}
-	result := cmd()
-	sequence := reflect.ValueOf(result)
-	if sequence.Kind() != reflect.Slice || sequence.Len() == 0 {
-		t.Fatalf("finishTurn command result = %T, want a non-empty sequence", result)
-	}
-	lastCommand, ok := sequence.Index(sequence.Len() - 1).Interface().(tea.Cmd)
-	if !ok {
-		t.Fatalf("last sequence entry = %T, want tea.Cmd", sequence.Index(sequence.Len()-1).Interface())
-	}
-	if got, want := reflect.TypeOf(lastCommand()), reflect.TypeOf(tea.RequestWindowSize()); got != want {
-		t.Errorf("last command message type = %v, want window-size request type %v", got, want)
+	if got := ansi.Strip(model.Transcript()); !strings.Contains(got, "Answer") || !strings.Contains(got, "Question") {
+		t.Errorf("transcript = %q, want prompt and answer", got)
 	}
 }
 
 func TestTUISessionCommandsRequireSessionAndMapErrors(t *testing.T) {
 	apiClient := &fakeTUIAPI{}
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
-	if output := commandOutput(model.runSlashCommand("/rename name")); !strings.Contains(output, "No session yet: send a message first.") {
+	_ = model.runSlashCommand("/rename name")
+	if output := ansi.Strip(model.Transcript()); !strings.Contains(output, "No session yet: send a message first.") {
 		t.Errorf("no-session output = %q, want exact no-session message", output)
 	}
 	if len(apiClient.updateBodies) != 0 {
@@ -1077,7 +1048,8 @@ func TestTUISessionActionsMapNotFoundForBoundSessions(t *testing.T) {
 			if result.err == nil {
 				t.Fatal("session action error = nil, want not-found error")
 			}
-			if output := strings.Join(strings.Fields(ansi.Strip(commandOutput(model.handleSessionAction(result)))), " "); !strings.Contains(output, want) {
+			_ = model.handleSessionAction(result)
+			if output := strings.Join(strings.Fields(ansi.Strip(model.Transcript())), " "); !strings.Contains(output, want) {
 				t.Errorf("session action output = %q, want %q", output, want)
 			}
 		})
@@ -1092,7 +1064,8 @@ func TestTUISessionActionsMapNotFoundForBoundSessions(t *testing.T) {
 	if !ok || result.err == nil {
 		t.Fatalf("delete result = %#v, want not-found sessionActionMsg", result)
 	}
-	if output := strings.Join(strings.Fields(ansi.Strip(commandOutput(model.handleSessionAction(result)))), " "); !strings.Contains(output, want) {
+	_ = model.handleSessionAction(result)
+	if output := strings.Join(strings.Fields(ansi.Strip(model.Transcript())), " "); !strings.Contains(output, want) {
 		t.Errorf("delete output = %q, want %q", output, want)
 	}
 }
@@ -1107,7 +1080,8 @@ func TestTUIBindingCommandsShowUsageWithoutID(t *testing.T) {
 		{command: "/alert", want: "Usage: /alert <id>"},
 	} {
 		t.Run(test.command, func(t *testing.T) {
-			if output := commandOutput(model.runSlashCommand(test.command)); !strings.Contains(output, test.want) {
+			_ = model.runSlashCommand(test.command)
+			if output := ansi.Strip(model.Transcript()); !strings.Contains(output, test.want) {
 				t.Errorf("output = %q, want %q", output, test.want)
 			}
 		})
@@ -1120,10 +1094,10 @@ func TestTUIExportWritesTranscriptWithoutOverwriting(t *testing.T) {
 	sessionID := uuid.MustParse(testSessionID)
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 	model.sessionID = &sessionID
-	model.transcript = []transcriptTurn{{user: "question", assistant: "answer"}}
+	model.conversation = []transcriptTurn{{user: "question", assistant: "answer"}}
 
-	if cmd := model.exportTranscript(path); cmd == nil {
-		t.Fatal("export returned no command")
+	if cmd := model.exportTranscript(path); cmd != nil {
+		t.Fatalf("export command = %T, want transcript-only update", cmd)
 	}
 	got, err := os.ReadFile(path)
 	if err != nil {
@@ -1132,8 +1106,8 @@ func TestTUIExportWritesTranscriptWithoutOverwriting(t *testing.T) {
 	if !strings.Contains(string(got), "## You\n\nquestion") || !strings.Contains(string(got), "## Rootly\n\nanswer") {
 		t.Errorf("export = %q, want both transcript sections", got)
 	}
-	if cmd := model.exportTranscript(path); cmd == nil {
-		t.Fatal("second export returned no command")
+	if cmd := model.exportTranscript(path); cmd != nil {
+		t.Fatalf("second export command = %T, want transcript-only update", cmd)
 	}
 	gotAgain, err := os.ReadFile(path)
 	if err != nil {
@@ -1224,7 +1198,8 @@ func TestTUIModelExpiredConfirmationDoesNotResume(t *testing.T) {
 	if model.state != tuiIdle || model.pending != nil || model.currentParams != nil {
 		t.Errorf("expired confirmation state = %v, pending=%v, params=%v; want idle without resume", model.state, model.pending, model.currentParams)
 	}
-	if output := commandOutput(cmd); !strings.Contains(output, "Confirmation expired; no action was taken.") {
+	_ = cmd
+	if output := ansi.Strip(model.Transcript()); !strings.Contains(output, "Confirmation expired; no action was taken.") {
 		t.Errorf("scrollback output = %q, want expiration message", output)
 	}
 }
@@ -1245,7 +1220,8 @@ func TestTUIModelExpiredCancelDoesNotResume(t *testing.T) {
 	if model.state != tuiIdle || model.pending != nil || len(streamer.calls) != 0 {
 		t.Errorf("expired cancel state = %v, pending=%v, calls=%d; want idle without resume", model.state, model.pending, len(streamer.calls))
 	}
-	if output := commandOutput(cmd); !strings.Contains(output, "Confirmation expired; no action was taken.") {
+	_ = cmd
+	if output := ansi.Strip(model.Transcript()); !strings.Contains(output, "Confirmation expired; no action was taken.") {
 		t.Errorf("scrollback output = %q, want expiration message", output)
 	}
 }
@@ -1314,8 +1290,8 @@ func TestTUIModelStreamErrorsPrintPartialAnswer(t *testing.T) {
 			model.doneReceived = test.doneReceived
 			model.answer.WriteString("partial answer")
 
-			_, cmd := model.Update(test.message)
-			output := commandSequenceOutput(cmd)
+			_, _ = model.Update(test.message)
+			output := ansi.Strip(model.Transcript())
 			if !strings.Contains(output, "partial") || !strings.Contains(output, "answer") || !strings.Contains(output, test.wantMessage) {
 				t.Errorf("scrollback output = %q, want partial answer and %q", output, test.wantMessage)
 			}
@@ -1331,8 +1307,8 @@ func TestTUIModelNoColorErrorHasNoANSI(t *testing.T) {
 	model.state = tuiStreaming
 	model.answer.WriteString("# partial answer")
 
-	_, cmd := model.Update(streamMessage{done: true, err: errors.New("stream failed")})
-	output := commandOutput(cmd)
+	_, _ = model.Update(streamMessage{done: true, err: errors.New("stream failed")})
+	output := model.Transcript()
 	if strings.Contains(output, "\x1b[") {
 		t.Errorf("scrollback output contains ANSI escape sequence: %q", output)
 	}
@@ -1343,6 +1319,7 @@ func TestTUIModelNoColorErrorHasNoANSI(t *testing.T) {
 
 func TestTUIModelCachesMarkdownRenderingAcrossViews(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model.state = tuiStreaming
 	model.answer.WriteString("A streamed answer")
 
@@ -1372,8 +1349,8 @@ func TestTUIModelResumeStatuses(t *testing.T) {
 			model.doneReceived = true
 			model.answer.WriteString("reply")
 
-			_, cmd := model.Update(streamMessage{done: true})
-			output := commandSequenceOutput(cmd)
+			_, _ = model.Update(streamMessage{done: true})
+			output := ansi.Strip(model.Transcript())
 			if test.wantMessage != "" && !strings.Contains(output, test.wantMessage) {
 				t.Errorf("scrollback output = %q, want %q", output, test.wantMessage)
 			}
@@ -1391,11 +1368,21 @@ func TestTUIModelNewCommandClearsSession(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 	sessionID := uuid.MustParse(testSessionID)
 	model.sessionID = &sessionID
+	model.resumedSession = true
+	model.sessionTitle = "Old session"
+	model.println("old history")
+	model.conversation = []transcriptTurn{{user: "old question", assistant: "old answer"}}
 	model.composer.SetValue("/new")
 
 	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if model.sessionID != nil {
 		t.Errorf("session id = %v, want nil", model.sessionID)
+	}
+	if got := ansi.Strip(model.Transcript()); strings.Contains(got, "old history") || strings.Contains(got, "Old session") || !strings.Contains(got, "New session") {
+		t.Errorf("new-session transcript = %q, want only a fresh header", got)
+	}
+	if len(model.conversation) != 0 {
+		t.Errorf("conversation after /new = %#v, want empty", model.conversation)
 	}
 }
 
@@ -1412,55 +1399,4 @@ func TestTUIModelModifiedEnterInsertsNewline(t *testing.T) {
 			t.Errorf("modifier %v did not insert a newline: %q", modifier, model.composer.Value())
 		}
 	}
-}
-
-func commandOutput(cmd tea.Cmd) string {
-	if cmd == nil {
-		return ""
-	}
-	return fmt.Sprint(cmd())
-}
-
-func commandSequenceOutput(cmd tea.Cmd) string {
-	if cmd == nil {
-		return ""
-	}
-	result := cmd()
-	sequence := reflect.ValueOf(result)
-	if sequence.Kind() != reflect.Slice {
-		return fmt.Sprint(result)
-	}
-	var output strings.Builder
-	for index := 0; index < sequence.Len(); index++ {
-		command, ok := sequence.Index(index).Interface().(tea.Cmd)
-		if ok {
-			fmt.Fprint(&output, command())
-		}
-	}
-	return output.String()
-}
-
-func printedLineBodies(cmd tea.Cmd) []string {
-	if cmd == nil {
-		return nil
-	}
-	message := cmd()
-	if message == nil {
-		return nil
-	}
-	value := reflect.ValueOf(message)
-	if value.Kind() == reflect.Slice {
-		var bodies []string
-		for index := 0; index < value.Len(); index++ {
-			command, ok := value.Index(index).Interface().(tea.Cmd)
-			if ok {
-				bodies = append(bodies, printedLineBodies(command)...)
-			}
-		}
-		return bodies
-	}
-	if value.Type().Name() == "printLineMessage" {
-		return []string{value.FieldByName("messageBody").String()}
-	}
-	return nil
 }

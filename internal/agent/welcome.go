@@ -4,25 +4,20 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	rootly "github.com/rootlyhq/rootly-go"
 )
 
 const (
-	welcomeLogoWidth  = 17
-	welcomeLogoHeight = 10
+	welcomeLogoWidth  = 10
+	welcomeLogoHeight = 4
 )
 
 var welcomeLogoLines = []string{
-	"        ▄        ",
-	"       ███       ",
-	"   ███ ▀█▀ ███   ",
-	"    ▀█▀   ▀█▀    ",
-	" ▄██▄   ▄   ▄██▄ ",
-	"  ▀█▀  ███  ▀█▀  ",
-	" ▄▄▄    ▀    ▄▄▄ ",
-	"███████▄ ▄███████",
-	"     ▀▀███▀▀     ",
-	"       ███       ",
+	"  ▄ ██ ▄  ",
+	" ▄█▀▄▄▀█▄ ",
+	"▄██▄▀▀▄██▄",
+	"▀▀▀▀██▀▀▀▀",
 }
 
 func (m *TUIModel) welcomeBanner() string {
@@ -34,20 +29,23 @@ func (m *TUIModel) welcomeBannerFrame() string {
 }
 
 func (m *TUIModel) welcomeBannerContent(logo string) string {
-	return lipgloss.JoinHorizontal(lipgloss.Center, logo, "  ", m.welcomeTextRows())
+	text := m.welcomeTextRows()
+	if m.width < 50 {
+		return text
+	}
+	textWidth := max(0, m.width-welcomeLogoWidth-2)
+	lines := strings.Split(text, "\n")
+	for index, line := range lines {
+		lines[index] = ansi.Truncate(line, textWidth, "")
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Center, logo, "  ", strings.Join(lines, "\n"))
 }
 
 func (m *TUIModel) welcomeTextRows() string {
-	mark := "✦"
-	name := "Rootly AI"
-	if !m.noColor {
-		mark = lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A24F")).Render(mark)
-		name = lipgloss.NewStyle().Bold(true).Render(name)
-	}
-	title := mark + " " + name
+	title := "✦ Rootly AI"
 	version := strings.TrimPrefix(sanitizeTerminalText(m.version), "v")
 	if version != "" && version != "dev" {
-		title += " " + faint(m.noColor, "v"+version)
+		title += " v" + version
 	}
 
 	userLine := ""
@@ -61,15 +59,50 @@ func (m *TUIModel) welcomeTextRows() string {
 		if name != "" && team != "" {
 			name += " · " + team
 		}
-		userLine = faint(m.noColor, name)
+		userLine = name
 	}
 
 	host := m.apiHost
 	if host == "" && m.api != nil {
 		host = m.api.APIHost()
 	}
-	hostLine := faint(m.noColor, sanitizeTerminalText(host))
-	return strings.Join([]string{title, userLine, hostLine}, "\n")
+	hostLine := host
+	contextLine := m.sessionHeaderContext()
+	lines := []string{title, userLine, hostLine, contextLine}
+	for index, line := range lines {
+		line = sanitizeTerminalText(line)
+		if !m.noColor {
+			line = faint(false, line)
+		}
+		lines[index] = line
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m *TUIModel) sessionHeaderContext() string {
+	if m.incident != nil {
+		id := m.incident.SequentialID
+		if id == "" {
+			id = shortSessionID(m.incident.ID)
+		}
+		return id + " · " + sanitizeTerminalText(m.incident.Title)
+	}
+	if m.alert != nil {
+		id := m.alert.ShortID
+		if id == "" {
+			id = shortSessionID(m.alert.ID)
+		}
+		return id + " · " + sanitizeTerminalText(m.alert.Summary)
+	}
+	if m.resumedSession {
+		if title := normalizeSessionTitle(m.sessionTitle); title != "" {
+			return title
+		}
+		if m.sessionID != nil {
+			return shortSessionID(m.sessionID.String())
+		}
+	}
+	return "New session"
 }
 
 func sproutLogo(noColor bool) string {

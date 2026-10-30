@@ -146,76 +146,17 @@ func (m *TUIModel) historyKey(msg tea.KeyPressMsg) bool {
 }
 
 func (m *TUIModel) quitCommand() tea.Cmd {
-	welcomeCmd := m.printWelcomeBanner()
+	m.settleWelcomeAnimation()
 	m.quitting = true
-	if m.sessionID == nil {
-		if welcomeCmd == nil {
-			return tea.Quit
-		}
-		return tea.Sequence(welcomeCmd, tea.Quit)
+	if m.sessionID != nil {
+		m.println(faint(m.noColor, "Resume with: rootly agent --resume "+m.sessionID.String()))
 	}
-	hint := "Resume with: rootly agent --resume " + m.sessionID.String()
-	hintCmd := m.println(faint(m.noColor, hint))
-	if welcomeCmd == nil {
-		return tea.Sequence(hintCmd, tea.Quit)
-	}
-	return tea.Sequence(welcomeCmd, hintCmd, tea.Quit)
+	return tea.Quit
 }
 
-func (m *TUIModel) println(text string) tea.Cmd {
-	if m.welcomePending || m.welcomeAnimating {
-		m.pendingPrints = append(m.pendingPrints, text)
-		return nil
-	}
-	if m.height <= 0 || text == "" {
-		return tea.Println(text)
-	}
-	chunks := m.scrollbackPrintChunks(text)
-	commands := make([]tea.Cmd, 0, len(chunks))
-	for _, chunk := range chunks {
-		if chunk == "" {
-			chunk = " "
-		}
-		commands = append(commands, tea.Println(chunk))
-	}
-	return sequenceTUICommands(commands...)
-}
-
-func (m *TUIModel) scrollbackPrintChunks(text string) []string {
-	width := max(1, m.width-1)
-	wrapped := ansi.Wrap(text, width, "")
-	currentViewRows := rendererPhysicalRows(m.viewContent(), width)
-	maxLiveViewRows := min(m.height-1, max(m.lastViewRows, currentViewRows)+1)
-	rowsPerChunk := max(1, m.height-maxLiveViewRows-1)
-	lines := strings.Split(wrapped, "\n")
-	chunks := make([]string, 0, (len(lines)+rowsPerChunk-1)/rowsPerChunk)
-	for start := 0; start < len(lines); start += rowsPerChunk {
-		end := min(start+rowsPerChunk, len(lines))
-		chunks = append(chunks, strings.Join(lines[start:end], "\n"))
-	}
-	return chunks
-}
-
-func rendererPhysicalRows(text string, width int) int {
-	if text == "" {
-		return 0
-	}
-	return len(strings.Split(ansi.Wrap(text, max(1, width), ""), "\n"))
-}
-
-func (m *TUIModel) printWelcomeBanner() tea.Cmd {
-	if !m.welcomeStarted || m.welcomePrinted {
-		return nil
-	}
+func (m *TUIModel) settleWelcomeAnimation() {
 	m.welcomePending = false
 	m.welcomeAnimating = false
-	m.welcomePrinted = true
-	commands := []tea.Cmd{m.println(m.welcomeBanner())}
-	for _, text := range m.pendingPrints {
-		commands = append(commands, m.println(text))
-	}
-	m.pendingPrints = nil
-	return sequenceTUICommands(commands...)
 }
 
 func isExitAlias(message string) bool {
@@ -373,6 +314,8 @@ func (m *TUIModel) helpView() string {
 		"/export [file]: write transcript\n" +
 		"/incident <id>, /alert <id>: bind a resource\n" +
 		"/status: show session and API info\n" +
+		"PgUp/PgDn/wheel scroll · End to jump to bottom\n" +
+		"Hold Option (macOS) / Shift to select text\n" +
 		"/help: show this help"
 }
 
@@ -419,55 +362,36 @@ func (m *TUIModel) statusLines() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m *TUIModel) loadHistory(sessionID uuid.UUID, title string) tea.Cmd {
+func (m *TUIModel) loadHistory(sessionID uuid.UUID) tea.Cmd {
 	m.historyRequest++
 	request := m.historyRequest
 	apiClient := m.api
 	ctx := m.ctx
 	return func() tea.Msg {
 		if apiClient == nil {
-			return historyLoadedMsg{request: request, title: title, err: errors.New("history API unavailable")}
+			return historyLoadedMsg{request: request, err: errors.New("history API unavailable")}
 		}
 		messages, sessionTitle, err := loadSessionHistory(ctx, apiClient, sessionID)
-		return historyLoadedMsg{request: request, messages: messages, err: err, title: title, sessionTitle: sessionTitle}
+		return historyLoadedMsg{request: request, messages: messages, err: err, sessionTitle: sessionTitle}
 	}
 }
 
-func (m *TUIModel) printHistory(title string, messages []rootly.AiChatSessionMessage) tea.Cmd {
-	lines := make([]string, 0, len(messages))
-	if title != "" {
-		lines = append(lines, faint(m.noColor, sanitizeTerminalText(title)))
-	}
-	if len(messages) > 0 {
-		m.transcript = nil
-	}
+func (m *TUIModel) printHistory(messages []rootly.AiChatSessionMessage) {
 	for _, message := range messages {
 		content := sanitizeTerminalText(message.Content)
 		switch message.Role {
 		case rootly.AiChatSessionMessageRole("user"):
-			lines = append(lines, renderPromptEcho(content, m.width, m.noColor))
-			m.transcript = append(m.transcript, transcriptTurn{user: content})
+			m.println(renderPromptEcho(content, m.width, m.noColor))
+			m.conversation = append(m.conversation, transcriptTurn{user: content})
 		case rootly.AiChatSessionMessageRole("assistant"):
-			lines = append(lines, m.renderAssistantAnswer(content))
-			if len(m.transcript) > 0 && m.transcript[len(m.transcript)-1].assistant == "" {
-				m.transcript[len(m.transcript)-1].assistant = content
+			m.println(m.renderAssistantAnswer(content))
+			if len(m.conversation) > 0 && m.conversation[len(m.conversation)-1].assistant == "" {
+				m.conversation[len(m.conversation)-1].assistant = content
 			} else {
-				m.transcript = append(m.transcript, transcriptTurn{assistant: content})
+				m.conversation = append(m.conversation, transcriptTurn{assistant: content})
 			}
 		}
 	}
-	if len(lines) == 0 {
-		return nil
-	}
-	commands := make([]tea.Cmd, 0, len(lines)+1)
-	for index, line := range lines {
-		if index < len(lines)-1 {
-			line += "\n"
-		}
-		commands = append(commands, m.println(line))
-	}
-	commands = append(commands, tea.RequestWindowSize)
-	return tea.Sequence(commands...)
 }
 
 func (m *TUIModel) openSessionPicker() tea.Cmd {
@@ -568,14 +492,14 @@ func (m *TUIModel) selectPickerItem(item sessionPickerItem) tea.Cmd {
 	m.pickerLoading = false
 	m.actionRequest++
 	m.sessionID = &id
-	m.sessionTitle = sanitizeTerminalText(item.Title())
+	m.sessionTitle = normalizeSessionTitle(item.Title())
+	m.resumedSession = true
 	m.resetAnswer()
 	m.lastAnswer = ""
-	m.transcript = nil
+	m.resetTranscript()
 	m.incident, m.alert = nil, nil
 	m.incidentUsed, m.alertUsed = false, false
-	title := fmt.Sprintf("Resumed: %s (%s)", item.Title(), shortSessionID(id.String()))
-	return m.loadHistory(id, title)
+	return m.loadHistory(id)
 }
 
 func (m *TUIModel) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -712,7 +636,8 @@ func (m *TUIModel) startNewSession() {
 	m.sessionID = nil
 	m.sessionTitle = ""
 	m.resetAnswer()
-	m.transcript = nil
+	m.resetTranscript()
+	m.resumedSession = false
 	m.lastAnswer = ""
 	m.currentPrompt = ""
 	m.incident = nil
@@ -725,7 +650,7 @@ func (m *TUIModel) exportTranscript(filename string) tea.Cmd {
 	if m.sessionID == nil {
 		return m.println("No session yet: send a message first.")
 	}
-	if len(m.transcript) == 0 {
+	if len(m.conversation) == 0 {
 		return m.println("Nothing to export yet.")
 	}
 	if strings.TrimSpace(filename) == "" {
@@ -751,7 +676,7 @@ func (m *TUIModel) exportTranscript(filename string) tea.Cmd {
 
 func (m *TUIModel) transcriptMarkdown() string {
 	var output strings.Builder
-	for _, turn := range m.transcript {
+	for _, turn := range m.conversation {
 		if turn.user != "" {
 			fmt.Fprintf(&output, "## You\n\n%s\n\n", turn.user)
 		}

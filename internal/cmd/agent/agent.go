@@ -120,8 +120,7 @@ var AgentCmd = &cobra.Command{
 			return err
 		}
 		program := tea.NewProgram(model, options...)
-		_, err = program.Run()
-		return err
+		return runAgentTUI(cmd.OutOrStdout(), isTerminalWriter(cmd.OutOrStdout()), program.Run)
 	},
 }
 
@@ -209,6 +208,18 @@ func getAPIClient() (*api.Client, error) {
 		Endpoint: endpoint,
 		Debug:    viper.GetBool("debug"),
 	})
+}
+
+func runAgentTUI(writer io.Writer, terminal bool, run func() (tea.Model, error)) error {
+	finalModel, runErr := run()
+	if terminal {
+		if model, ok := finalModel.(*aiagent.TUIModel); ok {
+			if _, err := io.WriteString(writer, model.Transcript()); err != nil && runErr == nil {
+				return err
+			}
+		}
+	}
+	return runErr
 }
 
 func isTerminalReader(reader io.Reader) bool {

@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
@@ -100,78 +101,81 @@ type bindingResolvedMsg struct {
 }
 
 type TUIModel struct {
-	streamer            Streamer
-	state               tuiState
-	composer            textarea.Model
-	spinner             spinner.Model
-	width               int
-	height              int
-	status              string
-	answer              strings.Builder
-	committedOffset     int
-	sessionID           *uuid.UUID
-	pending             *rootly.AiChatStreamConfirmationRequired
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	stream              chan streamMessage
-	startedAt           time.Time
-	doneStatus          string
-	doneReceived        bool
-	idleInterrupt       bool
-	currentParams       *rootly.StreamAiChatParams
-	turn                int
-	noColor             bool
-	renderer            *glamour.TermRenderer
-	rendererWidth       int
-	renderedSource      string
-	rendered            string
-	renderCount         int
-	resumeTextSeparator bool
-	api                 TUIAPI
-	apiHost             string
-	currentUser         *rootly.CurrentUserResponse
-	userLoaded          bool
-	sessionTitle        string
-	incident            *api.Incident
-	alert               *api.Alert
-	incidentUsed        bool
-	alertUsed           bool
-	resumeLinePending   bool
-	historyRequest      int
-	promptHistory       []string
-	historyIndex        int
-	historyDraft        string
-	currentPrompt       string
-	turnStartedAt       time.Time
-	turnVerbIndex       int
-	verbIndex           func(int) int
-	now                 func() time.Time
-	version             string
-	colorProfile        colorprofile.Profile
-	colorProfileKnown   bool
-	welcomeStarted      bool
-	welcomePending      bool
-	welcomeAnimating    bool
-	welcomePrinted      bool
-	welcomeFrame        int
-	pendingPrints       []string
-	quitting            bool
-	lastViewRows        int
-	lastAnswer          string
-	transcript          []transcriptTurn
-	activities          activityTracker
-	activityCommands    []tea.Cmd
-	statusRequest       int
-	sessionPicker       list.Model
-	pickerOpen          bool
-	pickerBefore        string
-	pickerHasMore       bool
-	pickerRequest       int
-	pickerLoading       bool
-	deleteConfirming    bool
-	actionRequest       int
-	commandMenu         list.Model
-	commandMenuOpen     bool
+	streamer             Streamer
+	state                tuiState
+	composer             textarea.Model
+	spinner              spinner.Model
+	width                int
+	height               int
+	windowSizeReceived   bool
+	viewport             viewport.Model
+	viewportContent      string
+	newOutputAvailable   bool
+	status               string
+	answer               strings.Builder
+	committedOffset      int
+	sessionID            *uuid.UUID
+	pending              *rootly.AiChatStreamConfirmationRequired
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	stream               chan streamMessage
+	startedAt            time.Time
+	doneStatus           string
+	doneReceived         bool
+	idleInterrupt        bool
+	currentParams        *rootly.StreamAiChatParams
+	turn                 int
+	noColor              bool
+	renderer             *glamour.TermRenderer
+	rendererWidth        int
+	renderedSource       string
+	rendered             string
+	renderCount          int
+	resumeTextSeparator  bool
+	api                  TUIAPI
+	apiHost              string
+	currentUser          *rootly.CurrentUserResponse
+	userLoaded           bool
+	sessionTitle         string
+	incident             *api.Incident
+	alert                *api.Alert
+	incidentUsed         bool
+	alertUsed            bool
+	resumedSession       bool
+	historyRequest       int
+	promptHistory        []string
+	historyIndex         int
+	historyDraft         string
+	currentPrompt        string
+	turnStartedAt        time.Time
+	turnVerbIndex        int
+	verbIndex            func(int) int
+	now                  func() time.Time
+	version              string
+	colorProfile         colorprofile.Profile
+	colorProfileKnown    bool
+	welcomePending       bool
+	welcomeAnimating     bool
+	welcomeFrame         int
+	quitting             bool
+	lastAnswer           string
+	transcript           []string
+	transcriptCache      string
+	transcriptCacheWidth int
+	transcriptCacheDirty bool
+	conversation         []transcriptTurn
+	activities           activityTracker
+	statusRequest        int
+	sessionPicker        list.Model
+	pickerOpen           bool
+	pickerBefore         string
+	pickerHasMore        bool
+	pickerRequest        int
+	pickerLoading        bool
+	deleteConfirming     bool
+	actionRequest        int
+	commandMenu          list.Model
+	commandMenuOpen      bool
 }
 
 func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TUIModel {
@@ -201,68 +205,50 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 	}
 	sessionTitle := sanitizeTerminalText(options.SessionTitle)
 
-	return &TUIModel{
-		streamer:          streamer,
-		composer:          composer,
-		spinner:           spin,
-		ctx:               ctx,
-		width:             80,
-		height:            24,
-		noColor:           options.NoColor,
-		version:           options.Version,
-		verbIndex:         rand.IntN,
-		now:               time.Now,
-		api:               options.API,
-		apiHost:           options.APIHost,
-		currentUser:       currentUser,
-		userLoaded:        options.CurrentUser != nil,
-		sessionID:         options.SessionID,
-		sessionTitle:      sessionTitle,
-		resumeLinePending: options.SessionID != nil && sessionTitle == "",
-		incident:          options.Incident,
-		alert:             options.Alert,
-		historyIndex:      -1,
+	model := &TUIModel{
+		streamer:       streamer,
+		composer:       composer,
+		spinner:        spin,
+		ctx:            ctx,
+		width:          80,
+		height:         24,
+		noColor:        options.NoColor,
+		version:        options.Version,
+		verbIndex:      rand.IntN,
+		now:            time.Now,
+		api:            options.API,
+		apiHost:        options.APIHost,
+		currentUser:    currentUser,
+		userLoaded:     options.CurrentUser != nil,
+		sessionID:      options.SessionID,
+		sessionTitle:   normalizeSessionTitle(sessionTitle),
+		resumedSession: options.SessionID != nil,
+		incident:       options.Incident,
+		alert:          options.Alert,
+		historyIndex:   -1,
 	}
+	model.viewport = viewport.New()
+	model.viewport.SoftWrap = true
+	model.viewport.FillHeight = true
+	model.viewport.KeyMap = viewport.KeyMap{}
+	model.resetTranscript()
+	return model
 }
 
 func (m *TUIModel) Init() tea.Cmd {
-	m.welcomeStarted = true
-	m.welcomePending = !m.noColor
-	m.welcomeAnimating = false
-	m.welcomePrinted = false
+	m.welcomePending = !m.noColor && !m.colorProfileKnown
+	m.welcomeAnimating = !m.noColor && m.colorProfileKnown && m.colorProfile >= colorprofile.ANSI256
 	m.welcomeFrame = 0
-	m.pendingPrints = nil
 	m.quitting = false
-	m.lastViewRows = 0
 	cmds := make([]tea.Cmd, 0, 5)
-	if m.noColor || (m.colorProfileKnown && m.colorProfile < colorprofile.ANSI256) {
-		cmds = append(cmds, m.printWelcomeBanner())
-	} else if m.colorProfileKnown {
-		m.welcomePending = false
-		m.welcomeAnimating = true
-	}
 	cmds = append(cmds, m.composer.Focus())
 	if m.sessionID != nil {
-		if !m.resumeLinePending {
-			cmds = append(cmds, m.println(m.resumedLine()))
-		}
-		cmds = append(cmds, m.loadHistory(*m.sessionID, ""))
-	}
-	if header := m.bindingHeader(); header != "" {
-		cmds = append(cmds, m.println(faint(m.noColor, header)))
+		cmds = append(cmds, m.loadHistory(*m.sessionID))
 	}
 	if m.welcomeAnimating {
 		cmds = append(cmds, m.welcomeBannerTick())
 	}
 	return tea.Sequence(cmds...)
-}
-
-func (m *TUIModel) resumedLine() string {
-	title := sanitizeTerminalText(m.sessionTitle)
-	if title == "" && m.sessionID != nil {
-		title = shortSessionID(m.sessionID.String())
-	}
-	return faint(m.noColor, fmt.Sprintf("Resumed %q", title))
 }
 
 func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -273,36 +259,42 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.welcomePending {
 			return m, nil
 		}
+		m.welcomePending = false
 		if !m.noColor && msg.Profile >= colorprofile.ANSI256 {
-			m.welcomePending = false
 			m.welcomeAnimating = true
 			m.welcomeFrame = 0
 			cmd := m.welcomeBannerTick()
 			return m, cmd
 		}
-		cmd := m.printWelcomeBanner()
-		return m, cmd
+		return m, nil
 	case welcomeBannerTickMsg:
 		if !m.welcomeAnimating {
 			return m, nil
 		}
 		m.welcomeFrame++
 		if m.welcomeFrame >= welcomeSettleFrame {
-			cmd := m.printWelcomeBanner()
-			return m, cmd
+			m.welcomeAnimating = false
+			return m, nil
 		}
 		cmd := m.welcomeBannerTick()
 		return m, cmd
 	case tea.WindowSizeMsg:
+		m.windowSizeReceived = true
 		m.width = msg.Width
 		m.height = msg.Height
-		m.composer.SetWidth(max(20, msg.Width-2))
+		m.composer.SetWidth(max(1, msg.Width-2))
 		m.composer.MaxHeight = max(3, msg.Height/3)
 		if m.pickerOpen {
 			m.sessionPicker.SetSize(msg.Width, min(12, max(1, msg.Height/2)))
 		}
 		if m.commandMenuOpen {
 			m.commandMenu.SetSize(max(20, msg.Width), min(6, len(m.commandMenu.Items())))
+		}
+		return m, nil
+	case tea.MouseWheelMsg:
+		if !m.pickerOpen && !m.commandMenuOpen && !m.deleteConfirming {
+			m.viewport, _ = m.viewport.Update(msg)
+			m.updateNewOutputIndicator()
 		}
 		return m, nil
 	case spinner.TickMsg:
@@ -317,26 +309,15 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.request != m.historyRequest {
 			return m, nil
 		}
-		var resumedCmd tea.Cmd
-		if m.resumeLinePending {
-			if msg.sessionTitle != "" {
-				m.sessionTitle = sanitizeTerminalText(msg.sessionTitle)
-			}
-			m.resumeLinePending = false
-			resumedCmd = m.println(m.resumedLine())
+		if title := normalizeSessionTitle(msg.sessionTitle); title != "" {
+			m.sessionTitle = title
 		}
 		if msg.err != nil {
-			errorCmd := m.println(faint(m.noColor, "Could not load session history: "+sanitizeTerminalText(msg.err.Error())))
-			if resumedCmd != nil {
-				return m, tea.Sequence(resumedCmd, errorCmd)
-			}
-			return m, errorCmd
+			cmd := m.println(faint(m.noColor, "Could not load session history: "+sanitizeTerminalText(msg.err.Error())))
+			return m, cmd
 		}
-		cmd := m.printHistory(msg.title, msg.messages)
-		if resumedCmd != nil {
-			return m, tea.Sequence(resumedCmd, cmd)
-		}
-		return m, cmd
+		m.printHistory(msg.messages)
+		return m, nil
 	case statusLoadedMsg:
 		if msg.request != m.statusRequest {
 			return m, nil
@@ -366,14 +347,15 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.sessionID = nil
 		m.resetAnswer()
-		m.transcript = nil
+		m.resetTranscript()
+		m.resumedSession = false
 		m.lastAnswer = ""
 		m.sessionTitle = ""
 		m.incident, m.alert = msg.incident, msg.alert
 		m.incidentUsed, m.alertUsed = false, false
 		m.status = ""
-		cmd := m.println(faint(m.noColor, m.bindingHeader()))
-		return m, cmd
+		m.println(faint(m.noColor, m.bindingHeader()))
+		return m, nil
 	case tea.KeyPressMsg:
 		return m.updateKey(msg)
 	default:
@@ -405,16 +387,8 @@ func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
 	if message.event.Type == rootly.AiChatStreamEventError && message.event.Error != nil {
 		return m.finishTurn(errors.New(sanitizeTerminalText(message.event.Error.Message)))
 	}
-	commands := append([]tea.Cmd(nil), m.activityCommands...)
-	m.activityCommands = nil
 	if message.event.Type == rootly.AiChatStreamEventText {
-		if command := m.commitCompleteAnswerBlocks(); command != nil {
-			commands = append(commands, command)
-		}
-	}
-	if len(commands) > 0 {
-		commands = append(commands, tea.Batch(m.waitForStream(), m.spinner.Tick))
-		return m, sequenceTUICommands(commands...)
+		m.commitCompleteAnswerBlocks()
 	}
 	cmd := m.waitForStream()
 	return m, cmd
@@ -422,7 +396,7 @@ func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
 
 func (m *TUIModel) handleEvent(event Event) {
 	for _, line := range m.activities.Handle(event) {
-		m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, sanitizeTerminalText(line))))
+		m.println(faint(m.noColor, sanitizeTerminalText(line)))
 	}
 	switch event.Type {
 	case rootly.AiChatStreamEventSessionID:
@@ -452,7 +426,7 @@ func (m *TUIModel) handleEvent(event Event) {
 	case rootly.AiChatStreamEventSkillLoaded:
 		if event.SkillLoaded != nil {
 			skillName := sanitizeTerminalText(event.SkillLoaded.Skill.Name)
-			m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, "• Loaded skill "+skillName)))
+			m.println(faint(m.noColor, "• Loaded skill "+skillName))
 		}
 	case rootly.AiChatStreamEventConfirmationRequired:
 		m.pending = event.ConfirmationRequired
@@ -556,20 +530,19 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	m.state = tuiIdle
 	if err != nil {
 		for _, line := range m.activities.Finish(false) {
-			m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, line)))
+			m.println(faint(m.noColor, line))
 		}
 	} else if m.doneStatus == "confirmation_required" {
 		m.activities.dropConfirmation()
 		for _, line := range m.activities.Finish(true) {
-			m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, line)))
+			m.println(faint(m.noColor, line))
 		}
 	} else if m.doneStatus != "" {
 		for _, line := range m.activities.Finish(isSuccessfulDoneStatus(m.doneStatus)) {
-			m.activityCommands = append(m.activityCommands, m.println(faint(m.noColor, line)))
+			m.println(faint(m.noColor, line))
 		}
 	}
-	commands := append([]tea.Cmd(nil), m.activityCommands...)
-	m.activityCommands = nil
+	var commands []tea.Cmd
 	if err != nil {
 		m.status = ""
 		m.pending = nil
@@ -627,7 +600,7 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	answer := strings.TrimSpace(rawAnswer)
 	if answer != "" {
 		m.lastAnswer = rawAnswer
-		m.transcript = append(m.transcript, transcriptTurn{user: m.currentPrompt, assistant: rawAnswer})
+		m.conversation = append(m.conversation, transcriptTurn{user: m.currentPrompt, assistant: rawAnswer})
 		remainder := m.uncommittedAnswer()
 		footer := "\n" + m.turnFooter()
 		if strings.TrimSpace(remainder) != "" {
@@ -637,7 +610,6 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 			commands = append(commands, m.println(footer))
 		}
 		m.committedOffset = len(rawAnswer)
-		commands = append(commands, tea.RequestWindowSize)
 	}
 	if m.doneStatus != "" && m.doneStatus != "complete" && m.doneStatus != "confirmed" {
 		m.status = "turn halted: " + sanitizeTerminalText(m.doneStatus)
@@ -731,6 +703,9 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.scrollViewportKey(msg) {
+		return m, nil
+	}
 	if msg.String() == "ctrl+c" {
 		if m.state == tuiStreaming {
 			cmd := m.scrollback("Stopped locally. The server may still finish this turn and save it to the session.", lipgloss.NewStyle().Faint(true))
@@ -814,20 +789,20 @@ func (m *TUIModel) handleConfirmationDecision(decision rootly.StreamAiChatParams
 }
 
 func (m *TUIModel) submit() tea.Cmd {
-	welcomeCmd := m.printWelcomeBanner()
+	m.settleWelcomeAnimation()
 	message := strings.TrimSpace(m.composer.Value())
 	m.composer.Reset()
 	m.idleInterrupt = false
 	m.status = ""
 	if message == "" {
-		return welcomeCmd
+		return nil
 	}
 	if isExitAlias(message) {
-		return sequenceTUICommands(welcomeCmd, m.quitCommand())
+		return m.quitCommand()
 	}
 	if strings.HasPrefix(message, "/") {
 		m.commandMenuOpen = false
-		return sequenceTUICommands(welcomeCmd, m.runSlashCommand(message))
+		return m.runSlashCommand(message)
 	}
 
 	m.currentPrompt = message
@@ -850,7 +825,24 @@ func (m *TUIModel) submit() tea.Cmd {
 		m.alertUsed = true
 	}
 	cmd := m.startStream(params)
-	return sequenceTUICommands(welcomeCmd, m.println(renderPromptEcho(message, m.width, m.noColor)), cmd)
+	return sequenceTUICommands(m.println(renderPromptEcho(message, m.width, m.noColor)), cmd)
+}
+
+func (m *TUIModel) scrollViewportKey(msg tea.KeyPressMsg) bool {
+	switch msg.String() {
+	case "pgup":
+		m.viewport.PageUp()
+	case "pgdown":
+		m.viewport.PageDown()
+	case "home", "ctrl+home":
+		m.viewport.GotoTop()
+	case "end", "ctrl+end":
+		m.viewport.GotoBottom()
+	default:
+		return false
+	}
+	m.updateNewOutputIndicator()
+	return true
 }
 
 func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
@@ -1002,27 +994,101 @@ func (m *TUIModel) waitForStream() tea.Cmd {
 
 func (m *TUIModel) View() tea.View {
 	content := m.viewContent()
-	m.lastViewRows = rendererPhysicalRows(content, max(1, m.width-1))
-	return tea.NewView(content)
+	view := tea.NewView(content)
+	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
+	return view
 }
 
 func (m *TUIModel) viewContent() string {
 	if m.quitting {
 		return ""
 	}
-	var sections []string
-	if m.welcomeAnimating {
-		sections = append(sections, m.welcomeBannerFrame())
+	if !m.windowSizeReceived || m.height <= 0 || m.width <= 0 {
+		return m.footerContent()
 	}
+
+	overlay := m.overlayContent()
+	footerRows := lipgloss.Height(m.footerContent())
+	overlayRows := min(lipgloss.Height(overlay), max(0, m.height-footerRows))
+	bodyHeight := max(0, m.height-footerRows-overlayRows)
+
+	wasAtBottom := m.viewport.AtBottom()
+	widthChanged := m.viewport.Width() != m.width
+	heightChanged := m.viewport.Height() != bodyHeight
+	if widthChanged {
+		m.viewport.SetWidth(m.width)
+	}
+	if heightChanged {
+		m.viewport.SetHeight(bodyHeight)
+	}
+	body := m.transcriptContent()
+	if body != m.viewportContent {
+		m.viewport.SetContent(body)
+		m.viewportContent = body
+		if wasAtBottom {
+			m.viewport.GotoBottom()
+			m.newOutputAvailable = false
+		} else {
+			m.newOutputAvailable = true
+		}
+	} else if wasAtBottom && (widthChanged || heightChanged) {
+		m.viewport.GotoBottom()
+	}
+	m.updateNewOutputIndicator()
+	footer := m.footerContent()
+
+	sections := make([]string, 0, 3)
+	if bodyHeight > 0 {
+		sections = append(sections, m.viewport.View())
+	}
+	if overlayRows > 0 {
+		sections = append(sections, clipViewRows(overlay, overlayRows, max(1, m.width-1)))
+	}
+	sections = append(sections, footer)
+	return strings.Join(sections, "\n")
+}
+
+func (m *TUIModel) transcriptContent() string {
+	m.rebuildTranscriptCache()
+	header := strings.TrimSuffix(m.welcomeBannerFrame(), "\n")
+	if !m.welcomeAnimating {
+		header = strings.TrimSuffix(m.welcomeBanner(), "\n")
+	}
+	blocks := []string{header}
+	if m.transcriptCache != "" {
+		blocks = append(blocks, m.transcriptCache)
+	}
+	if live := m.liveSection(); live != "" {
+		blocks = append(blocks, live)
+	}
+	return strings.Join(blocks, "\n")
+}
+
+func (m *TUIModel) rebuildTranscriptCache() {
+	width := max(1, m.width-1)
+	if !m.transcriptCacheDirty && m.transcriptCacheWidth == width {
+		return
+	}
+	blocks := make([]string, 0, max(0, len(m.transcript)-1))
+	for _, block := range m.transcript[1:] {
+		blocks = append(blocks, ansi.Wrap(block, width, ""))
+	}
+	m.transcriptCache = strings.Join(blocks, "\n")
+	m.transcriptCacheWidth = width
+	m.transcriptCacheDirty = false
+}
+
+func (m *TUIModel) liveSection() string {
+	var sections []string
 	switch m.state {
 	case tuiStreaming:
 		markdown := m.uncommittedAnswer()
 		if !m.noColor {
 			markdown = trimIncompleteTrailingMarkdownLink(markdown)
 		}
-		if rendered := m.renderMarkdown(markdown, m.width-2); rendered != "" {
-			chromeRows := 1 + lipgloss.Height(m.composer.View()) + 3
-			sections = append(sections, m.clipStreamingAnswer(rendered, chromeRows))
+		if strings.TrimSpace(markdown) != "" {
+			sections = append(sections, m.renderAssistantAnswerPart(markdown, m.committedOffset == 0))
 		}
 		elapsed := m.now().Sub(m.startedAt).Truncate(time.Second)
 		status := m.status
@@ -1039,51 +1105,76 @@ func (m *TUIModel) viewContent() string {
 			sections = append(sections, m.status)
 		}
 	}
-	if m.deleteConfirming {
-		sections = append(sections, "Delete this session? This can't be undone.\ny delete · n/Esc cancel")
-	} else if m.pickerOpen {
-		sections = append(sections, m.sessionPicker.View())
-	} else if m.commandMenuOpen {
-		sections = append(sections, m.commandMenu.View())
-	}
-	if m.state != tuiConfirming && !m.deleteConfirming {
-		sections = append(sections,
-			faint(m.noColor, strings.Repeat("─", max(1, m.width-1))),
-			m.composer.View(),
-			faint(m.noColor, strings.Repeat("─", max(1, m.width-1))),
-			faint(m.noColor, "/ for commands · exit to quit"),
-		)
-	}
-	body := strings.Join(sections, "\n")
-	if m.height > 0 {
-		wrapped := ansi.Wrap(body, max(1, m.width-1), " ")
-		limit := m.height - 1
-		if lipgloss.Height(wrapped) > limit {
-			if limit == 0 {
-				body = ""
-			} else {
-				lines := strings.Split(wrapped, "\n")
-				if len(lines) > limit {
-					lines = lines[len(lines)-limit:]
-				}
-				body = strings.Join(lines, "\n")
-			}
-		}
-	}
-	return body
+	return strings.Join(sections, "\n")
 }
 
-func (m *TUIModel) clipStreamingAnswer(rendered string, chromeRows int) string {
-	if m.height <= 0 {
-		return rendered
+func (m *TUIModel) overlayContent() string {
+	if m.deleteConfirming {
+		return "Delete this session? This can't be undone.\ny delete · n/Esc cancel"
+	} else if m.pickerOpen {
+		return m.sessionPicker.View()
+	} else if m.commandMenuOpen {
+		return m.commandMenu.View()
 	}
-	limit := max(3, m.height/2-chromeRows)
-	wrapped := ansi.Wrap(rendered, max(1, m.width-1), " ")
-	lines := strings.Split(wrapped, "\n")
-	if len(lines) > limit {
-		lines = lines[len(lines)-limit:]
+	return ""
+}
+
+func (m *TUIModel) footerContent() string {
+	rule := faint(m.noColor, strings.Repeat("─", max(1, m.width-1)))
+	hint := "/ for commands · exit to quit"
+	if m.newOutputAvailable {
+		hint += " · " + faint(m.noColor, "↓ new output · End to jump")
+	}
+	hint = ansi.Truncate(hint, max(1, m.width-1), "")
+	return strings.Join([]string{rule, m.composer.View(), rule, faint(m.noColor, hint)}, "\n")
+}
+
+func (m *TUIModel) updateNewOutputIndicator() {
+	if m.viewport.AtBottom() {
+		m.newOutputAvailable = false
+	}
+}
+
+func clipViewRows(text string, rows, width int) string {
+	if rows <= 0 {
+		return ""
+	}
+	lines := strings.Split(ansi.Wrap(text, max(1, width), ""), "\n")
+	if len(lines) > rows {
+		lines = lines[:rows]
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m *TUIModel) appendTranscriptBlock(text string) {
+	m.transcript = append(m.transcript, text)
+	m.transcriptCacheDirty = true
+}
+
+func (m *TUIModel) resetTranscript() {
+	m.transcript = []string{""}
+	m.transcriptCache = ""
+	m.transcriptCacheWidth = 0
+	m.transcriptCacheDirty = true
+	m.conversation = nil
+}
+
+func (m *TUIModel) println(text string) tea.Cmd {
+	m.appendTranscriptBlock(text)
+	return nil
+}
+
+func (m *TUIModel) Transcript() string {
+	m.rebuildTranscriptCache()
+	header := strings.TrimSuffix(m.welcomeBanner(), "\n")
+	blocks := []string{header}
+	if m.transcriptCache != "" {
+		blocks = append(blocks, m.transcriptCache)
+	}
+	if remainder := m.uncommittedAnswer(); strings.TrimSpace(remainder) != "" {
+		blocks = append(blocks, m.renderAssistantAnswerPart(remainder, m.committedOffset == 0))
+	}
+	return strings.TrimRight(strings.Join(blocks, "\n"), "\n") + "\n"
 }
 
 func (m *TUIModel) renderMarkdown(markdown string, width int) string {

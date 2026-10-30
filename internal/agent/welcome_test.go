@@ -14,6 +14,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/oapi-codegen/nullable"
 	rootly "github.com/rootlyhq/rootly-go"
+
+	"github.com/rootlyhq/rootly-cli/internal/api"
 )
 
 func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
@@ -30,20 +32,15 @@ func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
 
 	banner := ansi.Strip(model.welcomeBanner())
 	for _, expected := range []string{
-		"        ▄",
-		"       ███",
-		"   ███ ▀█▀ ███",
-		"    ▀█▀   ▀█▀",
-		" ▄██▄   ▄   ▄██▄",
-		"  ▀█▀  ███  ▀█▀",
-		" ▄▄▄    ▀    ▄▄▄",
-		"███████▄ ▄███████",
-		"     ▀▀███▀▀",
-		"       ███",
+		"  ▄ ██ ▄  ",
+		" ▄█▀▄▄▀█▄ ",
+		"▄██▄▀▀▄██▄",
+		"▀▀▀▀██▀▀▀▀",
 		"Rootly AI",
 		"v1.2.3",
 		"Avery Rootly · Incident Response",
 		"api.rootly.com",
+		"New session",
 	} {
 		if !strings.Contains(banner, expected) {
 			t.Errorf("welcome banner = %q, want %q", banner, expected)
@@ -56,14 +53,19 @@ func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
 	if len(bannerLines) != welcomeLogoHeight {
 		t.Errorf("welcome banner rows = %d, want %d", len(bannerLines), welcomeLogoHeight)
 	}
+	for index, expected := range welcomeLogoLines {
+		if !strings.HasPrefix(bannerLines[index], expected) {
+			t.Errorf("welcome banner row %d = %q, want logo row %q at its start", index+1, bannerLines[index], expected)
+		}
+	}
 	for index, line := range strings.Split(sproutLogo(true), "\n") {
 		if width := lipgloss.Width(line); width != welcomeLogoWidth {
 			t.Errorf("sprout row %d width = %d, want %d", index+1, width, welcomeLogoWidth)
 		}
 	}
 	model.Init()
-	if !model.welcomePrinted {
-		t.Error("no-color welcome banner was not printed during Init")
+	if model.welcomeAnimating {
+		t.Error("no-color welcome banner should be static")
 	}
 }
 
@@ -89,7 +91,7 @@ func TestWelcomeBannerNoColorAndSanitizesUser(t *testing.T) {
 		t.Errorf("welcome banner = %q, want development version omitted", banner)
 	}
 	model.Init()
-	if strings.Contains(banner, "\x1b") || model.welcomeAnimating || !model.welcomePrinted {
+	if strings.Contains(banner, "\x1b") || model.welcomeAnimating {
 		t.Errorf("no-color welcome banner = %q, animating = %t", banner, model.welcomeAnimating)
 	}
 	if !strings.Contains(banner, "Avery Rootly") {
@@ -97,38 +99,36 @@ func TestWelcomeBannerNoColorAndSanitizesUser(t *testing.T) {
 	}
 }
 
-func TestWelcomeBannerAnimationSettlesAndPrintsOnce(t *testing.T) {
+func TestWelcomeBannerAnimationSettlesInPlace(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{Version: "1.2.3"})
 	animationDuration := time.Duration(welcomeSettleFrame) * welcomeBannerFrameInterval
-	if animationDuration <= time.Second || animationDuration > 2200*time.Millisecond {
-		t.Fatalf("welcome animation duration = %s, want >1s and <=2.2s", animationDuration)
+	if animationDuration <= 0 || animationDuration > 2200*time.Millisecond {
+		t.Fatalf("welcome animation duration = %s, want >0 and <=2.2s", animationDuration)
 	}
 	_, _ = model.Update(tea.ColorProfileMsg{Profile: colorprofile.TrueColor})
 	model.Init()
-	if !model.welcomeAnimating || model.welcomePrinted {
-		t.Fatalf("animation started = %t, banner printed = %t; want animation without printing", model.welcomeAnimating, model.welcomePrinted)
+	if !model.welcomeAnimating {
+		t.Fatal("welcome animation did not start")
 	}
+	_, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	view := ansi.Strip(model.View().Content)
 	if !strings.Contains(view, "Rootly AI") || strings.HasPrefix(view, "\n") {
-		t.Errorf("animated view = %q, want inline banner and no leading padding", view)
+		t.Errorf("animated view = %q, want in-place header and no leading padding", view)
 	}
 
 	for frame := 0; frame < welcomeSettleFrame-1; frame++ {
 		_, _ = model.Update(welcomeBannerTickMsg{})
-		if !model.welcomeAnimating || model.welcomePrinted {
+		if !model.welcomeAnimating {
 			t.Fatalf("animation settled early at frame %d", frame+1)
 		}
 	}
-	_, command := model.Update(welcomeBannerTickMsg{})
-	if model.welcomeAnimating || !model.welcomePrinted {
+	_, _ = model.Update(welcomeBannerTickMsg{})
+	if model.welcomeAnimating {
 		t.Fatal("animation did not settle at the expected frame")
 	}
-	if got := strings.Count(commandSequenceOutput(command), "Rootly AI"); got != 1 {
-		t.Errorf("settled banner command printed Rootly AI %d times, want once", got)
-	}
 	_, _ = model.Update(welcomeBannerTickMsg{})
-	if !model.welcomePrinted {
-		t.Error("an extra tick unset the printed banner state")
+	if model.welcomeAnimating {
+		t.Error("an extra tick restarted the animation")
 	}
 }
 
@@ -178,7 +178,7 @@ func TestEarlyPromptSettlesWelcomeBannerBeforePromptEcho(t *testing.T) {
 	model.composer.SetValue("hi")
 
 	_ = model.submit()
-	if model.welcomeAnimating || !model.welcomePrinted {
+	if model.welcomeAnimating {
 		t.Fatal("early prompt did not settle the welcome banner")
 	}
 }
@@ -213,48 +213,71 @@ func TestWelcomeBannerWithNilUserStillShowsTitleAndHost(t *testing.T) {
 	}
 }
 
-func TestTUIViewDoesNotPadComposerToTerminalBottom(t *testing.T) {
+func TestTUIViewUsesAltScreenAndFixedFooterDuringConfirmation(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	model.width = 100
-	model.height = 24
-
-	view := model.View().Content
-	if got := lipgloss.Height(view); got != 4 {
-		t.Fatalf("idle view height = %d, want frame height 4", got)
+	view := model.View()
+	if !view.AltScreen || view.MouseMode != tea.MouseModeCellMotion {
+		t.Errorf("view alt screen/mouse mode = %t/%v, want alt screen and cell-motion mouse", view.AltScreen, view.MouseMode)
 	}
-	if got := lastLine(view); got != "/ for commands · exit to quit" {
-		t.Errorf("last idle view line = %q, want composer hint", got)
-	}
-	if strings.Contains(view, "Rootly AI") {
-		t.Errorf("idle view contains welcome banner, which should be printed once to scrollback: %q", view)
-	}
-	rule := strings.Repeat("─", model.width-1)
-	if got := strings.Count(view, rule); got != 2 {
-		t.Errorf("idle view has %d frame rules one cell inside the terminal width, want 2: %q", got, view)
-	}
-}
-
-func TestTUIConfirmingViewHasNoPaddingOrComposerHint(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	model.height = 24
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model.state = tuiConfirming
 	model.pending = &rootly.AiChatStreamConfirmationRequired{Question: "Approve this action?"}
 
-	view := model.View().Content
-	if got := lipgloss.Height(view); got >= model.height {
-		t.Fatalf("confirming view height = %d, want no padding within %d", got, model.height)
+	content := model.View().Content
+	if got := lipgloss.Height(content); got != model.height {
+		t.Fatalf("confirming view height = %d, want %d", got, model.height)
 	}
-	if got := lastLine(view); !strings.Contains(got, "y approve") {
-		t.Errorf("last confirming view line = %q, want confirmation card footer", got)
+	if got := lastLine(content); !strings.Contains(got, "/ for commands · exit to quit") {
+		t.Errorf("last confirming row = %q, want fixed composer hint", got)
 	}
-	if strings.Contains(view, "/ for commands · exit to quit") {
-		t.Errorf("confirming view includes composer hint: %q", view)
+	if !strings.Contains(content, "Approve this action?") {
+		t.Errorf("confirming view = %q, want confirmation card", content)
+	}
+}
+
+func TestWelcomeHeaderContextUsesSessionBoundaryAndBinding(t *testing.T) {
+	sessionID := testSessionIDValue()
+	tests := []struct {
+		name    string
+		options TUIOptions
+		want    string
+	}{
+		{name: "new", want: "New session"},
+		{name: "resumed title", options: TUIOptions{SessionID: &sessionID, SessionTitle: "Incident review"}, want: "Incident review"},
+		{name: "incident binding", options: TUIOptions{Incident: &api.Incident{SequentialID: "INC-123", Title: "Database latency"}}, want: "INC-123 · Database latency"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			options := test.options
+			options.NoColor = true
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, options)
+			lines := strings.Split(model.welcomeTextRows(), "\n")
+			if len(lines) != 4 {
+				t.Fatalf("header text rows = %d, want four: %q", len(lines), lines)
+			}
+			if lines[3] != test.want {
+				t.Errorf("header context = %q, want %q", lines[3], test.want)
+			}
+		})
+	}
+}
+
+func TestWelcomeHeaderOmitsLogoBelowFiftyColumns(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.width = 49
+	lines := strings.Split(strings.TrimSuffix(model.welcomeBanner(), "\n"), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("narrow header rows = %d, want four: %q", len(lines), lines)
+	}
+	if strings.Contains(strings.Join(lines, "\n"), "▄") {
+		t.Errorf("narrow header includes logo: %q", lines)
 	}
 }
 
 func TestTUIStatusVerbFooterAndSpinner(t *testing.T) {
 	now := time.Date(2025, time.May, 3, 15, 4, 5, 0, time.UTC)
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model.now = func() time.Time { return now }
 	model.verbIndex = func(int) int { return 3 }
 	sessionID := testSessionIDValue()

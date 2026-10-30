@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -280,5 +283,32 @@ func TestAgentPrintModeDoesNotEmitTerminalClear(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "\x1b") || strings.Contains(stderr.String(), "\x1b") {
 		t.Errorf("print output contains escape bytes: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestRunAgentTUIPrintsTranscriptAfterRunOnlyForTTY(t *testing.T) {
+	model := aiagent.NewTUIModel(context.Background(), nil, aiagent.TUIOptions{NoColor: true})
+	runErr := errors.New("run failed")
+	for _, terminal := range []bool{true, false} {
+		t.Run(fmt.Sprintf("terminal_%t", terminal), func(t *testing.T) {
+			var output bytes.Buffer
+			err := runAgentTUI(&output, terminal, func() (tea.Model, error) {
+				_, _ = output.WriteString("after run\n")
+				return model, runErr
+			})
+			if !errors.Is(err, runErr) {
+				t.Errorf("runAgentTUI() error = %v, want %v", err, runErr)
+			}
+			got := output.String()
+			if !strings.HasPrefix(got, "after run\n") {
+				t.Fatalf("output = %q, want run output first", got)
+			}
+			if terminal && !strings.Contains(got, "New session") {
+				t.Errorf("TTY output = %q, want final transcript after Run", got)
+			}
+			if !terminal && strings.Contains(got, "New session") {
+				t.Errorf("non-TTY output = %q, want no transcript", got)
+			}
+		})
 	}
 }
