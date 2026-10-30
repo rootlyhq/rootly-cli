@@ -80,6 +80,22 @@ func TestRenderConfirmationCardFallsBackToIndentedJSON(t *testing.T) {
 	}
 }
 
+func TestRenderConfirmationCardRendersMissingFieldsWithoutPreviewFields(t *testing.T) {
+	confirmation := &rootly.AiChatStreamConfirmationRequired{
+		Question:      "Approve?",
+		Preview:       []byte(`{"title":"Create"}`),
+		MissingFields: []byte(`[{"label":"Service \u001b[2J"}]`),
+	}
+
+	got := renderConfirmationCard(confirmation, 80, true, time.Now())
+	if !strings.Contains(got, "Missing: Service") {
+		t.Errorf("card = %q, want missing fields in the fallback branch", got)
+	}
+	if strings.Contains(got, "\x1b") {
+		t.Errorf("card = %q, want sanitized missing fields", got)
+	}
+}
+
 func TestRenderConfirmationCardOmitsExpiryWhenUnset(t *testing.T) {
 	got := renderConfirmationCard(&rootly.AiChatStreamConfirmationRequired{
 		Question: "Approve?",

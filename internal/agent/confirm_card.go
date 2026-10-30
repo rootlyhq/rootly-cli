@@ -55,13 +55,6 @@ func renderConfirmationCard(confirmation *rootly.AiChatStreamConfirmationRequire
 			}
 			lines = append(lines, row)
 		}
-		missing := confirmationMissingFields(confirmation.MissingFields)
-		for index := range missing {
-			missing[index] = sanitizeTerminalText(missing[index])
-		}
-		if len(missing) > 0 {
-			lines = append(lines, "Missing: "+strings.Join(missing, ", "))
-		}
 		if preview.Destructive {
 			tag := "DESTRUCTIVE"
 			if !noColor {
@@ -71,6 +64,13 @@ func renderConfirmationCard(confirmation *rootly.AiChatStreamConfirmationRequire
 		}
 	} else if len(confirmation.Preview) > 0 {
 		lines = append(lines, strings.Split(sanitizedConfirmationPreview(confirmation.Preview), "\n")...)
+	}
+	missing := confirmationMissingFields(confirmation.MissingFields)
+	for index := range missing {
+		missing[index] = sanitizeTerminalText(missing[index])
+	}
+	if len(missing) > 0 {
+		lines = append(lines, "Missing: "+strings.Join(missing, ", "))
 	}
 
 	footer := "y approve · n/Esc cancel"
