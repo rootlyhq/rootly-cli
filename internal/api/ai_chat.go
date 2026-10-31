@@ -16,6 +16,10 @@ func (c *Client) ListAiChatSessionsWithResponse(ctx context.Context, params *roo
 	return c.client.ListAiChatSessionsWithResponse(ctx, params)
 }
 
+func (c *Client) ListAISkillsWithResponse(ctx context.Context, params *rootly.ListAISkillsParams, requestEditors ...rootly.RequestEditorFn) (*rootly.ListAISkillsResponse, error) {
+	return c.client.ListAISkillsWithResponse(ctx, params, requestEditors...)
+}
+
 func (c *Client) ListAiChatSessionMessagesWithResponse(ctx context.Context, sessionID openapi_types.UUID, params *rootly.ListAiChatSessionMessagesParams) (*rootly.ListAiChatSessionMessagesResponse, error) {
 	return c.client.ListAiChatSessionMessagesWithResponse(ctx, sessionID, params)
 }

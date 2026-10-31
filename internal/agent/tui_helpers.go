@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,14 +31,52 @@ type statusLoadedMsg struct {
 	response *rootly.GetCurrentUserResponse
 }
 
+type skillPickerPageMsg struct {
+	request    int
+	page       int
+	skills     []rootly.AiSkill
+	nextPage   int
+	statusCode int
+	err        error
+}
+
+type skillInvocationResolvedMsg struct {
+	request    int
+	token      string
+	prompt     string
+	skill      rootly.AiSkill
+	found      bool
+	statusCode int
+	err        error
+}
+
+type skillSuggestionTickMsg struct {
+	request int
+	prefix  string
+}
+
+type skillSuggestionsLoadedMsg struct {
+	request    int
+	prefix     string
+	skills     []rootly.AiSkill
+	statusCode int
+	err        error
+}
+
 type sessionPickerItem struct {
 	session  rootly.AiChatSession
+	loadMore bool
+}
+
+type skillPickerItem struct {
+	skill    rootly.AiSkill
 	loadMore bool
 }
 
 type slashCommandItem struct {
 	command     string
 	description string
+	skill       bool
 }
 
 func (i slashCommandItem) FilterValue() string { return i.command }
@@ -94,6 +134,104 @@ func (i sessionPickerItem) Description() string {
 		description += " · pinned"
 	}
 	return description
+}
+
+func (i skillPickerItem) FilterValue() string {
+	if i.loadMore {
+		return "Load more"
+	}
+	return strings.Join([]string{
+		sanitizeTerminalText(skillString(i.skill.Slug)),
+		sanitizeTerminalText(skillString(i.skill.Name)),
+		sanitizeTerminalText(strings.ReplaceAll(i.skill.Description.GetOrEmpty(), "\n", " ")),
+	}, " ")
+}
+
+func (i skillPickerItem) Title() string {
+	if i.loadMore {
+		return "Load more"
+	}
+	marker := "○"
+	if skillEnabled(i.skill) {
+		marker = "✔"
+	}
+	return sanitizeTerminalText(marker + " /" + skillString(i.skill.Slug))
+}
+
+func (i skillPickerItem) Description() string {
+	if i.loadMore {
+		return "Fetch the next page"
+	}
+	parts := make([]string, 0, 3)
+	if name := sanitizeTerminalText(strings.ReplaceAll(skillString(i.skill.Name), "\n", " ")); name != "" {
+		parts = append(parts, name)
+	}
+	if version, err := i.skill.CurrentVersion.Get(); err == nil {
+		parts = append(parts, fmt.Sprintf("v%d", version))
+	}
+	if invocable := skillInvocableLabels(i.skill.InvocableBy); invocable != "" {
+		parts = append(parts, invocable)
+	}
+	description := strings.Join(parts, " · ")
+	if text := strings.ReplaceAll(i.skill.Description.GetOrEmpty(), "\n", " "); text != "" {
+		if description != "" {
+			description += " · "
+		}
+		description += text
+	}
+	return sanitizeTerminalText(description)
+}
+
+var skillInvocationTokenPattern = regexp.MustCompile(`^/[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+var builtinSkillSlugs = map[string]struct{}{
+	"exit": {}, "quit": {}, "new": {}, "clear": {}, "resume": {}, "sessions": {},
+	"rename": {}, "pin": {}, "unpin": {}, "archive": {}, "delete": {}, "copy": {},
+	"export": {}, "incident": {}, "alert": {}, "status": {}, "help": {}, "skills": {},
+}
+
+func isSkillInvocationToken(token string) bool {
+	return skillInvocationTokenPattern.MatchString(token)
+}
+
+func isBuiltinSlashCommand(command string) bool {
+	_, ok := builtinSkillSlugs[strings.TrimPrefix(command, "/")]
+	return ok
+}
+
+func skillEnabled(skill rootly.AiSkill) bool {
+	return skill.Enabled != nil && *skill.Enabled
+}
+
+func skillString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func skillInvocableByUser(skill rootly.AiSkill) bool {
+	for _, invocableBy := range skill.InvocableBy {
+		if invocableBy == rootly.AiSkillInvocableBy("user") {
+			return true
+		}
+	}
+	return false
+}
+
+func skillInvocableLabels(values []rootly.AiSkillInvocableBy) string {
+	labels := make([]string, 0, len(values))
+	for _, value := range values {
+		switch value {
+		case rootly.AiSkillInvocableBy("user"):
+			labels = append(labels, "you")
+		case rootly.AiSkillInvocableBy("model"):
+			labels = append(labels, "model")
+		case rootly.AiSkillInvocableBy("automation"):
+			labels = append(labels, "automations")
+		}
+	}
+	return strings.Join(labels, " + ")
 }
 
 func relativeAge(value time.Time) string {
@@ -316,6 +454,7 @@ func (m *TUIModel) helpView() string {
 		"/exit, /quit, exit, quit: exit\n" +
 		"/new, /clear: start a new session\n" +
 		"/resume, /sessions: choose a session\n" +
+		"/skills [query]: browse skills\n" +
 		"/rename [title]: rename or reset title\n" +
 		"/pin, /unpin: change pinned state\n" +
 		"/archive: archive this session\n" +
@@ -532,18 +671,291 @@ func (m *TUIModel) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *TUIModel) refreshCommandMenu() {
-	value := strings.TrimSpace(m.composer.Value())
-	if value == "" || !strings.HasPrefix(value, "/") || strings.ContainsAny(value, "\r\n") || strings.Contains(value, " ") {
+const aiSkillsDisabledMessage = "AI Skills isn't enabled for this organization."
+
+func (m *TUIModel) openSkillPicker(query string) tea.Cmd {
+	m.skillPickerOpen = true
+	m.skillPickerLoading = true
+	m.skillPickerNextPage = 0
+	m.skillPickerQuery = query
+	delegate := list.NewDefaultDelegate()
+	m.skillPicker = list.New(nil, delegate, max(20, m.width), min(12, max(1, m.height/2)))
+	m.skillPicker.SetShowTitle(false)
+	m.skillPicker.SetShowHelp(false)
+	m.skillPicker.SetShowStatusBar(true)
+	m.skillPicker.SetShowPagination(true)
+	m.skillPicker.SetFilteringEnabled(true)
+	m.skillPicker.SetSize(max(20, m.width), min(12, max(1, m.height/2)))
+	return m.loadSkillPickerPage(1)
+}
+
+func (m *TUIModel) loadSkillPickerPage(page int) tea.Cmd {
+	if m.api == nil {
+		m.skillPickerOpen = false
+		m.skillPickerLoading = false
+		return m.println("AI Skills API unavailable.")
+	}
+	m.skillPickerRequest++
+	request, apiClient, ctx, query := m.skillPickerRequest, m.api, m.ctx, m.skillPickerQuery
+	sortBy := rootly.ListAISkillsParamsSortName
+	params := &rootly.ListAISkillsParams{Sort: &sortBy}
+	if query != "" {
+		params.FilterSearch = &query
+	}
+	return func() tea.Msg {
+		response, err := apiClient.ListAISkillsWithResponse(ctx, params, aiSkillsPageRequestEditor(page, 25))
+		if err != nil {
+			return skillPickerPageMsg{request: request, page: page, err: err}
+		}
+		if response == nil {
+			return skillPickerPageMsg{request: request, page: page, err: errors.New("empty AI skills response")}
+		}
+		if response.ApplicationVndAPIJSON200 == nil {
+			return skillPickerPageMsg{
+				request: request, page: page, statusCode: response.StatusCode(),
+				err: aiSkillsResponseError(response.StatusCode(), response.Body),
+			}
+		}
+		data := response.ApplicationVndAPIJSON200
+		skills := make([]rootly.AiSkill, 0, len(data.Data))
+		for _, item := range data.Data {
+			skills = append(skills, item.Attributes)
+		}
+		return skillPickerPageMsg{
+			request: request, page: page, skills: skills,
+			nextPage: aiSkillsNextPage(data.Meta),
+		}
+	}
+}
+
+func (m *TUIModel) handleSkillPickerPage(message skillPickerPageMsg) tea.Cmd {
+	if message.request != m.skillPickerRequest || !m.skillPickerOpen {
+		return nil
+	}
+	m.skillPickerLoading = false
+	if message.err != nil {
+		m.skillPickerOpen = false
+		if message.statusCode == http.StatusForbidden || message.statusCode == http.StatusNotFound {
+			m.skillsUnavailable = true
+			m.skillPickerRequest++
+			return m.println(aiSkillsDisabledMessage)
+		}
+		return m.println(sanitizeTerminalText(message.err.Error()))
+	}
+
+	m.skillPickerNextPage = message.nextPage
+	items := make([]list.Item, 0, len(message.skills)+1)
+	for _, skill := range message.skills {
+		slug := skillString(skill.Slug)
+		if slug == "" || !isSkillInvocationToken("/"+slug) || isBuiltinSlashCommand("/"+slug) {
+			continue
+		}
+		items = append(items, skillPickerItem{skill: skill})
+	}
+	if m.skillPickerNextPage > 0 {
+		items = append(items, skillPickerItem{loadMore: true})
+	}
+	if message.page == 1 {
+		m.skillPicker.SetItems(items)
+		return nil
+	}
+	for index := len(m.skillPicker.Items()) - 1; index >= 0; index-- {
+		if item, ok := m.skillPicker.Items()[index].(skillPickerItem); ok && item.loadMore {
+			m.skillPicker.RemoveItem(index)
+			break
+		}
+	}
+	for _, item := range items {
+		m.skillPicker.InsertItem(len(m.skillPicker.Items()), item)
+	}
+	return nil
+}
+
+func (m *TUIModel) selectSkillPickerItem(item skillPickerItem) tea.Cmd {
+	if item.loadMore {
+		m.skillPickerLoading = true
+		return m.loadSkillPickerPage(m.skillPickerNextPage)
+	}
+	m.skillPickerOpen = false
+	m.skillPickerLoading = false
+	m.skillPickerRequest++
+	slug := skillString(item.skill.Slug)
+	token := "/" + slug
+	if !skillEnabled(item.skill) {
+		return m.println(token + " is disabled.")
+	}
+	if !skillInvocableByUser(item.skill) {
+		return m.println(token + " can only be loaded by the model, not by name.")
+	}
+	draft := strings.TrimLeft(m.composer.Value(), " \t\r\n")
+	value := token + " "
+	if draft != "" {
+		value += draft
+	}
+	m.composer.SetValue(value)
+	m.composer.CursorEnd()
+	return m.composer.Focus()
+}
+
+func (m *TUIModel) handleSkillPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" {
+		m.skillPickerOpen = false
+		m.skillPickerLoading = false
+		m.skillPickerRequest++
+		return m, nil
+	}
+	if msg.String() == "enter" {
+		selected, ok := m.skillPicker.SelectedItem().(skillPickerItem)
+		if !ok {
+			return m, nil
+		}
+		cmd := m.selectSkillPickerItem(selected)
+		return m, cmd
+	}
+	var cmd tea.Cmd
+	m.skillPicker, cmd = m.skillPicker.Update(msg)
+	return m, cmd
+}
+
+func (m *TUIModel) lookupSkillForPrompt(token, prompt string) tea.Cmd {
+	if m.api == nil {
+		return m.println(fmt.Sprintf("Unknown command %s. Type /help.", token))
+	}
+	m.skillInvocationReq++
+	request, apiClient, ctx := m.skillInvocationReq, m.api, m.ctx
+	slug := strings.TrimPrefix(token, "/")
+	sortBy := rootly.ListAISkillsParamsSortName
+	params := &rootly.ListAISkillsParams{FilterSlug: &slug, Sort: &sortBy}
+	return func() tea.Msg {
+		response, err := apiClient.ListAISkillsWithResponse(ctx, params, aiSkillsPageRequestEditor(1, 25))
+		if err != nil {
+			return skillInvocationResolvedMsg{request: request, token: token, prompt: prompt, err: err}
+		}
+		if response == nil {
+			return skillInvocationResolvedMsg{request: request, token: token, prompt: prompt, err: errors.New("empty AI skills response")}
+		}
+		if response.ApplicationVndAPIJSON200 == nil {
+			return skillInvocationResolvedMsg{
+				request: request, token: token, prompt: prompt, statusCode: response.StatusCode(),
+				err: aiSkillsResponseError(response.StatusCode(), response.Body),
+			}
+		}
+		for _, item := range response.ApplicationVndAPIJSON200.Data {
+			if skillString(item.Attributes.Slug) == slug {
+				return skillInvocationResolvedMsg{
+					request: request, token: token, prompt: prompt, skill: item.Attributes, found: true,
+				}
+			}
+		}
+		return skillInvocationResolvedMsg{request: request, token: token, prompt: prompt}
+	}
+}
+
+func (m *TUIModel) handleSkillInvocation(message skillInvocationResolvedMsg) tea.Cmd {
+	if message.statusCode == http.StatusForbidden || message.statusCode == http.StatusNotFound {
+		m.skillsUnavailable = true
+	}
+	if message.err != nil || !message.found {
+		return m.println(fmt.Sprintf("Unknown command %s. Type /help.", message.token))
+	}
+	if !skillEnabled(message.skill) {
+		return m.println(message.token + " is disabled.")
+	}
+	if !skillInvocableByUser(message.skill) {
+		return m.println(message.token + " can only be loaded by the model, not by name.")
+	}
+	return m.submitPrompt(message.prompt)
+}
+
+func aiSkillsPageRequestEditor(page, size int) rootly.RequestEditorFn {
+	return func(_ context.Context, request *http.Request) error {
+		if request.URL == nil {
+			return errors.New("AI skills request has no URL")
+		}
+		query := request.URL.Query()
+		query.Set("page[number]", strconv.Itoa(page))
+		query.Set("page[size]", strconv.Itoa(size))
+		request.URL.RawQuery = query.Encode()
+		return nil
+	}
+}
+
+func aiSkillsNextPage(meta map[string]interface{}) int {
+	switch value := meta["next_page"].(type) {
+	case float64:
+		return int(value)
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case string:
+		page, _ := strconv.Atoi(value)
+		return page
+	default:
+		return 0
+	}
+}
+
+func aiSkillsResponseError(status int, body []byte) error {
+	if status == http.StatusForbidden || status == http.StatusNotFound {
+		return fmt.Errorf("%s", aiSkillsDisabledMessage)
+	}
+	return StatusResponseError(status, body)
+}
+
+func (m *TUIModel) loadSkillSuggestions(prefix string, request int) tea.Cmd {
+	if m.api == nil || m.skillsUnavailable {
+		return nil
+	}
+	apiClient, ctx := m.api, m.ctx
+	enabled := true
+	invocableBy := "user"
+	sortBy := rootly.ListAISkillsParamsSortName
+	params := &rootly.ListAISkillsParams{
+		FilterEnabled: &enabled, FilterInvocableBy: &invocableBy, Sort: &sortBy,
+	}
+	params.FilterSearch = &prefix
+	return func() tea.Msg {
+		response, err := apiClient.ListAISkillsWithResponse(ctx, params, aiSkillsPageRequestEditor(1, 6))
+		if err != nil {
+			return skillSuggestionsLoadedMsg{request: request, prefix: prefix, err: err}
+		}
+		if response == nil {
+			return skillSuggestionsLoadedMsg{request: request, prefix: prefix, err: errors.New("empty AI skills response")}
+		}
+		if response.ApplicationVndAPIJSON200 == nil {
+			return skillSuggestionsLoadedMsg{
+				request: request, prefix: prefix, statusCode: response.StatusCode(),
+				err: aiSkillsResponseError(response.StatusCode(), response.Body),
+			}
+		}
+		skills := make([]rootly.AiSkill, 0, len(response.ApplicationVndAPIJSON200.Data))
+		for _, item := range response.ApplicationVndAPIJSON200.Data {
+			skills = append(skills, item.Attributes)
+		}
+		return skillSuggestionsLoadedMsg{request: request, prefix: prefix, skills: skills}
+	}
+}
+
+func (m *TUIModel) refreshCommandMenu() tea.Cmd {
+	m.skillSuggestionReq++
+	request := m.skillSuggestionReq
+	rawValue := m.composer.Value()
+	value := strings.TrimSpace(rawValue)
+	if rawValue != value || value == "" || !strings.HasPrefix(value, "/") || strings.ContainsAny(value, " \t\r\n") {
 		m.commandMenuOpen = false
-		return
+		return nil
 	}
 	commands := []slashCommandItem{
-		{"/exit", "exit chat"}, {"/quit", "exit chat"}, {"/new", "new session"}, {"/clear", "new session"},
-		{"/resume", "choose a session"}, {"/sessions", "browse sessions"}, {"/rename", "rename session"}, {"/pin", "pin session"},
-		{"/unpin", "unpin session"}, {"/archive", "archive session"}, {"/delete", "delete session"},
-		{"/copy", "copy last answer"}, {"/export", "export transcript"}, {"/incident", "bind incident"},
-		{"/alert", "bind alert"}, {"/status", "show session info"}, {"/help", "show help"},
+		{command: "/exit", description: "exit chat"}, {command: "/quit", description: "exit chat"},
+		{command: "/new", description: "new session"}, {command: "/clear", description: "new session"},
+		{command: "/resume", description: "choose a session"}, {command: "/sessions", description: "browse sessions"},
+		{command: "/skills", description: "browse skills"}, {command: "/rename", description: "rename session"},
+		{command: "/pin", description: "pin session"}, {command: "/unpin", description: "unpin session"},
+		{command: "/archive", description: "archive session"}, {command: "/delete", description: "delete session"},
+		{command: "/copy", description: "copy last answer"}, {command: "/export", description: "export transcript"},
+		{command: "/incident", description: "bind incident"}, {command: "/alert", description: "bind alert"},
+		{command: "/status", description: "show session info"}, {command: "/help", description: "show help"},
 	}
 	items := make([]list.Item, 0, 6)
 	for _, command := range commands {
@@ -554,18 +966,40 @@ func (m *TUIModel) refreshCommandMenu() {
 			}
 		}
 	}
+	prefix := strings.TrimPrefix(strings.ToLower(value), "/")
+	if skills, cached := m.skillSuggestionCache[prefix]; cached {
+		for _, skill := range skills {
+			slug := skillString(skill.Slug)
+			if slug == "" || !skillEnabled(skill) || !skillInvocableByUser(skill) ||
+				isBuiltinSlashCommand("/"+slug) || !strings.HasPrefix("/"+strings.ToLower(slug), strings.ToLower(value)) {
+				continue
+			}
+			items = append(items, slashCommandItem{
+				command: "/" + slug, description: sanitizeTerminalText(strings.ReplaceAll(skillString(skill.Name), "\n", " ")), skill: true,
+			})
+		}
+	}
 	if len(items) == 0 {
 		m.commandMenuOpen = false
-		return
+	} else {
+		m.commandMenu = list.New(items, slashCommandDelegate{}, max(20, m.width), min(6, len(items)))
+		m.commandMenu.SetShowTitle(false)
+		m.commandMenu.SetShowFilter(false)
+		m.commandMenu.SetShowStatusBar(false)
+		m.commandMenu.SetShowPagination(false)
+		m.commandMenu.SetShowHelp(false)
+		m.commandMenu.SetFilteringEnabled(false)
+		m.commandMenuOpen = true
 	}
-	m.commandMenu = list.New(items, slashCommandDelegate{}, max(20, m.width), min(6, len(items)))
-	m.commandMenu.SetShowTitle(false)
-	m.commandMenu.SetShowFilter(false)
-	m.commandMenu.SetShowStatusBar(false)
-	m.commandMenu.SetShowPagination(false)
-	m.commandMenu.SetShowHelp(false)
-	m.commandMenu.SetFilteringEnabled(false)
-	m.commandMenuOpen = true
+	if m.api == nil || m.skillsUnavailable {
+		return nil
+	}
+	if _, cached := m.skillSuggestionCache[prefix]; cached {
+		return nil
+	}
+	return tea.Tick(150*time.Millisecond, func(time.Time) tea.Msg {
+		return skillSuggestionTickMsg{request: request, prefix: prefix}
+	})
 }
 
 func (m *TUIModel) sessionAction(action, message string, body rootly.UpdateAiChatSessionApplicationVndAPIPlusJSONRequestBody, sessionTitle *string) tea.Cmd {

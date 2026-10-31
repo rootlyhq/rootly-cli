@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"strings"
 	"time"
 
@@ -56,6 +57,7 @@ type TUIOptions struct {
 type TUIAPI interface {
 	GetCurrentUserWithResponse(context.Context) (*rootly.GetCurrentUserResponse, error)
 	ListAiChatSessionsWithResponse(context.Context, *rootly.ListAiChatSessionsParams) (*rootly.ListAiChatSessionsResponse, error)
+	ListAISkillsWithResponse(context.Context, *rootly.ListAISkillsParams, ...rootly.RequestEditorFn) (*rootly.ListAISkillsResponse, error)
 	ListAiChatSessionMessagesWithResponse(context.Context, openapi_types.UUID, *rootly.ListAiChatSessionMessagesParams) (*rootly.ListAiChatSessionMessagesResponse, error)
 	UpdateAiChatSessionWithApplicationVndAPIPlusJSONBodyWithResponse(context.Context, rootly.ID, rootly.UpdateAiChatSessionApplicationVndAPIPlusJSONRequestBody) (*rootly.UpdateAiChatSessionResponse, error)
 	DeleteAiChatSessionWithResponse(context.Context, rootly.ID) (*rootly.DeleteAiChatSessionResponse, error)
@@ -182,6 +184,16 @@ type TUIModel struct {
 	actionRequest        int
 	commandMenu          list.Model
 	commandMenuOpen      bool
+	skillPicker          list.Model
+	skillPickerOpen      bool
+	skillPickerLoading   bool
+	skillPickerRequest   int
+	skillPickerNextPage  int
+	skillPickerQuery     string
+	skillInvocationReq   int
+	skillSuggestionReq   int
+	skillSuggestionCache map[string][]rootly.AiSkill
+	skillsUnavailable    bool
 }
 
 func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TUIModel {
@@ -212,26 +224,27 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 	sessionTitle := sanitizeTerminalText(options.SessionTitle)
 
 	model := &TUIModel{
-		streamer:       streamer,
-		composer:       composer,
-		spinner:        spin,
-		ctx:            ctx,
-		width:          80,
-		height:         24,
-		noColor:        options.NoColor,
-		version:        options.Version,
-		verbIndex:      rand.IntN,
-		now:            time.Now,
-		api:            options.API,
-		apiHost:        options.APIHost,
-		currentUser:    currentUser,
-		userLoaded:     options.CurrentUser != nil,
-		sessionID:      options.SessionID,
-		sessionTitle:   normalizeSessionTitle(sessionTitle),
-		resumedSession: options.SessionID != nil,
-		incident:       options.Incident,
-		alert:          options.Alert,
-		historyIndex:   -1,
+		streamer:             streamer,
+		composer:             composer,
+		spinner:              spin,
+		ctx:                  ctx,
+		width:                80,
+		height:               24,
+		noColor:              options.NoColor,
+		version:              options.Version,
+		verbIndex:            rand.IntN,
+		now:                  time.Now,
+		api:                  options.API,
+		apiHost:              options.APIHost,
+		currentUser:          currentUser,
+		userLoaded:           options.CurrentUser != nil,
+		sessionID:            options.SessionID,
+		sessionTitle:         normalizeSessionTitle(sessionTitle),
+		resumedSession:       options.SessionID != nil,
+		incident:             options.Incident,
+		alert:                options.Alert,
+		historyIndex:         -1,
+		skillSuggestionCache: make(map[string][]rootly.AiSkill),
 	}
 	model.viewport = viewport.New()
 	model.viewport.SoftWrap = true
@@ -288,23 +301,10 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.welcomeBannerTick()
 		return m, cmd
 	case tea.WindowSizeMsg:
-		m.windowSizeReceived = true
-		m.width = msg.Width
-		m.height = msg.Height
-		m.composer.SetWidth(max(1, msg.Width-2))
-		m.composer.MaxHeight = max(3, msg.Height/3)
-		if m.pickerOpen {
-			m.sessionPicker.SetSize(msg.Width, min(12, max(1, msg.Height/2)))
-		}
-		if m.commandMenuOpen {
-			m.commandMenu.SetSize(max(20, msg.Width), min(6, len(m.commandMenu.Items())))
-		}
+		m.handleWindowSize(msg)
 		return m, nil
 	case tea.MouseWheelMsg:
-		if !m.pickerOpen && !m.commandMenuOpen && !m.deleteConfirming {
-			m.viewport, _ = m.viewport.Update(msg)
-			m.updateNewOutputIndicator()
-		}
+		m.handleMouseWheel(msg)
 		return m, nil
 	case spinner.TickMsg:
 		if m.state == tuiStreaming {
@@ -340,6 +340,8 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionPageMsg:
 		cmd := m.handleSessionPage(msg)
 		return m, cmd
+	case skillPickerPageMsg, skillInvocationResolvedMsg, skillSuggestionTickMsg, skillSuggestionsLoadedMsg:
+		return m.updateSkillMessage(msg)
 	case sessionActionMsg:
 		if msg.request != m.actionRequest {
 			return m, nil
@@ -374,8 +376,80 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.sessionPicker, cmd = m.sessionPicker.Update(message)
 			return m, cmd
 		}
+		if m.skillPickerOpen {
+			var cmd tea.Cmd
+			m.skillPicker, cmd = m.skillPicker.Update(message)
+			return m, cmd
+		}
 	}
 	return m, nil
+}
+
+func (m *TUIModel) handleWindowSize(msg tea.WindowSizeMsg) {
+	m.windowSizeReceived = true
+	m.width = msg.Width
+	m.height = msg.Height
+	m.composer.SetWidth(max(1, msg.Width-2))
+	m.composer.MaxHeight = max(3, msg.Height/3)
+	if m.pickerOpen {
+		m.sessionPicker.SetSize(msg.Width, min(12, max(1, msg.Height/2)))
+	}
+	if m.skillPickerOpen {
+		m.skillPicker.SetSize(msg.Width, min(12, max(1, msg.Height/2)))
+	}
+	if m.commandMenuOpen {
+		m.commandMenu.SetSize(max(20, msg.Width), min(6, len(m.commandMenu.Items())))
+	}
+}
+
+func (m *TUIModel) handleMouseWheel(msg tea.MouseWheelMsg) {
+	if !m.pickerOpen && !m.skillPickerOpen && !m.commandMenuOpen && !m.deleteConfirming {
+		m.viewport, _ = m.viewport.Update(msg)
+		m.updateNewOutputIndicator()
+	}
+}
+
+func (m *TUIModel) updateSkillMessage(message tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := message.(type) {
+	case skillPickerPageMsg:
+		cmd := m.handleSkillPickerPage(msg)
+		return m, cmd
+	case skillInvocationResolvedMsg:
+		if msg.request != m.skillInvocationReq {
+			return m, nil
+		}
+		cmd := m.handleSkillInvocation(msg)
+		return m, cmd
+	case skillSuggestionTickMsg:
+		value := strings.TrimSpace(m.composer.Value())
+		if msg.request != m.skillSuggestionReq || value != m.composer.Value() ||
+			!strings.HasPrefix(value, "/") || strings.ContainsAny(value, " \t\r\n") ||
+			strings.TrimPrefix(strings.ToLower(value), "/") != msg.prefix {
+			return m, nil
+		}
+		cmd := m.loadSkillSuggestions(msg.prefix, msg.request)
+		return m, cmd
+	case skillSuggestionsLoadedMsg:
+		if msg.request != m.skillSuggestionReq {
+			return m, nil
+		}
+		if msg.statusCode == http.StatusForbidden || msg.statusCode == http.StatusNotFound {
+			m.skillsUnavailable = true
+			cmd := m.refreshCommandMenu()
+			return m, cmd
+		}
+		if msg.err != nil {
+			return m, nil
+		}
+		if m.skillSuggestionCache == nil {
+			m.skillSuggestionCache = make(map[string][]rootly.AiSkill)
+		}
+		m.skillSuggestionCache[msg.prefix] = msg.skills
+		cmd := m.refreshCommandMenu()
+		return m, cmd
+	default:
+		return m, nil
+	}
 }
 
 func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
@@ -674,37 +748,15 @@ func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
 
 func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.commandMenuOpen {
-		switch msg.String() {
-		case "esc":
-			m.commandMenuOpen = false
-			return m, nil
-		case "up", "down":
-			var cmd tea.Cmd
-			m.commandMenu, cmd = m.commandMenu.Update(msg)
-			return m, cmd
-		case "pgup", "pgdown", "home", "end", "ctrl+home", "ctrl+end":
-			var cmd tea.Cmd
-			m.commandMenu, cmd = m.commandMenu.Update(msg)
-			return m, cmd
-		case "tab":
-			if item, ok := m.commandMenu.SelectedItem().(slashCommandItem); ok {
-				m.composer.SetValue(item.command + " ")
-			}
-			m.commandMenuOpen = false
-			return m, nil
-		case "enter":
-			typed := strings.TrimSpace(m.composer.Value())
-			if item, ok := m.commandMenu.SelectedItem().(slashCommandItem); ok &&
-				len(typed) < len(item.command) && strings.HasPrefix(strings.ToLower(item.command), strings.ToLower(typed)) {
-				m.composer.SetValue(item.command)
-			}
-			m.commandMenuOpen = false
-			cmd := m.submit()
+		if handled, cmd := m.handleCommandMenuKey(msg); handled {
 			return m, cmd
 		}
 	}
 	if m.pickerOpen {
 		return m.handlePickerKey(msg)
+	}
+	if m.skillPickerOpen {
+		return m.handleSkillPickerKey(msg)
 	}
 	if m.deleteConfirming {
 		switch strings.ToLower(msg.String()) {
@@ -778,8 +830,8 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.idleInterrupt = false
 		var cmd tea.Cmd
 		m.composer, cmd = m.composer.Update(msg)
-		m.refreshCommandMenu()
-		return m, cmd
+		menuCmd := m.refreshCommandMenu()
+		return m, tea.Batch(cmd, menuCmd)
 	}
 
 	if msg.String() == "esc" {
@@ -788,8 +840,50 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.historyIndex = -1
 	var cmd tea.Cmd
 	m.composer, cmd = m.composer.Update(msg)
-	m.refreshCommandMenu()
-	return m, cmd
+	menuCmd := m.refreshCommandMenu()
+	return m, tea.Batch(cmd, menuCmd)
+}
+
+func (m *TUIModel) handleCommandMenuKey(msg tea.KeyPressMsg) (bool, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.commandMenuOpen = false
+		m.skillSuggestionReq++
+		return true, nil
+	case "up", "down", "pgup", "pgdown", "home", "end", "ctrl+home", "ctrl+end":
+		var cmd tea.Cmd
+		m.commandMenu, cmd = m.commandMenu.Update(msg)
+		return true, cmd
+	case "tab":
+		if item, ok := m.commandMenu.SelectedItem().(slashCommandItem); ok {
+			m.composer.SetValue(item.command + " ")
+			m.composer.CursorEnd()
+		}
+		m.commandMenuOpen = false
+		m.skillSuggestionReq++
+		return true, nil
+	case "enter":
+		typed := strings.TrimSpace(m.composer.Value())
+		if item, ok := m.commandMenu.SelectedItem().(slashCommandItem); ok &&
+			strings.HasPrefix(strings.ToLower(item.command), strings.ToLower(typed)) {
+			if item.skill {
+				m.composer.SetValue(item.command + " ")
+				m.composer.CursorEnd()
+				m.commandMenuOpen = false
+				m.skillSuggestionReq++
+				cmd := m.composer.Focus()
+				return true, cmd
+			}
+			if len(typed) < len(item.command) {
+				m.composer.SetValue(item.command)
+			}
+		}
+		m.commandMenuOpen = false
+		cmd := m.submit()
+		return true, cmd
+	default:
+		return false, nil
+	}
 }
 
 func (m *TUIModel) handleConfirmationDecision(decision rootly.StreamAiChatParamsDecision) tea.Cmd {
@@ -807,6 +901,8 @@ func (m *TUIModel) submit() tea.Cmd {
 	m.settleWelcomeAnimation()
 	message := strings.TrimSpace(m.composer.Value())
 	m.composer.Reset()
+	m.skillInvocationReq++
+	m.skillSuggestionReq++
 	m.idleInterrupt = false
 	m.status = ""
 	if message == "" {
@@ -820,6 +916,10 @@ func (m *TUIModel) submit() tea.Cmd {
 		return m.runSlashCommand(message)
 	}
 
+	return m.submitPrompt(message)
+}
+
+func (m *TUIModel) submitPrompt(message string) tea.Cmd {
 	m.currentPrompt = message
 	m.promptHistory = append(m.promptHistory, message)
 	m.historyIndex = -1
@@ -888,6 +988,9 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 		return m.statusCommand()
 	case "/resume", "/sessions":
 		return m.openSessionPicker()
+	case "/skills":
+		query := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(command), "/skills"))
+		return m.openSkillPicker(query)
 	case "/rename":
 		title := strings.TrimSpace(strings.Join(parts[1:], " "))
 		body := rootly.UpdateAiChatSession{}
@@ -938,6 +1041,9 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 		}
 		return m.resolveBinding(strings.TrimPrefix(parts[0], "/"), parts[1])
 	default:
+		if isSkillInvocationToken(parts[0]) && !isBuiltinSlashCommand(parts[0]) {
+			return m.lookupSkillForPrompt(parts[0], strings.TrimSpace(command))
+		}
 		return m.println(fmt.Sprintf("Unknown command %s. Type /help.", parts[0]))
 	}
 	return nil
@@ -1198,6 +1304,8 @@ func (m *TUIModel) overlayContent() string {
 		return "Delete this session? This can't be undone.\ny delete · n/Esc cancel"
 	} else if m.pickerOpen {
 		return m.sessionPicker.View()
+	} else if m.skillPickerOpen {
+		return m.skillPicker.View()
 	} else if m.commandMenuOpen {
 		return m.commandMenu.View()
 	}

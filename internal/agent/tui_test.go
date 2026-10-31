@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
@@ -33,6 +35,10 @@ type blockingStreamer struct {
 type fakeTUIAPI struct {
 	sessionPages  []*rootly.ListAiChatSessionsResponse
 	listParams    []*rootly.ListAiChatSessionsParams
+	skillPages    []*rootly.ListAISkillsResponse
+	skillParams   []*rootly.ListAISkillsParams
+	skillQueries  []url.Values
+	skillErrors   []error
 	messagePages  []*rootly.ListAiChatSessionMessagesResponse
 	messageParams []*rootly.ListAiChatSessionMessagesParams
 	updateBodies  []rootly.UpdateAiChatSessionApplicationVndAPIPlusJSONRequestBody
@@ -52,6 +58,45 @@ func (f *fakeTUIAPI) ListAiChatSessionsWithResponse(_ context.Context, params *r
 	}
 	response := f.sessionPages[0]
 	f.sessionPages = f.sessionPages[1:]
+	return response, nil
+}
+
+func (f *fakeTUIAPI) ListAISkillsWithResponse(_ context.Context, params *rootly.ListAISkillsParams, editors ...rootly.RequestEditorFn) (*rootly.ListAISkillsResponse, error) {
+	f.skillParams = append(f.skillParams, params)
+	request := &http.Request{URL: &url.URL{}}
+	for _, editor := range editors {
+		if err := editor(context.Background(), request); err != nil {
+			return nil, err
+		}
+	}
+	query := request.URL.Query()
+	if params.FilterSearch != nil {
+		query.Set("filter[search]", *params.FilterSearch)
+	}
+	if params.FilterSlug != nil {
+		query.Set("filter[slug]", *params.FilterSlug)
+	}
+	if params.FilterEnabled != nil {
+		query.Set("filter[enabled]", fmt.Sprint(*params.FilterEnabled))
+	}
+	if params.FilterInvocableBy != nil {
+		query.Set("filter[invocable_by]", *params.FilterInvocableBy)
+	}
+	if params.Sort != nil {
+		query.Set("sort", string(*params.Sort))
+	}
+	request.URL.RawQuery = query.Encode()
+	f.skillQueries = append(f.skillQueries, request.URL.Query())
+	if len(f.skillErrors) > 0 {
+		err := f.skillErrors[0]
+		f.skillErrors = f.skillErrors[1:]
+		return nil, err
+	}
+	if len(f.skillPages) == 0 {
+		return testSkillPage(nil, nil), nil
+	}
+	response := f.skillPages[0]
+	f.skillPages = f.skillPages[1:]
 	return response, nil
 }
 
@@ -105,6 +150,36 @@ func testSessionPage(sessions []rootly.AiChatSession, hasMore bool, before strin
 		data.Meta.Pagination.NextBefore = nullable.NewNullableWithValue(before)
 	}
 	return &rootly.ListAiChatSessionsResponse{
+		HTTPResponse:             &http.Response{StatusCode: http.StatusOK},
+		ApplicationVndAPIJSON200: data,
+	}
+}
+
+func testSkill(slug, name, description string, enabled bool, invocableBy ...string) rootly.AiSkill {
+	invocable := make([]rootly.AiSkillInvocableBy, 0, len(invocableBy))
+	for _, value := range invocableBy {
+		invocable = append(invocable, rootly.AiSkillInvocableBy(value))
+	}
+	return rootly.AiSkill{
+		Slug:           &slug,
+		Name:           &name,
+		Description:    nullable.NewNullableWithValue(description),
+		Enabled:        &enabled,
+		InvocableBy:    invocable,
+		CurrentVersion: nullable.NewNullableWithValue(3),
+	}
+}
+
+func testSkillPage(skills []rootly.AiSkill, nextPage any) *rootly.ListAISkillsResponse {
+	data := &rootly.AiSkillList{Meta: map[string]interface{}{"next_page": nextPage}}
+	for _, skill := range skills {
+		data.Data = append(data.Data, struct {
+			Attributes rootly.AiSkill             `json:"attributes"`
+			ID         string                     `json:"id"`
+			Type       rootly.AiSkillListDataType `json:"type"`
+		}{Attributes: skill, ID: skillString(skill.Slug), Type: "ai_skill"})
+	}
+	return &rootly.ListAISkillsResponse{
 		HTTPResponse:             &http.Response{StatusCode: http.StatusOK},
 		ApplicationVndAPIJSON200: data,
 	}
@@ -894,12 +969,12 @@ func TestTUIHelpMentionsViewportNavigationAndTextSelection(t *testing.T) {
 
 func TestTUIAnswerAndHistorySanitizeTerminalControls(t *testing.T) {
 	const (
-		attack = "\x1b]52;c;ZXZpbA==\x07\x1b[2J\x1b]8;;https://evil.example\x07"
-		url    = "https://rootly.com/docs"
+		attack  = "\x1b]52;c;ZXZpbA==\x07\x1b[2J\x1b]8;;https://evil.example\x07"
+		docsURL = "https://rootly.com/docs"
 	)
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
 	model.handleEvent(Event{Type: rootly.AiChatStreamEventText, Text: &rootly.AiChatStreamText{
-		Content: "safe " + attack + " [Open docs](" + url + ")",
+		Content: "safe " + attack + " [Open docs](" + docsURL + ")",
 	}})
 	answer := model.renderAssistantAnswer(model.answer.String())
 	for _, unwanted := range []string{"]52;", "[2J", "\x1b]8;;https://evil.example"} {
@@ -907,7 +982,7 @@ func TestTUIAnswerAndHistorySanitizeTerminalControls(t *testing.T) {
 			t.Errorf("rendered answer = %q, want no %q", answer, unwanted)
 		}
 	}
-	if got := strings.Count(answer, ansi.SetHyperlink(url)); got != 1 {
+	if got := strings.Count(answer, ansi.SetHyperlink(docsURL)); got != 1 {
 		t.Errorf("answer link count = %d, want one CLI-generated OSC-8 link: %q", got, answer)
 	}
 
@@ -1021,6 +1096,350 @@ func TestTUICommandAutocompleteSuggestsSessionsAlias(t *testing.T) {
 		}
 	}
 	t.Errorf("slash menu items = %v, want /sessions suggestion", model.commandMenu.Items())
+}
+
+func TestTUISkillsPickerLoadsPagesAndHidesBuiltinSlugs(t *testing.T) {
+	apiClient := &fakeTUIAPI{skillPages: []*rootly.ListAISkillsResponse{
+		testSkillPage([]rootly.AiSkill{
+			testSkill("status", "Status skill", "reserved", true, "user"),
+			testSkill("incident-retro", "Incident retro", "Summarize incidents", true, "user", "model"),
+		}, float64(2)),
+		testSkillPage([]rootly.AiSkill{
+			testSkill("incident-followup", "Follow-up", "Next steps", false, "model"),
+		}, nil),
+	}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+	cmd := model.runSlashCommand("/skills incident")
+	if !model.skillPickerOpen || !model.skillPickerLoading || cmd == nil {
+		t.Fatalf("/skills did not open a loading picker: open=%t loading=%t cmd=%v", model.skillPickerOpen, model.skillPickerLoading, cmd)
+	}
+	firstPage := cmd().(skillPickerPageMsg)
+	_, _ = model.Update(firstPage)
+	if len(apiClient.skillParams) != 1 {
+		t.Fatalf("skill list calls = %d, want one", len(apiClient.skillParams))
+	}
+	if got := apiClient.skillQueries[0].Get("page[number]"); got != "1" {
+		t.Errorf("first page number = %q, want 1", got)
+	}
+	if got := apiClient.skillQueries[0].Get("page[size]"); got != "25" {
+		t.Errorf("page size = %q, want 25", got)
+	}
+	if got := apiClient.skillQueries[0].Get("sort"); got != "name" {
+		t.Errorf("sort = %q, want name", got)
+	}
+	if got := apiClient.skillQueries[0].Get("filter[search]"); got != "incident" {
+		t.Errorf("search filter = %q, want incident", got)
+	}
+	if apiClient.skillParams[0].FilterEnabled != nil {
+		t.Error("picker request filtered out disabled skills")
+	}
+	if len(model.skillPicker.Items()) != 2 {
+		t.Fatalf("picker items = %d, want skill and Load more", len(model.skillPicker.Items()))
+	}
+	first, ok := model.skillPicker.Items()[0].(skillPickerItem)
+	if !ok || skillString(first.skill.Slug) != "incident-retro" {
+		t.Fatalf("first picker item = %#v, want incident-retro (status is reserved)", model.skillPicker.Items()[0])
+	}
+	if got := first.Title(); got != "✔ /incident-retro" {
+		t.Errorf("skill title = %q, want enabled marker and slug", got)
+	}
+	if got := first.Description(); got != "Incident retro · v3 · you + model · Summarize incidents" {
+		t.Errorf("skill description = %q", got)
+	}
+	loadMore, ok := model.skillPicker.Items()[1].(skillPickerItem)
+	if !ok || !loadMore.loadMore {
+		t.Fatalf("last picker item = %#v, want Load more", model.skillPicker.Items()[1])
+	}
+
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, nextPageCmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if nextPageCmd == nil {
+		t.Fatal("Load more selection returned no request")
+	}
+	_, _ = model.Update(nextPageCmd())
+	if len(apiClient.skillQueries) != 2 || apiClient.skillQueries[1].Get("page[number]") != "2" {
+		t.Fatalf("next page query = %v, want page[number]=2", apiClient.skillQueries)
+	}
+	if len(model.skillPicker.Items()) != 2 {
+		t.Fatalf("picker items after page 2 = %d, want two skills", len(model.skillPicker.Items()))
+	}
+	second, ok := model.skillPicker.Items()[1].(skillPickerItem)
+	if !ok || skillString(second.skill.Slug) != "incident-followup" {
+		t.Fatalf("second picker item = %#v, want appended incident-followup", model.skillPicker.Items()[1])
+	}
+	if model.skillPickerNextPage != 0 {
+		t.Errorf("next page = %d, want 0 after last page", model.skillPickerNextPage)
+	}
+}
+
+func TestTUISkillPickerIgnoresStaleAndCanceledPages(t *testing.T) {
+	apiClient := &fakeTUIAPI{skillPages: []*rootly.ListAISkillsResponse{
+		testSkillPage([]rootly.AiSkill{testSkill("first", "First", "", true, "user")}, nil),
+		testSkillPage([]rootly.AiSkill{testSkill("second", "Second", "", true, "user")}, nil),
+	}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+	firstRequest := model.openSkillPicker("first")
+	stalePage := firstRequest()
+	_ = model.openSkillPicker("second")
+	_, _ = model.Update(stalePage)
+	if len(model.skillPicker.Items()) != 0 || !model.skillPickerLoading {
+		t.Fatalf("stale page changed picker: items=%v loading=%t", model.skillPicker.Items(), model.skillPickerLoading)
+	}
+	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if model.skillPickerOpen {
+		t.Fatal("Escape did not close the skills picker")
+	}
+}
+
+func TestTUISkillPickerSelectionInsertsInvocation(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		draft string
+		want  string
+	}{
+		{name: "empty draft", want: "/incident-retro "},
+		{name: "existing draft", draft: "   summarize INC-8", want: "/incident-retro summarize INC-8"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			apiClient := &fakeTUIAPI{skillPages: []*rootly.ListAISkillsResponse{
+				testSkillPage([]rootly.AiSkill{testSkill("incident-retro", "Retro", "Summary", true, "user")}, nil),
+			}}
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+			pageCmd := model.openSkillPicker("")()
+			_, _ = model.Update(pageCmd)
+			model.composer.SetValue(test.draft)
+			_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+			if model.skillPickerOpen || model.composer.Value() != test.want || !model.composer.Focused() {
+				t.Errorf("selection state: open=%t composer=%q focused=%t, want %q and focused", model.skillPickerOpen, model.composer.Value(), model.composer.Focused(), test.want)
+			}
+			if cmd == nil {
+				t.Error("selection returned no composer focus command")
+			}
+			if len(apiClient.updateBodies) != 0 {
+				t.Errorf("skill selection made %d update calls, want none", len(apiClient.updateBodies))
+			}
+		})
+	}
+}
+
+func TestTUISkillPickerRejectsDisabledAndModelOnlySkills(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		skill   rootly.AiSkill
+		message string
+	}{
+		{name: "disabled", skill: testSkill("disabled-skill", "Disabled", "", false, "user"), message: "/disabled-skill is disabled."},
+		{name: "model only", skill: testSkill("model-skill", "Model", "", true, "model"), message: "/model-skill can only be loaded by the model, not by name."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+			model.skillPickerOpen = true
+			model.skillPicker = list.New([]list.Item{skillPickerItem{skill: test.skill}}, list.NewDefaultDelegate(), 80, 5)
+			model.composer.SetValue("draft must remain")
+			_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+			if model.skillPickerOpen || model.composer.Value() != "draft must remain" {
+				t.Errorf("selection changed picker/composer unexpectedly: open=%t composer=%q", model.skillPickerOpen, model.composer.Value())
+			}
+			if !strings.Contains(model.Transcript(), test.message) {
+				t.Errorf("transcript = %q, want %q", model.Transcript(), test.message)
+			}
+		})
+	}
+}
+
+func TestTUISkillsPicker403And404ShowFriendlyMessage(t *testing.T) {
+	for _, status := range []int{http.StatusForbidden, http.StatusNotFound} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			apiClient := &fakeTUIAPI{skillPages: []*rootly.ListAISkillsResponse{{
+				HTTPResponse: &http.Response{StatusCode: status},
+				Body:         []byte(`{"errors":[{"title":"AI Skills are not enabled for this team"}]}`),
+			}}}
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient, NoColor: true})
+			_, _ = model.Update(model.runSlashCommand("/skills")())
+			if model.skillPickerOpen || !model.skillsUnavailable || !strings.Contains(model.Transcript(), aiSkillsDisabledMessage) {
+				t.Errorf("status %d state: picker=%t unavailable=%t transcript=%q", status, model.skillPickerOpen, model.skillsUnavailable, model.Transcript())
+			}
+			model.composer.SetValue("/inc")
+			if cmd := model.refreshCommandMenu(); cmd != nil {
+				t.Errorf("status %d still scheduled skill suggestions", status)
+			}
+		})
+	}
+}
+
+func TestTUITypedSkillInvocationUsesPromptPath(t *testing.T) {
+	prompt := "/incident-retro summarize INC-8"
+	apiClient := &fakeTUIAPI{skillPages: []*rootly.ListAISkillsResponse{
+		testSkillPage([]rootly.AiSkill{testSkill("incident-retro", "Retro", "", true, "user")}, nil),
+	}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+	model.composer.SetValue(prompt)
+	lookupCmd := model.submit()
+	if lookupCmd == nil {
+		t.Fatal("skill submission returned no lookup command")
+	}
+	_, _ = model.Update(lookupCmd())
+	if model.currentParams == nil || model.currentParams.Message == nil || *model.currentParams.Message != prompt {
+		t.Fatalf("stream message = %#v, want the full slash prompt %q", model.currentParams, prompt)
+	}
+	if len(model.promptHistory) != 1 || model.promptHistory[0] != prompt || model.currentPrompt != prompt || model.state != tuiStreaming {
+		t.Errorf("prompt path state: history=%v current=%q state=%v", model.promptHistory, model.currentPrompt, model.state)
+	}
+	if len(apiClient.skillParams) != 1 || apiClient.skillParams[0].FilterSlug == nil || *apiClient.skillParams[0].FilterSlug != "incident-retro" {
+		t.Errorf("skill lookup params = %#v, want one lookup for incident-retro", apiClient.skillParams)
+	}
+	if model.cancel != nil {
+		model.cancel()
+	}
+}
+
+func TestTUITypedSkillInvocationErrorsAndBuiltinPrecedence(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		response *rootly.ListAISkillsResponse
+		apiError error
+		want     string
+	}{
+		{name: "unknown", response: testSkillPage(nil, nil), want: "Unknown command /nope. Type /help."},
+		{name: "disabled", response: testSkillPage([]rootly.AiSkill{testSkill("nope", "Nope", "", false, "user")}, nil), want: "/nope is disabled."},
+		{name: "model only", response: testSkillPage([]rootly.AiSkill{testSkill("nope", "Nope", "", true, "model")}, nil), want: "/nope can only be loaded by the model, not by name."},
+		{name: "skills disabled", response: &rootly.ListAISkillsResponse{HTTPResponse: &http.Response{StatusCode: http.StatusForbidden}}, want: "Unknown command /nope. Type /help."},
+		{name: "team key missing endpoint", response: &rootly.ListAISkillsResponse{HTTPResponse: &http.Response{StatusCode: http.StatusNotFound}}, want: "Unknown command /nope. Type /help."},
+		{name: "network error", apiError: errors.New("offline"), want: "Unknown command /nope. Type /help."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			apiClient := &fakeTUIAPI{skillPages: []*rootly.ListAISkillsResponse{test.response}}
+			if test.apiError != nil {
+				apiClient.skillErrors = []error{test.apiError}
+			}
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient, NoColor: true})
+			model.composer.SetValue("/nope")
+			cmd := model.submit()
+			if cmd != nil {
+				_, _ = model.Update(cmd())
+			}
+			if !strings.Contains(model.Transcript(), test.want) {
+				t.Errorf("transcript = %q, want %q", model.Transcript(), test.want)
+			}
+		})
+	}
+
+	apiClient := &fakeTUIAPI{}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+	_ = model.runSlashCommand("/status")
+	if len(apiClient.skillParams) != 0 {
+		t.Errorf("/status made %d skill API calls, want none", len(apiClient.skillParams))
+	}
+}
+
+func TestTUICommandMenuSuggestsSkillsAfterBuiltins(t *testing.T) {
+	apiClient := &fakeTUIAPI{skillPages: []*rootly.ListAISkillsResponse{
+		testSkillPage([]rootly.AiSkill{
+			testSkill("incident-retro", "Incident retro", "", true, "user"),
+			testSkill("status", "Status skill", "", true, "user"),
+		}, nil),
+	}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+	model.composer.SetValue("/inc")
+	tickCmd := model.refreshCommandMenu()
+	if !model.commandMenuOpen || len(model.commandMenu.Items()) != 1 {
+		t.Fatalf("initial menu = %v, want built-in /incident while fetching", model.commandMenu.Items())
+	}
+	if item := model.commandMenu.Items()[0].(slashCommandItem); item.command != "/incident" || item.skill {
+		t.Errorf("initial suggestion = %#v, want built-in /incident", item)
+	}
+	if tickCmd == nil {
+		t.Fatal("skill suggestion debounce returned no tick command")
+	}
+	_, fetchCmd := model.Update(skillSuggestionTickMsg{request: model.skillSuggestionReq, prefix: "inc"})
+	if fetchCmd == nil {
+		t.Fatal("debounced suggestion tick returned no API request")
+	}
+	_, _ = model.Update(fetchCmd())
+	if len(apiClient.skillParams) != 1 {
+		t.Fatalf("suggestion API calls = %d, want one", len(apiClient.skillParams))
+	}
+	params := apiClient.skillParams[0]
+	if params.FilterSearch == nil || *params.FilterSearch != "inc" ||
+		params.FilterEnabled == nil || !*params.FilterEnabled ||
+		params.FilterInvocableBy == nil || *params.FilterInvocableBy != "user" ||
+		apiClient.skillQueries[0].Get("page[size]") != "6" {
+		t.Errorf("suggestion params = %#v, query = %v", params, apiClient.skillQueries[0])
+	}
+	var suggestions []slashCommandItem
+	for _, raw := range model.commandMenu.Items() {
+		if item, ok := raw.(slashCommandItem); ok {
+			suggestions = append(suggestions, item)
+		}
+	}
+	if len(suggestions) != 2 || suggestions[0].command != "/incident" || suggestions[0].skill ||
+		suggestions[1].command != "/incident-retro" || !suggestions[1].skill {
+		t.Errorf("suggestions = %#v, want built-in /incident followed by skill /incident-retro", suggestions)
+	}
+
+	model.composer.SetValue("/sk")
+	_ = model.refreshCommandMenu()
+	foundSkills := false
+	for _, raw := range model.commandMenu.Items() {
+		if item, ok := raw.(slashCommandItem); ok && item.command == "/skills" && !item.skill {
+			foundSkills = true
+		}
+	}
+	if !foundSkills {
+		t.Errorf("/sk menu = %v, want built-in /skills", model.commandMenu.Items())
+	}
+
+	model.skillSuggestionCache["st"] = []rootly.AiSkill{testSkill("status", "Status skill", "", true, "user")}
+	model.composer.SetValue("/st")
+	_ = model.refreshCommandMenu()
+	if len(model.commandMenu.Items()) != 1 {
+		t.Fatalf("/st menu = %v, want only built-in /status", model.commandMenu.Items())
+	}
+	if item := model.commandMenu.Items()[0].(slashCommandItem); item.command != "/status" || item.skill {
+		t.Errorf("/st suggestion = %#v, want built-in /status, not a colliding skill", item)
+	}
+}
+
+func TestTUICommandMenuCompletesSkillSuggestion(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{
+		{Code: tea.KeyTab},
+		{Code: tea.KeyEnter},
+	} {
+		model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+		model.skillSuggestionCache["incident-r"] = []rootly.AiSkill{
+			testSkill("incident-retro", "Incident retro", "", true, "user"),
+		}
+		model.composer.SetValue("/incident-r")
+		_ = model.refreshCommandMenu()
+		_, _ = model.Update(key)
+		if got := model.composer.Value(); got != "/incident-retro " || model.commandMenuOpen {
+			t.Errorf("%s completion = %q, menu open=%t; want /incident-retro and closed menu", key.String(), got, model.commandMenuOpen)
+		}
+	}
+}
+
+func TestTUISkillSuggestionResponsesAreStaleSafe(t *testing.T) {
+	apiClient := &fakeTUIAPI{skillPages: []*rootly.ListAISkillsResponse{
+		testSkillPage([]rootly.AiSkill{testSkill("incident-retro", "Retro", "", true, "user")}, nil),
+	}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient})
+	model.composer.SetValue("/inc")
+	_ = model.refreshCommandMenu()
+	oldRequest := model.skillSuggestionReq
+	oldFetch := model.loadSkillSuggestions("inc", oldRequest)
+	model.composer.SetValue("/incident-r")
+	_ = model.refreshCommandMenu()
+	stale := oldFetch()
+	_, _ = model.Update(stale)
+	if _, cached := model.skillSuggestionCache["inc"]; cached {
+		t.Fatal("stale skill suggestion response was cached")
+	}
+}
+
+func TestTUIHelpListsSkills(t *testing.T) {
+	if got := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{}).helpView(); !strings.Contains(got, "/skills [query]: browse skills") {
+		t.Errorf("/help output does not list /skills: %q", got)
+	}
 }
 
 func TestTUICommandAutocompleteEnterRunsSelectedPrefix(t *testing.T) {

@@ -395,3 +395,19 @@ func newPrintOptions(stdout, stderr *bytes.Buffer) PrintOptions {
 		IsStderrTTY: func() bool { return false },
 	}
 }
+
+func TestRunPrintPreservesSkillSlashPrompt(t *testing.T) {
+	prompt := "/incident-retro summarize INC-8"
+	streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{
+		eventOf(rootly.AiChatStreamEventDone, `{"status":"complete"}`),
+	}}}
+	var stdout, stderr bytes.Buffer
+	options := newPrintOptions(&stdout, &stderr)
+	options.Prompt = prompt
+	if err := RunPrint(context.Background(), streamer, options); err != nil {
+		t.Fatalf("RunPrint() error = %v", err)
+	}
+	if len(streamer.calls) != 1 || streamer.calls[0].Message == nil || *streamer.calls[0].Message != prompt {
+		t.Errorf("print prompt = %#v, want original prompt %q", streamer.calls, prompt)
+	}
+}
