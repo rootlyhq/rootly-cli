@@ -22,8 +22,9 @@ const localTestSessionID = "39fd7596-152c-43d3-afce-48b792ae386d"
 
 type fakeLocalTools struct {
 	mu    sync.Mutex
-	tools map[string]mcp.ToolRef
-	calls []string
+	tools  map[string]mcp.ToolRef
+	calls  []string
+	output string
 }
 
 func (f *fakeLocalTools) ClientTools() (tools []mcp.ClientTool, omitted int) {
@@ -43,6 +44,9 @@ func (f *fakeLocalTools) Call(_ context.Context, name string, arguments map[stri
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, name)
+	if f.output != "" {
+		return mcp.CallResult{Output: f.output, IsError: true}
+	}
 	return mcp.CallResult{Output: fmt.Sprintf("ran %s with %v", name, arguments["path"])}
 }
 

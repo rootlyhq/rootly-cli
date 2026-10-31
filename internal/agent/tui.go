@@ -213,6 +213,7 @@ type TUIModel struct {
 	workingDir           string
 	terminalBlurred      bool
 	toolsOnShown         bool
+	credHintShown        bool
 	mcpStartupReported   bool
 }
 
@@ -222,8 +223,9 @@ type localConfirmation struct {
 }
 
 type localToolDoneMsg struct {
-	turn int
-	err  error
+	turn     int
+	err      error
+	credHint bool
 }
 
 func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TUIModel {
@@ -1608,6 +1610,6 @@ func (m *TUIModel) runClientTool(call *ClientToolCall, declined bool) tea.Cmd {
 		if !declined {
 			result = runLocalCall(ctx, tools, call)
 		}
-		return localToolDoneMsg{turn: turn, err: postLocalResult(ctx, poster, sessionID, call, result)}
+		return localToolDoneMsg{turn: turn, err: postLocalResult(ctx, poster, sessionID, call, result), credHint: looksLikeExpiredCreds(result)}
 	}
 }

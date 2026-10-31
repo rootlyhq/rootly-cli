@@ -90,20 +90,21 @@ func initialPrintParams(prompt string, options PrintOptions) *rootly.StreamAiCha
 }
 
 type printRun struct {
-	streamer     Streamer
-	options      PrintOptions
-	params       *rootly.StreamAiChatParams
-	sessionID    *uuid.UUID
-	answer       strings.Builder
-	activities   activityTracker
-	confirmation *rootly.AiChatStreamConfirmationRequired
-	doneStatus   string
-	doneReceived bool
-	streamError  error
-	ctx          context.Context
-	sentTools    int
-	toolsOffSeen bool
-	stdinReader  *bufio.Reader
+	streamer      Streamer
+	options       PrintOptions
+	params        *rootly.StreamAiChatParams
+	sessionID     *uuid.UUID
+	answer        strings.Builder
+	activities    activityTracker
+	confirmation  *rootly.AiChatStreamConfirmationRequired
+	doneStatus    string
+	doneReceived  bool
+	streamError   error
+	ctx           context.Context
+	sentTools     int
+	toolsOffSeen  bool
+	stdinReader   *bufio.Reader
+	credHintShown bool
 }
 
 func (r *printRun) run(ctx context.Context) error {
@@ -235,6 +236,10 @@ func (r *printRun) handleClientToolCall(call *ClientToolCall) {
 		} else {
 			result = mcp.CallResult{Output: userDeclinedOutput, IsError: true}
 		}
+	}
+	if looksLikeExpiredCreds(result) && !r.credHintShown && !r.options.Quiet {
+		r.credHintShown = true
+		_, _ = fmt.Fprintln(r.options.Stderr, localCredsHint)
 	}
 	sessionID := ""
 	if r.sessionID != nil {

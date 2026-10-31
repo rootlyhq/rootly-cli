@@ -815,10 +815,15 @@ func (m *TUIModel) updateLocalMCP(message tea.Msg) (cmd tea.Cmd, handled bool) {
 	case mcpLoginMsg:
 		return m.handleMCPLogin(msg), true
 	case localToolDoneMsg:
-		if msg.err != nil && msg.turn == m.turn {
-			return m.println(faint(m.noColor, sanitizeTerminalText(msg.err.Error()))), true
+		var cmds []tea.Cmd
+		if msg.credHint && !m.credHintShown {
+			m.credHintShown = true
+			cmds = append(cmds, m.println(faint(m.noColor, localCredsHint)))
 		}
-		return nil, true
+		if msg.err != nil && msg.turn == m.turn {
+			cmds = append(cmds, m.println(faint(m.noColor, sanitizeTerminalText(msg.err.Error()))))
+		}
+		return tea.Batch(cmds...), true
 	}
 	return nil, false
 }
