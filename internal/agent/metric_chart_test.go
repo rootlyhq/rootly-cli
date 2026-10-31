@@ -234,3 +234,28 @@ func TestWriteAnswerPlainRendersChartsAndDashboardLinks(t *testing.T) {
 		t.Errorf("terminal output did not render dashboard link: %q", terminalText)
 	}
 }
+
+func TestExpandStepSeriesKeepsEveryMeasurement(t *testing.T) {
+	for _, tc := range []struct{ count, width int }{{19, 20}, {7, 60}, {3, 60}, {20, 20}, {90, 20}} {
+		values := make([]float64, tc.count)
+		for index := range values {
+			values[index] = float64(index)
+		}
+		expanded := expandStepSeries(values, tc.width)
+		if len(expanded) != tc.width {
+			t.Fatalf("%d values at width %d: got %d columns", tc.count, tc.width, len(expanded))
+		}
+		if expanded[0] != 0 || expanded[len(expanded)-1] != float64(tc.count-1) {
+			t.Errorf("%d values at width %d: first/last = %v/%v", tc.count, tc.width, expanded[0], expanded[len(expanded)-1])
+		}
+		if tc.count <= tc.width {
+			seen := map[float64]bool{}
+			for _, value := range expanded {
+				seen[value] = true
+			}
+			if len(seen) != tc.count {
+				t.Errorf("%d values at width %d: %d distinct measurements plotted", tc.count, tc.width, len(seen))
+			}
+		}
+	}
+}

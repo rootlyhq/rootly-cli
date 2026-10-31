@@ -255,25 +255,15 @@ func expandStepSeries(values []float64, width int) []float64 {
 		return nil
 	}
 	width = max(1, width)
-	if len(values) > width {
-		source := values
-		values = make([]float64, width)
-		for index := range values {
-			position := 0
-			if width > 1 {
-				position = int(math.Round(float64(index) * float64(len(source)-1) / float64(width-1)))
-			}
-			values[index] = source[position]
+	expanded := make([]float64, width)
+	for index := range expanded {
+		position := index * len(values) / width
+		if len(values) > width && width > 1 {
+			position = int(math.Round(float64(index) * float64(len(values)-1) / float64(width-1)))
 		}
+		expanded[index] = values[position]
 	}
-	repeats := max(1, (width+len(values)-1)/len(values))
-	expanded := make([]float64, 0, len(values)*repeats)
-	for _, value := range values {
-		for range repeats {
-			expanded = append(expanded, value)
-		}
-	}
-	return expanded[:min(width, len(expanded))]
+	return expanded
 }
 
 func metricChartCaption(labels []string, width int, noColor bool) string {
