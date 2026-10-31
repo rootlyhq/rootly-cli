@@ -91,7 +91,8 @@ func (state *State) Approve(server Server) {
 			kept = append(kept, approval)
 		}
 	}
-	state.Approvals = append(kept, Approval{Project: server.Path, Server: server.Name, Hash: server.Config.Hash()})
+	kept = append(kept, Approval{Project: server.Path, Server: server.Name, Hash: server.Config.Hash()})
+	state.Approvals = kept
 }
 
 func (state State) IsEnabled(server Server) bool {

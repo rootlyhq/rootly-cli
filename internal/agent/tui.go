@@ -342,19 +342,6 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case streamMessage:
 		return m.updateStream(msg)
-	case mcpChangedMsg:
-		m.refreshMCPViews()
-		return m, m.watchMCP()
-	case cloudConnectorsMsg:
-		m.handleCloudConnectors(msg)
-		return m, nil
-	case mcpLoginMsg:
-		return m, m.handleMCPLogin(msg)
-	case localToolDoneMsg:
-		if msg.err != nil && msg.turn == m.turn {
-			return m, m.println(faint(m.noColor, sanitizeTerminalText(msg.err.Error())))
-		}
-		return m, nil
 	case historyLoadedMsg:
 		if msg.request != m.historyRequest {
 			return m, nil
@@ -428,7 +415,7 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.updateKey(msg)
 	default:
-		return m.updatePickerMessage(message)
+		return m.updateOtherMessage(message)
 	}
 	return m, nil
 }

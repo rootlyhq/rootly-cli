@@ -18,7 +18,7 @@ const (
 
 // LocalTools is the agent's view of the local MCP manager.
 type LocalTools interface {
-	ClientTools() ([]mcp.ClientTool, int)
+	ClientTools() (tools []mcp.ClientTool, omitted int)
 	Lookup(string) (mcp.ToolRef, bool)
 	Call(context.Context, string, map[string]any) mcp.CallResult
 }

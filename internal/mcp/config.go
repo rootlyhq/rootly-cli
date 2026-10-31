@@ -126,7 +126,7 @@ func readJSONDocument(path string) (jsonDocument, error) {
 		}
 		return nil, err
 	}
-	if len(strings.TrimSpace(string(data))) == 0 {
+	if strings.TrimSpace(string(data)) == "" {
 		return jsonDocument{}, nil
 	}
 	document := jsonDocument{}

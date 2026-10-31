@@ -193,7 +193,7 @@ func (s *TokenStore) Login(ctx context.Context, server ServerConfig, options Log
 		return errors.New("OAuth login only applies to http and sse servers")
 	}
 	serverURL := server.URL
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("start OAuth callback listener: %w", err)
 	}
@@ -311,11 +311,11 @@ func probe(ctx context.Context, client *http.Client, server ServerConfig) (*http
 func OpenBrowser(url string) error {
 	switch runtime.GOOS {
 	case "darwin":
-		return exec.Command("open", url).Start()
+		return exec.CommandContext(context.Background(), "open", url).Start()
 	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		return exec.CommandContext(context.Background(), "rundll32", "url.dll,FileProtocolHandler", url).Start()
 	default:
-		return exec.Command("xdg-open", url).Start()
+		return exec.CommandContext(context.Background(), "xdg-open", url).Start()
 	}
 }
 

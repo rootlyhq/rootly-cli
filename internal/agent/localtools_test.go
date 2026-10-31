@@ -26,7 +26,7 @@ type fakeLocalTools struct {
 	calls []string
 }
 
-func (f *fakeLocalTools) ClientTools() ([]mcp.ClientTool, int) {
+func (f *fakeLocalTools) ClientTools() (tools []mcp.ClientTool, omitted int) {
 	out := []mcp.ClientTool{}
 	for name, ref := range f.tools {
 		out = append(out, mcp.ClientTool{Name: name, Description: ref.Tool, InputSchema: json.RawMessage(`{"type":"object"}`), ReadOnly: ref.ReadOnly})
@@ -103,14 +103,14 @@ func newToolRoundTrip(t *testing.T, accepted int, toolName string) *toolRoundTri
 	return trip
 }
 
-func (trip *toolRoundTrip) run(t *testing.T, tools LocalTools, stdinTTY bool, stdin string) (string, string, api.ToolResult) {
+func (trip *toolRoundTrip) run(t *testing.T, tools LocalTools, stdinTTY bool, stdin string) (stdout, stderr string, result api.ToolResult) {
 	t.Helper()
 	client, err := api.NewClient(&config.Config{APIKey: "test-token", Endpoint: trip.server.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stdout, stderr bytes.Buffer
-	options := newPrintOptions(&stdout, &stderr)
+	var outBuf, errBuf bytes.Buffer
+	options := newPrintOptions(&outBuf, &errBuf)
 	options.Stdin = strings.NewReader(stdin)
 	options.IsStdinTTY = func() bool { return stdinTTY }
 	options.IsStderrTTY = func() bool { return stdinTTY }
@@ -120,14 +120,13 @@ func (trip *toolRoundTrip) run(t *testing.T, tools LocalTools, stdinTTY bool, st
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := RunPrint(ctx, client, options); err != nil {
-		t.Fatalf("RunPrint() error = %v (stderr %q)", err, stderr.String())
+		t.Fatalf("RunPrint() error = %v (stderr %q)", err, errBuf.String())
 	}
-	var result api.ToolResult
 	select {
 	case result = <-trip.results:
 	default:
 	}
-	return stdout.String(), stderr.String(), result
+	return outBuf.String(), errBuf.String(), result
 }
 
 func TestPrintClientToolCallRoundTripReadOnly(t *testing.T) {

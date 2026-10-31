@@ -563,7 +563,7 @@ func (m *Manager) Login(ctx context.Context, id string, options LoginOptions) er
 
 // ClientTools returns the tools to advertise for the next turn and
 // remembers how each generated name maps back to its server and tool.
-func (m *Manager) ClientTools() ([]ClientTool, int) {
+func (m *Manager) ClientTools() (advertised []ClientTool, omitted int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	namer := NewClientToolNamer()

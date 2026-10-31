@@ -253,9 +253,6 @@ func (m *TUIModel) moveMCPCursor(rows []mcpRow, delta int) {
 		}
 		if selectable(rows[index]) {
 			m.mcpPage.cursor = index
-			if delta > 1 || delta < -1 {
-				delta = map[bool]int{true: 1, false: -1}[delta > 0]
-			}
 			return
 		}
 	}
@@ -369,7 +366,8 @@ func (m *TUIModel) handleMCPPageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		switch row.kind {
 		case mcpRowLoadMore:
-			return m, m.loadCloudConnectors(page.cloudNext)
+			cmd := m.loadCloudConnectors(page.cloudNext)
+			return m, cmd
 		case mcpRowCloud:
 			page.detail = "cloud:" + row.cloud.ID
 		case mcpRowServer:
@@ -382,7 +380,8 @@ func (m *TUIModel) handleMCPPageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "space", " ", "a", "l", "r":
 		row, ok := m.selectedMCPRow()
 		if ok && row.kind == mcpRowServer {
-			return m, m.mcpAction(row.view, key)
+			cmd := m.mcpAction(row.view, key)
+			return m, cmd
 		}
 	}
 	return m, nil
@@ -428,7 +427,8 @@ func (m *TUIModel) handleMCPDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		page.detailFiltering = true
 	case "space", " ", "a", "l", "r":
 		if view != nil {
-			return m, m.mcpAction(view, key)
+			cmd := m.mcpAction(view, key)
+			return m, cmd
 		}
 	}
 	return m, nil
@@ -790,4 +790,30 @@ func (m *TUIModel) mcpStatusLine() string {
 		noun = "server needs"
 	}
 	return faint(m.noColor, fmt.Sprintf("MCP · %d %s attention · /mcp", attention, noun))
+}
+
+func (m *TUIModel) updateLocalMCP(message tea.Msg) (cmd tea.Cmd, handled bool) {
+	switch msg := message.(type) {
+	case mcpChangedMsg:
+		m.refreshMCPViews()
+		return m.watchMCP(), true
+	case cloudConnectorsMsg:
+		m.handleCloudConnectors(msg)
+		return nil, true
+	case mcpLoginMsg:
+		return m.handleMCPLogin(msg), true
+	case localToolDoneMsg:
+		if msg.err != nil && msg.turn == m.turn {
+			return m.println(faint(m.noColor, sanitizeTerminalText(msg.err.Error()))), true
+		}
+		return nil, true
+	}
+	return nil, false
+}
+
+func (m *TUIModel) updateOtherMessage(message tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd, handled := m.updateLocalMCP(message); handled {
+		return m, cmd
+	}
+	return m.updatePickerMessage(message)
 }
