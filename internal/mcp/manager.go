@@ -179,6 +179,9 @@ func (m *Manager) Load() error {
 			}
 			runtime = &runtimeServer{server: server}
 			runtime.status = initialStatus(state, server)
+		} else if status := initialStatus(state, server); status == StatusOff || status == StatusPending {
+			runtime.close()
+			runtime.status, runtime.detail = status, ""
 		}
 		m.servers = append(m.servers, runtime)
 		m.byID[server.ID()] = runtime
@@ -189,6 +192,9 @@ func (m *Manager) Load() error {
 		}
 	}
 	m.notify()
+	if len(m.problems) > 0 {
+		return errors.New(strings.Join(m.problems, "; "))
+	}
 	return nil
 }
 
@@ -249,6 +255,7 @@ func (m *Manager) connectLocked(runtime *runtimeServer) {
 }
 
 func (r *runtimeServer) close() {
+	r.generation++
 	if r.cancel != nil {
 		r.cancel()
 		r.cancel = nil
@@ -557,6 +564,13 @@ func (m *Manager) Login(ctx context.Context, id string, options LoginOptions) er
 	config := runtime.server.Config.Expanded(m.options.Lookup)
 	if err := m.options.Tokens.Login(ctx, config, options); err != nil {
 		return err
+	}
+	m.mu.Lock()
+	inactive := runtime.status == StatusOff || runtime.status == StatusPending
+	m.mu.Unlock()
+	if inactive {
+		m.notify()
+		return nil
 	}
 	return m.Reconnect(id)
 }

@@ -285,3 +285,34 @@ func TestTokenStorePerms(t *testing.T) {
 		t.Fatal("token not deleted")
 	}
 }
+
+func TestManagerLoadReportsProblemsAndRevokesApproval(t *testing.T) {
+	home, project := t.TempDir(), t.TempDir()
+	store := &Store{UserPath: filepath.Join(home, ".rootly-cli", "mcp.json"), CWD: project}
+	states := &StateStore{Path: filepath.Join(home, ".rootly-cli", "mcp-state.json")}
+	writeFile(t, filepath.Join(project, ".mcp.json"), `{"mcpServers":{"maestro":{"command":"maestro-not-installed"}}}`)
+	writeFile(t, filepath.Join(home, ".cursor", "mcp.json"), `{not json`)
+	manager := NewManager(ManagerOptions{CWD: project, Store: store, State: states, Discovery: &Discovery{Home: home, CWD: project}})
+	defer manager.Close()
+
+	if err := manager.Load(); err == nil || !strings.Contains(err.Error(), "mcp.json") {
+		t.Fatalf("broken import should be reported, got %v", err)
+	}
+	if len(manager.Problems()) == 0 {
+		t.Fatal("expected problems to be kept for /mcp")
+	}
+	views := manager.Views()
+	if len(views) != 1 || views[0].Status != StatusPending {
+		t.Fatalf("project server should load as pending, got %+v", views)
+	}
+	if err := manager.Approve(views[0].Server.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if err := states.Update(func(state *State) { state.Approvals = nil }); err != nil {
+		t.Fatal(err)
+	}
+	_ = manager.Load()
+	if got := manager.Views()[0].Status; got != StatusPending {
+		t.Fatalf("revoked approval should drop back to pending, got %s", got)
+	}
+}
