@@ -17,7 +17,7 @@ func bulletizeWideTables(markdown string, width int) string {
 		line := lines[index]
 		if fence != "" {
 			output = append(output, line)
-			if strings.HasPrefix(strings.TrimSpace(line), fence) {
+			if closesFence(line, fence) {
 				fence = ""
 			}
 			continue
@@ -33,7 +33,7 @@ func bulletizeWideTables(markdown string, width int) string {
 				end++
 			}
 			table := lines[index:end]
-			if markdownTableWidth(table) > width {
+			if len(table) > 2 && markdownTableWidth(table) > width {
 				output = append(output, tableAsBullets(table)...)
 			} else {
 				output = append(output, table...)
@@ -48,12 +48,18 @@ func bulletizeWideTables(markdown string, width int) string {
 
 func markdownFenceMarker(line string) string {
 	trimmed := strings.TrimSpace(line)
-	for _, marker := range []string{"```", "~~~"} {
-		if strings.HasPrefix(trimmed, marker) {
-			return marker
+	for _, char := range []string{"`", "~"} {
+		run := len(trimmed) - len(strings.TrimLeft(trimmed, char))
+		if run >= 3 {
+			return trimmed[:run]
 		}
 	}
 	return ""
+}
+
+func closesFence(line, fence string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, fence) && strings.Trim(trimmed, fence[:1]) == ""
 }
 
 func isTableRow(line string) bool {
@@ -78,13 +84,24 @@ func isTableSeparator(line string) bool {
 func tableCells(line string) []string {
 	trimmed := strings.TrimSpace(line)
 	trimmed = strings.TrimPrefix(trimmed, "|")
-	trimmed = strings.TrimSuffix(trimmed, "|")
-	parts := strings.Split(trimmed, "|")
-	cells := make([]string, len(parts))
-	for index, part := range parts {
-		cells[index] = strings.TrimSpace(part)
+	if !strings.HasSuffix(trimmed, `\|`) {
+		trimmed = strings.TrimSuffix(trimmed, "|")
 	}
-	return cells
+	var cells []string
+	var cell strings.Builder
+	for index := 0; index < len(trimmed); index++ {
+		switch {
+		case trimmed[index] == '\\' && index+1 < len(trimmed) && trimmed[index+1] == '|':
+			cell.WriteByte('|')
+			index++
+		case trimmed[index] == '|':
+			cells = append(cells, strings.TrimSpace(cell.String()))
+			cell.Reset()
+		default:
+			cell.WriteByte(trimmed[index])
+		}
+	}
+	return append(cells, strings.TrimSpace(cell.String()))
 }
 
 func markdownTableWidth(table []string) int {
