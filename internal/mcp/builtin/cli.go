@@ -209,7 +209,7 @@ func cliNeedsApproval(bin string, args []string) bool {
 	}
 	switch bin {
 	case "gh":
-		return len(lower) < 2 || !containsCommand(lower[0], "pr", "issue") || !containsCommand(lower[1], "view", "list")
+		return ghNeedsApproval(lower)
 	case "kubectl":
 		return kubectlNeedsApproval(lower)
 	case "aws":
@@ -228,6 +228,18 @@ func cliNeedsApproval(bin string, args []string) bool {
 	default:
 		return true
 	}
+}
+
+func ghNeedsApproval(args []string) bool {
+	if len(args) < 2 || !containsCommand(args[0], "pr", "issue") || !containsCommand(args[1], "view", "list") {
+		return true
+	}
+	for _, arg := range args {
+		if arg == "--web" || arg == "-w" || strings.HasPrefix(arg, "--web=") {
+			return true
+		}
+	}
+	return false
 }
 
 func awsNeedsApproval(args []string) bool {
