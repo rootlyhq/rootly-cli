@@ -526,7 +526,7 @@ func (m *TUIModel) printHistory(messages []rootly.AiChatSessionMessage) {
 			m.println(renderPromptEcho(content, m.noColor))
 			m.conversation = append(m.conversation, transcriptTurn{user: content})
 		case rootly.AiChatSessionMessageRole("assistant"):
-			m.println(m.renderAssistantAnswer(content))
+			m.appendAssistantTranscriptBlock(content, true, false)
 			if len(m.conversation) > 0 && m.conversation[len(m.conversation)-1].assistant == "" {
 				m.conversation[len(m.conversation)-1].assistant = content
 			} else {

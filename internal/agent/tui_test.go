@@ -2143,6 +2143,117 @@ func TestTUITranscriptSeparatesPromptAnswerAndFooter(t *testing.T) {
 	}
 }
 
+func TestTUIHistoryMarkdownReflowsAfterResize(t *testing.T) {
+	const answer = "The response should explain that incident severity can move from SEV0 (critical, widespread) down to lower levels as responders contain impact, restore affected systems, and verify recovery with stakeholders.\n\nThe second paragraph adds more detail: teams should keep ownership clear, communicate updates, and document decisions made during recovery."
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.Update(tea.WindowSizeMsg{Width: 139, Height: 32})
+	model.printHistory([]rootly.AiChatSessionMessage{
+		{Role: rootly.AiChatSessionMessageRole("user"), Content: "Summarize the incident."},
+		{Role: rootly.AiChatSessionMessageRole("assistant"), Content: answer},
+	})
+
+	for _, width := range []int{139, 110, 60} {
+		if width != 139 {
+			model.Update(tea.WindowSizeMsg{Width: width, Height: 32})
+		}
+		model.View()
+		transcript := ansi.Strip(model.Transcript())
+		assertTranscriptFitsWithoutRepeatedBlankLines(t, "transcript", transcript, width)
+		assertTranscriptFitsWithoutRepeatedBlankLines(t, "viewport", ansi.Strip(model.viewport.GetContent()), width)
+		if width == 110 {
+			for _, line := range strings.Split(transcript, "\n") {
+				if strings.Contains(line, "(critical,") && !strings.Contains(line, "widespread)") {
+					t.Errorf("110-column transcript breaks after (critical,: %q", line)
+				}
+			}
+		}
+	}
+}
+
+func TestTUIStreamedMarkdownReflowsAfterResize(t *testing.T) {
+	const answer = "The response should explain that incident severity can move from SEV0 (critical, widespread) down to lower levels as responders contain impact, restore affected systems, and verify recovery with stakeholders.\n\nThe second paragraph adds more detail: teams should keep ownership clear, communicate updates, and document decisions made during recovery."
+	now := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.Update(tea.WindowSizeMsg{Width: 139, Height: 32})
+	model.now = func() time.Time { return now }
+	model.currentPrompt = "Summarize the incident."
+	model.println(renderPromptEcho(model.currentPrompt, model.noColor))
+	model.state = tuiStreaming
+	model.turn = 1
+	model.turnStartedAt = now.Add(-4 * time.Second)
+	model.startedAt = now.Add(-4 * time.Second)
+
+	_, _ = model.Update(streamMessage{
+		turn:  model.turn,
+		event: Event{Type: rootly.AiChatStreamEventText, Text: &rootly.AiChatStreamText{Content: answer}},
+	})
+	if model.committedOffset == 0 {
+		t.Fatal("streamed answer did not commit its first paragraph")
+	}
+	model.handleEvent(activityDoneEvent("complete"))
+	_, _ = model.Update(streamMessage{turn: model.turn, done: true})
+
+	model.View()
+	assertTranscriptFitsWithoutRepeatedBlankLines(t, "139-column transcript", ansi.Strip(model.Transcript()), 139)
+	model.Update(tea.WindowSizeMsg{Width: 110, Height: 28})
+	model.View()
+	transcript := ansi.Strip(model.Transcript())
+	assertTranscriptFitsWithoutRepeatedBlankLines(t, "resized transcript", transcript, 110)
+	assertTranscriptFitsWithoutRepeatedBlankLines(t, "resized viewport", ansi.Strip(model.viewport.GetContent()), 110)
+	for _, line := range strings.Split(transcript, "\n") {
+		if strings.Contains(line, "(critical,") && !strings.Contains(line, "widespread)") {
+			t.Errorf("resized streamed transcript breaks after (critical,: %q", line)
+		}
+	}
+}
+
+func TestTUITranscriptMarkdownCacheRendersOncePerWidth(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+	model.Update(tea.WindowSizeMsg{Width: 139, Height: 24})
+	model.printHistory([]rootly.AiChatSessionMessage{{
+		Role: rootly.AiChatSessionMessageRole("assistant"), Content: "A Markdown answer to cache.",
+	}})
+	model.Transcript()
+	initialRenderCount := model.renderCount
+	if initialRenderCount != 1 {
+		t.Fatalf("initial render count = %d, want one", initialRenderCount)
+	}
+
+	model.println("A plain appended line.")
+	model.Transcript()
+	if model.renderCount != initialRenderCount {
+		t.Errorf("render count after plain append = %d, want %d", model.renderCount, initialRenderCount)
+	}
+
+	model.Update(tea.WindowSizeMsg{Width: 110, Height: 24})
+	model.Transcript()
+	resizedRenderCount := model.renderCount
+	if resizedRenderCount != initialRenderCount+1 {
+		t.Errorf("render count after resize = %d, want %d", resizedRenderCount, initialRenderCount+1)
+	}
+	model.Transcript()
+	if model.renderCount != resizedRenderCount {
+		t.Errorf("render count after unchanged rebuild = %d, want %d", model.renderCount, resizedRenderCount)
+	}
+}
+
+func assertTranscriptFitsWithoutRepeatedBlankLines(t *testing.T, name, output string, width int) {
+	t.Helper()
+	lines := strings.Split(output, "\n")
+	previousLineBlank := false
+	for index, line := range lines {
+		if lineWidth := ansi.StringWidth(line); lineWidth > width {
+			t.Errorf("%s line %d has width %d, exceeds %d: %q", name, index+1, lineWidth, width, line)
+		}
+		lineBlank := strings.TrimSpace(line) == ""
+		if lineBlank && previousLineBlank {
+			t.Errorf("%s has adjacent blank lines at %d: %q", name, index+1, output)
+			break
+		}
+		previousLineBlank = lineBlank
+	}
+}
+
 func TestTUIPickersRenderFullScreenAndRestoreChat(t *testing.T) {
 	tests := []struct {
 		name   string

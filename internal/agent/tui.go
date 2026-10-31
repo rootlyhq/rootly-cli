@@ -72,8 +72,12 @@ type transcriptTurn struct {
 }
 
 type transcriptBlock struct {
-	text      string
-	gapBefore bool
+	text          string
+	markdown      string
+	first         bool
+	gapBefore     bool
+	renderedWidth int
+	rendered      string
 }
 
 type historyLoadedMsg struct {
@@ -547,20 +551,20 @@ func (m *TUIModel) uncommittedAnswer() string {
 	return answer[offset:]
 }
 
-func (m *TUIModel) commitCompleteAnswerBlocks() tea.Cmd {
+func (m *TUIModel) commitCompleteAnswerBlocks() {
 	answer := m.answer.String()
 	boundary := lastTopLevelBlockBoundary(answer, m.committedOffset)
 	if boundary <= m.committedOffset {
-		return nil
+		return
 	}
 	chunk := answer[m.committedOffset:boundary]
 	if strings.TrimSpace(chunk) == "" {
-		return nil
+		return
 	}
 	gapBefore := m.committedOffset > 0
-	rendered := m.renderAssistantAnswerPart(chunk, m.committedOffset == 0)
+	first := m.committedOffset == 0
 	m.committedOffset = boundary
-	return m.printlnWithGap(rendered, gapBefore)
+	m.appendAssistantTranscriptBlock(chunk, first, gapBefore)
 }
 
 func lastTopLevelBlockBoundary(answer string, committed int) int {
@@ -667,8 +671,7 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 		if rawAnswer := m.answer.String(); strings.TrimSpace(rawAnswer) != "" {
 			m.lastAnswer = rawAnswer
 			if remainder := m.uncommittedAnswer(); strings.TrimSpace(remainder) != "" {
-				rendered := m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
-				commands = append(commands, m.printlnWithGap(rendered, m.committedOffset > 0))
+				m.appendAssistantTranscriptBlock(remainder, m.committedOffset == 0, m.committedOffset > 0)
 			}
 			m.committedOffset = len(rawAnswer)
 		}
@@ -697,13 +700,10 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 		m.lastAnswer = rawAnswer
 		m.conversation = append(m.conversation, transcriptTurn{user: m.currentPrompt, assistant: rawAnswer})
 		remainder := m.uncommittedAnswer()
-		footer := "\n\n" + m.turnFooter()
 		if strings.TrimSpace(remainder) != "" {
-			rendered := m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
-			commands = append(commands, m.printlnWithGap(rendered+footer, m.committedOffset > 0))
-		} else {
-			commands = append(commands, m.printlnWithGap(m.turnFooter(), true))
+			m.appendAssistantTranscriptBlock(remainder, m.committedOffset == 0, m.committedOffset > 0)
 		}
+		m.printlnWithGap(m.turnFooter(), true)
 		m.committedOffset = len(rawAnswer)
 	}
 	if m.doneStatus != "" && m.doneStatus != "complete" && m.doneStatus != "confirmed" {
@@ -738,8 +738,7 @@ func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
 	if strings.TrimSpace(rawAnswer) != "" {
 		m.lastAnswer = rawAnswer
 		if remainder := m.uncommittedAnswer(); strings.TrimSpace(remainder) != "" {
-			rendered := m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
-			m.appendTranscriptBlockWithGap(rendered, m.committedOffset > 0)
+			m.appendAssistantTranscriptBlock(remainder, m.committedOffset == 0, m.committedOffset > 0)
 		}
 	}
 	if m.noColor {
@@ -1214,11 +1213,17 @@ func (m *TUIModel) rebuildTranscriptCache() {
 		return
 	}
 	blocks := make([]transcriptBlock, 0, max(0, len(m.transcript)-1))
-	for _, block := range m.transcript[1:] {
-		blocks = append(blocks, transcriptBlock{
-			text:      ansi.Wrap(block.text, width, ""),
-			gapBefore: block.gapBefore,
-		})
+	for index := 1; index < len(m.transcript); index++ {
+		block := &m.transcript[index]
+		if block.renderedWidth != width {
+			if block.markdown != "" {
+				block.rendered = m.renderAssistantAnswerPart(block.markdown, block.first)
+			} else {
+				block.rendered = ansi.Wrap(stripTrailingSpacesPerLine(block.text), width, "")
+			}
+			block.renderedWidth = width
+		}
+		blocks = append(blocks, transcriptBlock{text: block.rendered, gapBefore: block.gapBefore})
 	}
 	m.transcriptCache = joinTranscriptBlocks(blocks)
 	m.transcriptCacheWidth = width
@@ -1370,6 +1375,26 @@ func (m *TUIModel) appendTranscriptBlockWithGap(text string, gapBefore bool) {
 	m.transcriptCacheDirty = true
 }
 
+func (m *TUIModel) appendAssistantTranscriptBlock(markdown string, first, gapBefore bool) {
+	if strings.TrimSpace(markdown) == "" {
+		return
+	}
+	m.transcript = append(m.transcript, transcriptBlock{
+		markdown:  markdown,
+		first:     first,
+		gapBefore: gapBefore,
+	})
+	m.transcriptCacheDirty = true
+}
+
+func stripTrailingSpacesPerLine(text string) string {
+	lines := strings.Split(text, "\n")
+	for index, line := range lines {
+		lines[index] = strings.TrimRight(line, " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m *TUIModel) resetTranscript() {
 	m.transcript = []transcriptBlock{{text: ""}}
 	m.transcriptCache = ""
@@ -1383,9 +1408,8 @@ func (m *TUIModel) println(text string) tea.Cmd {
 	return nil
 }
 
-func (m *TUIModel) printlnWithGap(text string, gapBefore bool) tea.Cmd {
+func (m *TUIModel) printlnWithGap(text string, gapBefore bool) {
 	m.appendTranscriptBlockWithGap(text, gapBefore)
-	return nil
 }
 
 func (m *TUIModel) Transcript() string {
