@@ -207,15 +207,24 @@ func TestRunCommandWaitDelayForBackgroundedChild(t *testing.T) {
 		t.TempDir(),
 		"bash",
 		[]string{"-c", "sleep 30 & echo hi"},
-		time.Second,
+		10*time.Second,
 		maxShellOutput,
 		"bash",
 	)
 	if elapsed := time.Since(started); elapsed > 5*time.Second {
 		t.Fatalf("command took %s with a backgrounded child", elapsed)
 	}
+	if result.IsError {
+		t.Fatalf("successful shell with a backgrounded child was marked as an error: %q", result.Output)
+	}
+	if !strings.Contains(result.Output, "(exit 0)") {
+		t.Fatalf("backgrounded command output did not report exit 0: %q", result.Output)
+	}
 	if !strings.Contains(result.Output, "hi") {
 		t.Fatalf("backgrounded command output = %q, want it to include hi", result.Output)
+	}
+	if !strings.Contains(result.Output, "[background process still running; output detached]") {
+		t.Fatalf("backgrounded command output omitted detached-output note: %q", result.Output)
 	}
 }
 

@@ -150,6 +150,8 @@ func runCommand(ctx context.Context, root, command string, args []string, timeou
 	cmd.Stderr = stderr
 	err := cmd.Run()
 	exitCode := 0
+	isError := err != nil
+	backgroundOutputDetached := errors.Is(err, exec.ErrWaitDelay) && commandContext.Err() == nil
 	if err != nil {
 		exitCode = 1
 		var exitError *exec.ExitError
@@ -157,12 +159,22 @@ func runCommand(ctx context.Context, root, command string, args []string, timeou
 			exitCode = exitError.ExitCode()
 		}
 	}
+	if backgroundOutputDetached {
+		exitCode = cmd.ProcessState.ExitCode()
+		isError = exitCode != 0
+	}
 	body := strings.TrimRight(stdout.String(), "\n")
 	if stderrText := strings.TrimRight(stderr.String(), "\n"); stderrText != "" {
 		if body != "" {
 			body += "\n"
 		}
 		body += "[stderr]\n" + stderrText
+	}
+	if backgroundOutputDetached {
+		if body != "" {
+			body += "\n"
+		}
+		body += "[background process still running; output detached]"
 	}
 	header := fmt.Sprintf("$ %s\n(exit %d)", displayName, exitCode)
 	if commandContext.Err() != nil {
@@ -174,7 +186,7 @@ func runCommand(ctx context.Context, root, command string, args []string, timeou
 	if body != "" {
 		header += "\n\n" + body
 	}
-	return Result{Output: capOutput(redactEnvironmentValues(header, secrets), outputLimit), IsError: err != nil}
+	return Result{Output: capOutput(redactEnvironmentValues(header, secrets), outputLimit), IsError: isError}
 }
 
 func sensitiveEnvironmentValues(environment []string) []string {
