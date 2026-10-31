@@ -19,6 +19,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/rootlyhq/rootly-go v0.15.0
 	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
 	github.com/yuin/goldmark v1.7.8
 	golang.org/x/oauth2 v0.37.0
@@ -60,7 +61,6 @@ require (
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/xo/terminfo v1.0.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
