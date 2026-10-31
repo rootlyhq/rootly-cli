@@ -142,20 +142,25 @@ func newGrepTool(root string) Tool {
 				if glob != "" && !globMatch(glob, relativeTo(start, filePath)) {
 					return nil
 				}
-				matches, scanErr := grepFile(filePath, expression, mode, relativeTo(root, filePath))
+				if len(results) >= maxSearchItems {
+					return errSearchLimit
+				}
+				remaining := maxSearchItems - len(results)
+				matches, scanErr := grepFile(filePath, expression, mode, relativeTo(root, filePath), remaining)
 				if scanErr != nil {
 					return nil
 				}
 				if len(matches) == 0 {
 					return nil
 				}
-				if mode == "files_with_matches" {
-					results = append(results, matches[0])
-				} else {
-					results = append(results, matches...)
-				}
-				if len(results) >= maxSearchItems {
-					return errSearchLimit
+				for _, match := range matches {
+					if len(results) >= maxSearchItems {
+						return errSearchLimit
+					}
+					results = append(results, match)
+					if len(results) >= maxSearchItems {
+						return errSearchLimit
+					}
 				}
 				return nil
 			})
@@ -366,7 +371,7 @@ func walkFiles(ctx context.Context, root, start string, visit func(string) error
 	})
 }
 
-func grepFile(filePath string, expression *regexp.Regexp, mode, displayPath string) ([]string, error) {
+func grepFile(filePath string, expression *regexp.Regexp, mode, displayPath string, maxMatches int) ([]string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -387,6 +392,9 @@ func grepFile(filePath string, expression *regexp.Regexp, mode, displayPath stri
 		switch mode {
 		case "content":
 			matches = append(matches, fmt.Sprintf("%s:%d:%s", displayPath, lineNumber, line))
+			if len(matches) >= maxMatches {
+				return matches, nil
+			}
 		case "files_with_matches":
 			return []string{displayPath}, nil
 		}

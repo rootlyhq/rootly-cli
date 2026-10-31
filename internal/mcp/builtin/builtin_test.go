@@ -130,6 +130,25 @@ func TestFilesystemSearchUsesSymlinkPath(t *testing.T) {
 	}
 }
 
+func TestGrepCapsMatchesWithinOneFile(t *testing.T) {
+	root := t.TempDir()
+	content := strings.Repeat("match\n", maxSearchItems+100)
+	if err := os.WriteFile(filepath.Join(root, "many.txt"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result := mustLookup(t, testRegistry(t, root, nil), "local_grep").Run(context.Background(), map[string]any{
+		"pattern":     "match",
+		"output_mode": "content",
+	})
+	matches := strings.Split(result.Output, "\n")
+	if len(matches) != maxSearchItems {
+		t.Fatalf("got %d matches, want %d", len(matches), maxSearchItems)
+	}
+	if !strings.HasSuffix(matches[maxSearchItems-1], ":200:match") || strings.Contains(result.Output, ":201:match") {
+		t.Fatalf("grep did not stop at the 200th match: %q", matches[maxSearchItems-1])
+	}
+}
+
 func TestFilesystemOutputIsCapped(t *testing.T) {
 	root := t.TempDir()
 	content := strings.Repeat("x", maxFSOutput+100)
