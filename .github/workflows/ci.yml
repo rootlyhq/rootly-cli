@@ -95,4 +95,6 @@ jobs:
         run: make build-all
 
       - name: Verify binary
-        run: ./bin/rootly version
+        run: |
+          ./bin/rootly version
+          ./bin/rootly --version

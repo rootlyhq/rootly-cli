@@ -1195,6 +1195,9 @@ func loadSessionHistory(ctx context.Context, apiClient TUIAPI, sessionID uuid.UU
 	if first == nil {
 		return nil, "", errors.New("empty session history response")
 	}
+	if first.StatusCode() == 404 {
+		return nil, "", errSessionNotFound
+	}
 	if first.ApplicationVndAPIJSON200 == nil {
 		return nil, "", StatusResponseError(first.StatusCode(), first.Body)
 	}

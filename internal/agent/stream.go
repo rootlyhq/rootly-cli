@@ -168,7 +168,7 @@ func describeError(err error) error {
 
 	switch status {
 	case 401:
-		return fmt.Errorf("not authenticated: run `rootly login` or set ROOTLY_API_KEY")
+		return NotAuthenticatedError("not authenticated: run `rootly login` or set ROOTLY_API_KEY")
 	case 403:
 		if strings.Contains(strings.ToLower(title), "not enabled") {
 			return AIChatDisabledError()

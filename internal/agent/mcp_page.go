@@ -803,7 +803,12 @@ func (m *TUIModel) updateLocalMCP(message tea.Msg) (cmd tea.Cmd, handled bool) {
 	switch msg := message.(type) {
 	case mcpChangedMsg:
 		m.refreshMCPViews()
+		m.reportUnreachableMCP()
 		return m.watchMCP(), true
+	case mcpStartupCheckMsg:
+		m.refreshMCPViews()
+		m.reportUnreachableMCP()
+		return nil, true
 	case cloudConnectorsMsg:
 		m.handleCloudConnectors(msg)
 		return nil, true
@@ -819,6 +824,9 @@ func (m *TUIModel) updateLocalMCP(message tea.Msg) (cmd tea.Cmd, handled bool) {
 }
 
 func (m *TUIModel) updateOtherMessage(message tea.Msg) (tea.Model, tea.Cmd) {
+	if m.updateFocus(message) {
+		return m, nil
+	}
 	if cmd, handled := m.updateLocalMCP(message); handled {
 		return m, cmd
 	}
