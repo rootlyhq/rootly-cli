@@ -307,19 +307,6 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.handleWindowSize(msg)
 		return m, nil
-	case tea.MouseWheelMsg:
-		if m.pickerOpen {
-			var cmd tea.Cmd
-			m.sessionPicker, cmd = m.sessionPicker.Update(msg)
-			return m, cmd
-		}
-		if m.skillPickerOpen {
-			var cmd tea.Cmd
-			m.skillPicker, cmd = m.skillPicker.Update(msg)
-			return m, cmd
-		}
-		m.handleMouseWheel(msg)
-		return m, nil
 	case spinner.TickMsg:
 		if m.state == tuiStreaming {
 			var cmd tea.Cmd
@@ -413,13 +400,6 @@ func (m *TUIModel) handleWindowSize(msg tea.WindowSizeMsg) {
 	}
 	if m.commandMenuOpen {
 		m.commandMenu.SetSize(max(20, msg.Width), min(6, len(m.commandMenu.Items())))
-	}
-}
-
-func (m *TUIModel) handleMouseWheel(msg tea.MouseWheelMsg) {
-	if !m.pickerOpen && !m.skillPickerOpen && !m.commandMenuOpen && !m.deleteConfirming {
-		m.viewport, _ = m.viewport.Update(msg)
-		m.updateNewOutputIndicator()
 	}
 }
 
@@ -1137,7 +1117,6 @@ func (m *TUIModel) View() tea.View {
 	content := m.viewContent()
 	view := tea.NewView(content)
 	view.AltScreen = true
-	view.MouseMode = tea.MouseModeCellMotion
 	return view
 }
 

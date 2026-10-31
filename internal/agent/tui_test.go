@@ -581,9 +581,14 @@ func TestTUIViewportFollowControls(t *testing.T) {
 		t.Errorf("End did not return to bottom and clear the indicator")
 	}
 
-	model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	model.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
 	if model.viewport.AtBottom() {
-		t.Fatal("mouse wheel up did not scroll away from the bottom")
+		t.Fatal("PgUp did not scroll away from the bottom")
+	}
+	offset = model.viewport.YOffset()
+	model.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if !model.viewport.AtBottom() || model.viewport.YOffset() <= offset {
+		t.Fatal("PgDn did not scroll back toward the bottom")
 	}
 	offset = model.viewport.YOffset()
 	for _, text := range []string{"j", "k", " "} {
@@ -957,12 +962,11 @@ func TestTUITranscriptSpacingAcrossTurns(t *testing.T) {
 	}
 }
 
-func TestTUIHelpMentionsViewportNavigationAndTextSelection(t *testing.T) {
+func TestTUIHelpMentionsViewportNavigation(t *testing.T) {
 	helpText := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{}).helpView()
 	for _, text := range []string{
 		"/resume, /sessions: choose a session",
-		"PgUp/PgDn/wheel scroll · Ctrl+Home/Ctrl+End scroll · Home/End scroll when composer is empty",
-		"Hold Option (macOS) / Shift to select text",
+		"PgUp/PgDn scroll · Ctrl+Home/Ctrl+End scroll · Home/End scroll when composer is empty",
 	} {
 		if !strings.Contains(helpText, text) {
 			t.Errorf("help is missing %q", text)
@@ -2298,7 +2302,11 @@ func TestTUIPickersRenderFullScreenAndRestoreChat(t *testing.T) {
 			if cmd := test.open(model); cmd == nil {
 				t.Fatal("opening picker returned no load command")
 			}
-			pickerView := model.View().Content
+			picker := model.View()
+			if picker.MouseMode != tea.MouseModeNone {
+				t.Errorf("picker mouse mode = %v, want none", picker.MouseMode)
+			}
+			pickerView := picker.Content
 			plainPickerView := ansi.Strip(pickerView)
 			if strings.Contains(plainPickerView, "chat transcript marker") ||
 				strings.Contains(plainPickerView, "composer draft") ||

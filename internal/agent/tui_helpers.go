@@ -309,7 +309,7 @@ func renderPromptEcho(prompt string, noColor bool) string {
 		if index == 0 {
 			prefix = "❯ "
 			if !noColor {
-				prefix = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true).Render(prefix)
+				prefix = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(prefix)
 			}
 		}
 		lines[index] = prefix + line
@@ -456,8 +456,7 @@ func (m *TUIModel) helpView() string {
 		"/export [file]: write transcript\n" +
 		"/incident <id>, /alert <id>: bind a resource\n" +
 		"/status: show session and API info\n" +
-		"PgUp/PgDn/wheel scroll · Ctrl+Home/Ctrl+End scroll · Home/End scroll when composer is empty\n" +
-		"Hold Option (macOS) / Shift to select text\n" +
+		"PgUp/PgDn scroll · Ctrl+Home/Ctrl+End scroll · Home/End scroll when composer is empty\n" +
 		"/help: show this help"
 }
 

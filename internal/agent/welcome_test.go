@@ -331,8 +331,8 @@ func TestWelcomeBannerWithNilUserStillShowsTitleAndHost(t *testing.T) {
 func TestTUIViewUsesAltScreenAndFixedFooterDuringConfirmation(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
 	view := model.View()
-	if !view.AltScreen || view.MouseMode != tea.MouseModeCellMotion {
-		t.Errorf("view alt screen/mouse mode = %t/%v, want alt screen and cell-motion mouse", view.AltScreen, view.MouseMode)
+	if !view.AltScreen || view.MouseMode != tea.MouseModeNone {
+		t.Errorf("view alt screen/mouse mode = %t/%v, want alt screen and no mouse capture", view.AltScreen, view.MouseMode)
 	}
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model.state = tuiConfirming
