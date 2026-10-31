@@ -32,6 +32,22 @@ func TestMaskToolArgumentsRedactsCommandAndCLISecrets(t *testing.T) {
 	}
 }
 
+func TestMaskCommandKeepsShellCodeVisible(t *testing.T) {
+	const command = `export TOKEN="$(rm -rf ./data)"`
+	masked := MaskCommand(command)
+	if !strings.Contains(masked, "rm -rf ./data") {
+		t.Fatalf("masked command hid executable code: %q", masked)
+	}
+	arguments := MaskToolArguments(map[string]any{"command": command})
+	if got := arguments["command"].(string); !strings.Contains(got, "rm -rf ./data") {
+		t.Fatalf("masked tool arguments hid executable code: %q", got)
+	}
+	secret := MaskCommand("export TOKEN=abc123secret")
+	if strings.Contains(secret, "abc123secret") || !strings.Contains(secret, Mask) {
+		t.Fatalf("ordinary secret was not masked: %q", secret)
+	}
+}
+
 func TestServerHTTPClientKeepsCredentialsOnOrigin(t *testing.T) {
 	var leaked []string
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -89,8 +89,14 @@ func maskArgs(args []string) []string {
 	for index, arg := range args {
 		switch {
 		case hideNext:
-			masked[index] = Mask
+			if containsShellCode(arg) {
+				masked[index] = arg
+			} else {
+				masked[index] = Mask
+			}
 			hideNext = false
+		case containsShellCode(arg):
+			masked[index] = arg
 		case secretEnvironmentArgument.MatchString(arg):
 			name, _, _ := strings.Cut(arg, "=")
 			masked[index] = name + "=" + Mask
@@ -118,8 +124,19 @@ func MaskCommandArgs(args []string) []string {
 }
 
 func MaskCommand(command string) string {
-	command = secretCommandArgument.ReplaceAllString(command, "$1"+Mask)
-	return bearerCommandValue.ReplaceAllString(command, "Bearer "+Mask)
+	command = secretCommandArgument.ReplaceAllStringFunc(command, func(argument string) string {
+		parts := secretCommandArgument.FindStringSubmatch(argument)
+		if containsShellCode(parts[2]) {
+			return argument
+		}
+		return parts[1] + Mask
+	})
+	return bearerCommandValue.ReplaceAllStringFunc(command, func(argument string) string {
+		if containsShellCode(argument) {
+			return argument
+		}
+		return "Bearer " + Mask
+	})
 }
 
 func MaskToolArguments(args map[string]any) map[string]any {
@@ -134,6 +151,9 @@ func MaskToolArguments(args map[string]any) map[string]any {
 }
 
 func maskToolArgument(key string, value any) any {
+	if text, ok := value.(string); ok && containsShellCode(text) {
+		return text
+	}
 	if secretArgName.MatchString(key) {
 		return Mask
 	}
@@ -171,4 +191,8 @@ func maskToolArgument(key string, value any) any {
 	default:
 		return value
 	}
+}
+
+func containsShellCode(value string) bool {
+	return strings.Contains(value, "$(") || strings.ContainsRune(value, '`') || strings.Contains(value, "${")
 }
