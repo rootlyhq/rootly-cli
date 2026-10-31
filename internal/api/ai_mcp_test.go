@@ -17,8 +17,9 @@ import (
 
 func TestStreamAddsClientToolsBody(t *testing.T) {
 	var body map[string]any
-	var query string
+	var query, contentType string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
 		data, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(data, &body)
 		query = r.URL.Query().Get("message")
@@ -39,17 +40,18 @@ func TestStreamAddsClientToolsBody(t *testing.T) {
 	for range events {
 	}
 	sent, _ := body["client_tools"].([]any)
-	if query != "hi" || len(sent) != 1 || sent[0].(map[string]any)["read_only"] != true {
-		t.Fatalf("query=%q body=%v", query, body)
+	if query != "hi" || len(sent) != 1 || sent[0].(map[string]any)["read_only"] != true || contentType != "application/vnd.api+json" {
+		t.Fatalf("query=%q content-type=%q body=%v", query, contentType, body)
 	}
 }
 
 func TestPostToolResultAndConnectors(t *testing.T) {
 	var posted ToolResult
-	var connectorQuery string
+	var connectorQuery, postedContentType string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/ai/chat/tool_results":
+			postedContentType = r.Header.Get("Content-Type")
 			_ = json.NewDecoder(r.Body).Decode(&posted)
 			if posted.CallID == "missing" {
 				w.Header().Set("Content-Type", "application/vnd.api+json")
@@ -71,7 +73,7 @@ func TestPostToolResultAndConnectors(t *testing.T) {
 	if err := client.PostAiChatToolResult(context.Background(), ToolResult{SessionID: "s", CallID: "c", Output: "User declined", IsError: true}); err != nil {
 		t.Fatal(err)
 	}
-	if posted.Output != "User declined" || !posted.IsError || posted.SessionID != "s" {
+	if posted.Output != "User declined" || !posted.IsError || posted.SessionID != "s" || postedContentType != "application/vnd.api+json" {
 		t.Fatalf("posted = %+v", posted)
 	}
 	if err := client.PostAiChatToolResult(context.Background(), ToolResult{CallID: "missing"}); err == nil || !strings.Contains(err.Error(), "Unknown call") {

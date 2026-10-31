@@ -39,7 +39,7 @@ func clientToolsEditor(ctx context.Context) (rootly.RequestEditorFn, bool) {
 		req.Body = io.NopCloser(bytes.NewReader(body))
 		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
 		req.ContentLength = int64(len(body))
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", "application/vnd.api+json")
 		return nil
 	}, true
 }
@@ -163,7 +163,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body []byte) (
 	}
 	request.Header.Set("Accept", "application/vnd.api+json, application/json")
 	if body != nil {
-		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Content-Type", "application/vnd.api+json")
 	}
 	return c.httpClient.Do(request)
 }
