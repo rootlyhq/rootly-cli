@@ -174,7 +174,7 @@ func (m *Manager) Load() error {
 	m.byID = map[string]*runtimeServer{}
 	for _, server := range servers {
 		runtime := previous[server.ID()]
-		if runtime == nil || runtime.server.Config.Hash() != server.Config.Hash() {
+		if runtime == nil || runtime.server.Config.Hash() != server.Config.Hash() || runtime.server.Project != server.Project {
 			if runtime != nil {
 				runtime.close()
 			}

@@ -96,3 +96,35 @@ func TestImportedProjectFilesNeedApprovalPerHash(t *testing.T) {
 		}
 	}
 }
+
+func TestOriginOfNormalizesDefaultPorts(t *testing.T) {
+	if originOf("https://MCP.example.com:443/a") != originOf("https://mcp.example.com/b") {
+		t.Fatal("explicit default port should be the same origin")
+	}
+	if originOf("http://h:80") != originOf("http://h") || originOf("https://h:8443") == originOf("https://h") {
+		t.Fatal("port normalization is wrong")
+	}
+}
+
+func TestLoadDoesNotReuseGlobalTrustForProjectServer(t *testing.T) {
+	home, project := t.TempDir(), t.TempDir()
+	claude := filepath.Join(home, ".claude.json")
+	writeFile(t, claude, `{"mcpServers":{"foo":{"command":"foo-not-installed"}}}`)
+	store := &StateStore{Path: filepath.Join(home, ".rootly-cli", "mcp-state.json")}
+	manager := NewManager(ManagerOptions{CWD: project, Store: &Store{UserPath: filepath.Join(home, ".rootly-cli", "mcp.json"), CWD: project}, State: store, Discovery: &Discovery{Home: home, CWD: project}})
+	defer manager.Close()
+	_ = manager.Load()
+	if err := manager.Enable(manager.Views()[0].Server.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if status := manager.Views()[0].Status; status == StatusPending || status == StatusOff {
+		t.Fatalf("enabled global server should start, got %s", status)
+	}
+
+	writeFile(t, claude, `{"projects":{"`+project+`":{"mcpServers":{"foo":{"command":"foo-not-installed"}}}}}`)
+	_ = manager.Load()
+	view := manager.Views()[0]
+	if view.Server.Project == "" || view.Status != StatusPending {
+		t.Fatalf("same-named project server must need approval, got project=%q status=%s", view.Server.Project, view.Status)
+	}
+}
