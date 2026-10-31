@@ -51,6 +51,8 @@ type ServerView struct {
 	Status     Status
 	Detail     string
 	Tools      []ToolInfo
+	Prompts    []PromptInfo
+	Resources  []ResourceInfo
 	SessionOff bool
 }
 
@@ -78,6 +80,8 @@ type runtimeServer struct {
 	status     Status
 	detail     string
 	tools      []*sdk.Tool
+	prompts    []PromptInfo
+	resources  []ResourceInfo
 	session    *sdk.ClientSession
 	sessionOff bool
 	generation int
@@ -242,6 +246,13 @@ func (m *Manager) connectLocked(runtime *runtimeServer) {
 	server := runtime.server
 	go func() {
 		session, tools, status, detail := m.connect(ctx, server)
+		var prompts []PromptInfo
+		var resources []ResourceInfo
+		if session != nil {
+			discoverCtx, cancelDiscover := context.WithTimeout(ctx, server.Config.CallTimeout(connectTimeout))
+			prompts, resources = discoverExtras(discoverCtx, session)
+			cancelDiscover()
+		}
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		if runtime.generation != generation || m.closed {
@@ -251,6 +262,7 @@ func (m *Manager) connectLocked(runtime *runtimeServer) {
 			return
 		}
 		runtime.session, runtime.tools, runtime.status, runtime.detail = session, tools, status, detail
+		runtime.prompts, runtime.resources = prompts, resources
 		m.notify()
 	}()
 	m.notify()
@@ -268,6 +280,8 @@ func (r *runtimeServer) close() {
 		go func() { _ = session.Close() }()
 	}
 	r.tools = nil
+	r.prompts = nil
+	r.resources = nil
 }
 
 func (m *Manager) connect(ctx context.Context, server Server) (*sdk.ClientSession, []*sdk.Tool, Status, string) {
@@ -528,7 +542,7 @@ func (m *Manager) Views() []ServerView {
 	defer m.mu.Unlock()
 	views := make([]ServerView, 0, len(m.servers))
 	for _, runtime := range m.servers {
-		view := ServerView{Server: runtime.server, Status: runtime.status, Detail: runtime.detail, SessionOff: runtime.sessionOff}
+		view := ServerView{Server: runtime.server, Status: runtime.status, Detail: runtime.detail, SessionOff: runtime.sessionOff, Prompts: runtime.prompts, Resources: runtime.resources}
 		view.Tools = make([]ToolInfo, 0, len(runtime.tools))
 		for _, tool := range runtime.tools {
 			view.Tools = append(view.Tools, ToolInfo{Name: tool.Name, Description: tool.Description, ReadOnly: readOnly(tool)})
