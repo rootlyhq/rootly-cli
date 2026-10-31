@@ -423,7 +423,11 @@ func originOf(raw string) string {
 	if err != nil || parsed.Host == "" {
 		return ""
 	}
-	return strings.ToLower(parsed.Scheme + "://" + parsed.Host)
+	scheme, port := strings.ToLower(parsed.Scheme), parsed.Port()
+	if port == "" {
+		port = map[string]string{"http": "80", "https": "443"}[scheme]
+	}
+	return scheme + "://" + strings.ToLower(parsed.Hostname()) + ":" + port
 }
 
 func rejectCrossOriginRedirect(request *http.Request, via []*http.Request) error {
