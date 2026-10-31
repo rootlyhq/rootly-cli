@@ -415,6 +415,9 @@ func (m *TUIModel) handleMCPPageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "space", " ", "a", "l", "r":
 		row, ok := m.selectedMCPRow()
 		if ok && row.kind == mcpRowServer {
+			if row.view.Server.Scope == mcp.ScopeBuiltin && (key == "space" || key == " ") {
+				return m, nil
+			}
 			cmd := m.mcpAction(row.view, key)
 			return m, cmd
 		}

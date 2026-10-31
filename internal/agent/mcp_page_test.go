@@ -222,7 +222,31 @@ func TestBuiltinMCPPageTogglesOnlyWithSpace(t *testing.T) {
 	if len(manager.builtinToggles) != 0 {
 		t.Fatal("built-in tools should not expose the MCP approve action")
 	}
-	model.mcpAction(view, " ")
+	rows := model.mcpRows()
+	builtinRow := -1
+	for index, row := range rows {
+		if row.kind == mcpRowServer && row.view.Server.Scope == mcp.ScopeBuiltin {
+			builtinRow = index
+			break
+		}
+	}
+	if builtinRow < 0 {
+		t.Fatal("built-in group row was not present in the MCP list")
+	}
+	model.mcpPage.open = true
+	model.mcpPage.cursor = builtinRow
+	before := append([]mcp.BuiltinToolInfo(nil), manager.builtins...)
+	model.handleMCPPageKey(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	if len(manager.builtinToggles) != 0 {
+		t.Fatalf("space on the built-in list row toggled tools: %v", manager.builtinToggles)
+	}
+	for index, tool := range manager.builtins {
+		if tool.Enabled != before[index].Enabled {
+			t.Fatalf("space on the built-in list row changed %s", tool.Name)
+		}
+	}
+	model.handleMCPPageKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model.handleMCPPageKey(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if got := strings.Join(manager.builtinToggles, ","); got != "local_read_file:false" {
 		t.Fatalf("space toggle calls = %s", got)
 	}
