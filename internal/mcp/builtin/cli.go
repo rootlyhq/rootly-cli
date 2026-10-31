@@ -194,9 +194,14 @@ func sensitiveEnvironmentValues(environment []string) []string {
 	secrets := make([]string, 0)
 	for _, entry := range environment {
 		name, value, ok := strings.Cut(entry, "=")
-		if ok && sensitiveEnvironmentName.MatchString(name) && utf8.RuneCountInString(value) >= 8 {
-			secrets = append(secrets, value)
+		if !ok || !sensitiveEnvironmentName.MatchString(name) || utf8.RuneCountInString(value) < 4 {
+			continue
 		}
+		switch strings.ToLower(value) {
+		case "true", "false", "yes", "no", "none", "null":
+			continue
+		}
+		secrets = append(secrets, value)
 	}
 	return secrets
 }

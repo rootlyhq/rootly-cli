@@ -273,6 +273,35 @@ func TestBashRedactsSensitiveEnvironmentValues(t *testing.T) {
 	}
 }
 
+func TestBashRedactsShortSensitiveEnvironmentValues(t *testing.T) {
+	t.Setenv("DB_PASSWORD", "abc1")
+	t.Setenv("FEATURE_TOKEN_ENABLED", "true")
+	bash := mustLookup(t, testRegistry(t, t.TempDir(), nil), "local_bash")
+	result := bash.Run(context.Background(), map[string]any{
+		"command": `printf '%s\n' "$DB_PASSWORD" "$FEATURE_TOKEN_ENABLED"`,
+	})
+	if result.IsError {
+		t.Fatalf("bash command failed: %#v", result)
+	}
+	if strings.Contains(result.Output, "abc1") || !strings.Contains(result.Output, "[REDACTED]") {
+		t.Fatalf("short sensitive environment value was not redacted: %q", result.Output)
+	}
+	if !strings.Contains(result.Output, "true") {
+		t.Fatalf("common boolean value was redacted: %q", result.Output)
+	}
+}
+
+func TestSensitiveEnvironmentValuesSkipsCommonFlags(t *testing.T) {
+	for _, value := range []string{"true", "FALSE", "yes", "NO", "none", "NULL"} {
+		t.Run(value, func(t *testing.T) {
+			secrets := sensitiveEnvironmentValues([]string{"FEATURE_TOKEN_ENABLED=" + value})
+			if len(secrets) != 0 {
+				t.Fatalf("common flag value was marked sensitive: %#v", secrets)
+			}
+		})
+	}
+}
+
 func TestRunCommandRedactsBeforeOutputTruncation(t *testing.T) {
 	const secret = "supersecretvalue123"
 	t.Setenv("ROOTLY_TEST_TOKEN", secret)
