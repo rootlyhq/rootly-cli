@@ -50,7 +50,7 @@ func maskURL(raw string) string {
 // Origin is a one-line, secret-free description of where a server runs.
 func (c ServerConfig) Origin() string {
 	if c.Transport() == TransportStdio {
-		return strings.TrimSpace(c.Command + " " + strings.Join(c.Args, " "))
+		return strings.TrimSpace(c.Command + " " + strings.Join(maskArgs(c.Args), " "))
 	}
 	return maskURL(c.URL)
 }

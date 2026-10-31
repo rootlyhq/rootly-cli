@@ -206,3 +206,17 @@ func TestAddJSONAndImport(t *testing.T) {
 		t.Fatal("imported servers are read-only")
 	}
 }
+
+func TestListMasksSecretArgs(t *testing.T) {
+	setupEnv(t)
+	if out, err := run(t, "add", "-s", "user", "gh", "--", "gh-mcp", "--token=sk-live-123", "--api-key", "abc-456"); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	list, err := run(t, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(list, "sk-live-123") || strings.Contains(list, "abc-456") || !strings.Contains(list, "gh-mcp") {
+		t.Fatalf("list should mask secret args:\n%s", list)
+	}
+}
