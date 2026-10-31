@@ -59,6 +59,66 @@ func TestPrepareAssistantMarkdownLeavesInvalidMetricFence(t *testing.T) {
 	}
 }
 
+func TestPrepareAssistantMarkdownLeavesIndentedMetricFenceLiteral(t *testing.T) {
+	source := "    ```metric-chart\n" +
+		"    {\"type\":\"pie\",\"labels\":[\"SEV2\"],\"values\":[13]}\n" +
+		"    ```"
+	prepared, charts := prepareAssistantMarkdown(source, markdownOpts{width: 100})
+	if len(charts) != 0 || !strings.Contains(prepared, `{"type"`) {
+		t.Errorf("indented fence was converted to a chart: %q, %d charts", prepared, len(charts))
+	}
+}
+
+func TestPrepareAssistantMarkdownRendersStepAsVerticalTransitions(t *testing.T) {
+	source := "```metric-chart\n" +
+		`{"type":"step","label":"Incidents","unit":"count","labels":["a","b","c","d"],"values":[1,1,5,5]}` +
+		"\n```"
+	prepared, charts := prepareAssistantMarkdown(source, markdownOpts{width: 100, noColor: true})
+	got := expandAssistantMarkdownCharts(prepared, charts)
+	cornerColumns := make(map[int]struct{})
+	hasHorizontalRun := false
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "──") {
+			hasHorizontalRun = true
+		}
+		for column, character := range []rune(line) {
+			if strings.ContainsRune("╭╮╰╯", character) {
+				cornerColumns[column] = struct{}{}
+			}
+		}
+	}
+	if !hasHorizontalRun {
+		t.Errorf("step output has no horizontal plateau: %q", got)
+	}
+	if len(cornerColumns) != 1 {
+		t.Errorf("step transitions span %d columns, want one vertical jump: %q", len(cornerColumns), got)
+	}
+}
+
+func TestPrepareAssistantMarkdownUsesNumericDisplayFallback(t *testing.T) {
+	source := "```metric-chart\n" +
+		`{"type":"pie","labels":["SEV2","SEV3","SEV1"],"values":[13,11,1]}` +
+		"\n```"
+	prepared, charts := prepareAssistantMarkdown(source, markdownOpts{width: 100, noColor: true})
+	got := expandAssistantMarkdownCharts(prepared, charts)
+	for _, want := range []string{"13 · 52%", "11 · 44%", "1 · 4%"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output = %q, want numeric fallback %q", got, want)
+		}
+	}
+}
+
+func TestPrepareAssistantMarkdownLineChartLeavesNullGap(t *testing.T) {
+	source := "```metric-chart\n" +
+		`{"type":"line","labels":["a","b","c"],"values":[1,null,3]}` +
+		"\n```"
+	prepared, charts := prepareAssistantMarkdown(source, markdownOpts{width: 100, noColor: true})
+	got := expandAssistantMarkdownCharts(prepared, charts)
+	if !strings.Contains(got, "╴") || !strings.Contains(got, "╶") {
+		t.Errorf("line output has no separated null-gap endpoints: %q", got)
+	}
+}
+
 func TestRewriteDashboardLinks(t *testing.T) {
 	for _, test := range []struct {
 		name      string

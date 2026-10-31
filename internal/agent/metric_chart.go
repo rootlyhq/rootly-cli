@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -58,7 +59,7 @@ func prepareAssistantMarkdown(markdown string, opts markdownOpts) (string, []mar
 			continue
 		}
 
-		if strings.TrimSpace(line) == "```metric-chart" {
+		if isMetricChartFence(line) {
 			end := findMetricChartFenceEnd(lines, index+1)
 			if end < 0 {
 				if opts.streaming {
@@ -144,12 +145,17 @@ func renderMetricChart(source string, opts markdownOpts) ([]string, bool) {
 	case "bar":
 		return renderMetricBars(spec, opts, false), true
 	case "line", "step":
-		values := metricSeries(spec, spec.Type == "step")
-		if len(values) < 2 {
+		if metricValueCount(spec.Values) < 2 {
 			return renderMetricBars(spec, opts, false), true
 		}
 		width := clamp(opts.width-12, 20, 60)
-		graph := asciigraph.Plot(values, asciigraph.Height(8), asciigraph.Width(width))
+		values := metricSeries(spec, spec.Type == "step")
+		var graph string
+		if spec.Type == "step" {
+			graph = asciigraph.Plot(expandStepSeries(values, width), asciigraph.Height(8))
+		} else {
+			graph = asciigraph.Plot(values, asciigraph.Height(8), asciigraph.Width(width))
+		}
 		if !opts.noColor {
 			graph = lipgloss.NewStyle().Foreground(lipgloss.Color(metricChartColor)).Render(graph)
 		}
@@ -182,7 +188,7 @@ func renderMetricBars(spec metricChartSpec, opts markdownOpts, pie bool) []strin
 		if value == nil {
 			suffixes[index] = "–"
 		} else {
-			suffix := metricDisplay(spec.Displays, index)
+			suffix := metricDisplay(spec.Displays, index, *value)
 			if pie && sum > 0 {
 				suffix += fmt.Sprintf(" · %d%%", int(math.Round(*value/sum*100)))
 			}
@@ -222,6 +228,8 @@ func metricSeries(spec metricChartSpec, carryNulls bool) []float64 {
 		if value == nil {
 			if carryNulls && hasPrevious {
 				values = append(values, previous)
+			} else if !carryNulls {
+				values = append(values, math.NaN())
 			}
 			continue
 		}
@@ -230,6 +238,42 @@ func metricSeries(spec metricChartSpec, carryNulls bool) []float64 {
 		values = append(values, previous)
 	}
 	return values
+}
+
+func metricValueCount(values []*float64) int {
+	count := 0
+	for _, value := range values {
+		if value != nil {
+			count++
+		}
+	}
+	return count
+}
+
+func expandStepSeries(values []float64, width int) []float64 {
+	if len(values) == 0 {
+		return nil
+	}
+	width = max(1, width)
+	if len(values) > width {
+		source := values
+		values = make([]float64, width)
+		for index := range values {
+			position := 0
+			if width > 1 {
+				position = int(math.Round(float64(index) * float64(len(source)-1) / float64(width-1)))
+			}
+			values[index] = source[position]
+		}
+	}
+	repeats := max(1, (width+len(values)-1)/len(values))
+	expanded := make([]float64, 0, len(values)*repeats)
+	for _, value := range values {
+		for range repeats {
+			expanded = append(expanded, value)
+		}
+	}
+	return expanded[:min(width, len(expanded))]
 }
 
 func metricChartCaption(labels []string, width int, noColor bool) string {
@@ -262,9 +306,9 @@ func metricBar(ratio float64, width int) string {
 	return bar
 }
 
-func metricDisplay(displays []string, index int) string {
-	if index >= len(displays) {
-		return ""
+func metricDisplay(displays []string, index int, value float64) string {
+	if index >= len(displays) || strings.TrimSpace(displays[index]) == "" {
+		return strconv.FormatFloat(value, 'f', -1, 64)
 	}
 	return sanitizeTerminalText(displays[index])
 }
@@ -284,6 +328,13 @@ func findMetricChartFenceEnd(lines []string, start int) int {
 		}
 	}
 	return -1
+}
+
+func isMetricChartFence(line string) bool {
+	if _, ok := openingMarkdownFence(line); !ok {
+		return false
+	}
+	return strings.TrimSpace(strings.TrimLeft(line, " ")) == "```metric-chart"
 }
 
 func openingMarkdownFence(line string) (string, bool) {
