@@ -78,6 +78,10 @@ func TestTrailingBackslashEnterInsertsNewline(t *testing.T) {
 	if model.continueLine() {
 		t.Error("escaped backslash continued the line, want submit")
 	}
+	model.composer.SetValue(`path C:\\\`)
+	if !model.continueLine() || model.composer.Value() != "path C:\\\\\n" {
+		t.Errorf("three trailing backslashes = %q, want escaped pair plus newline", model.composer.Value())
+	}
 }
 
 func TestComposerOverflowShowsMoreLinesHint(t *testing.T) {
@@ -130,6 +134,25 @@ func TestBulletizeWideTablesOnlyWhenWiderThanTerminal(t *testing.T) {
 	}
 	if got := bulletizeWideTables("a | b\nnot a separator", 2); got != "a | b\nnot a separator" {
 		t.Errorf("non-table changed: %q", got)
+	}
+}
+
+func TestBulletizeWideTablesEdgeCases(t *testing.T) {
+	headerOnly := "| A very long header | Another very long header |\n|---|---|"
+	if got := bulletizeWideTables(headerOnly, 10); got != headerOnly {
+		t.Errorf("header-only table changed:\n%s", got)
+	}
+
+	escaped := "| Rule | Pattern | Owner |\n|---|---|---|\n| split | a \\| b | Platform team |"
+	want := "- **split** · Pattern: a | b · Owner: Platform team"
+	if got := bulletizeWideTables(escaped, 10); got != want {
+		t.Errorf("escaped pipe table =\n%s\nwant\n%s", got, want)
+	}
+
+	table := "| Service | Owner | Status |\n|---|---|---|\n| api | Platform team | degraded |"
+	longFence := "````md\n```\n" + table + "\n````"
+	if got := bulletizeWideTables(longFence, 10); got != longFence {
+		t.Errorf("table inside four-backtick fence changed:\n%s", got)
 	}
 }
 
