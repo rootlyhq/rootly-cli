@@ -135,6 +135,7 @@ func runCommand(ctx context.Context, root, command string, args []string, timeou
 	commandContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(commandContext, command, args...)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = root
 	environment := os.Environ()
 	cmd.Env = environment

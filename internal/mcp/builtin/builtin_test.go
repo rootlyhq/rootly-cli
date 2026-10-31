@@ -158,6 +158,25 @@ func TestShellTimeoutClampsSeconds(t *testing.T) {
 	}
 }
 
+func TestRunCommandWaitDelayForBackgroundedChild(t *testing.T) {
+	started := time.Now()
+	result := runCommand(
+		context.Background(),
+		t.TempDir(),
+		"bash",
+		[]string{"-c", "sleep 30 & echo hi"},
+		time.Second,
+		maxShellOutput,
+		"bash",
+	)
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("command took %s with a backgrounded child", elapsed)
+	}
+	if !strings.Contains(result.Output, "hi") {
+		t.Fatalf("backgrounded command output = %q, want it to include hi", result.Output)
+	}
+}
+
 func TestBashRedactsSensitiveEnvironmentValues(t *testing.T) {
 	const secret = "supersecretvalue123"
 	t.Setenv("ROOTLY_TEST_TOKEN", secret)
