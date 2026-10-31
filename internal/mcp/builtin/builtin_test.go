@@ -160,6 +160,31 @@ func TestFilesystemSearchUsesSymlinkPath(t *testing.T) {
 	if grep.Output != "alias.txt:1:needle" {
 		t.Fatalf("grep output = %q, want alias.txt:1:needle", grep.Output)
 	}
+	listing := mustLookup(t, registry, "local_list_dir").Run(context.Background(), map[string]any{})
+	if !strings.Contains(listing.Output, "alias.txt") {
+		t.Fatalf("directory listing omitted in-root symlink: %q", listing.Output)
+	}
+}
+
+func TestOpenRootFileRejectsSymlinkToOutsideParent(t *testing.T) {
+	rootPath := t.TempDir()
+	outsidePath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsidePath, "secret.txt"), []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePath, filepath.Join(rootPath, "parent")); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	file, err := openRootFile(root, filepath.Join("parent", "secret.txt"))
+	if err == nil {
+		_ = file.Close()
+		t.Fatal("rooted open succeeded through a symlink to an outside parent")
+	}
 }
 
 func TestGrepCapsMatchesWithinOneFile(t *testing.T) {

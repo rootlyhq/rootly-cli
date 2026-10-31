@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -43,16 +44,34 @@ func newReadFileTool(root string) Tool {
 			if deniedPath(resolved) {
 				return errorResult("path is denied")
 			}
-			info, err := os.Stat(resolved)
+			rootFS, err := os.OpenRoot(root)
+			if err != nil {
+				return errorResult("%v", err)
+			}
+			defer func() { _ = rootFS.Close() }()
+			relative, err := rootRelativePath(root, resolved)
+			if err != nil {
+				return errorResult("%v", err)
+			}
+			info, err := rootFS.Stat(relative)
 			if err != nil {
 				return errorResult("%v", err)
 			}
 			if !info.Mode().IsRegular() {
 				return errorResult("path is not a regular file")
 			}
-			file, err := os.Open(resolved)
+			file, err := openRootFile(rootFS, relative)
 			if err != nil {
 				return errorResult("%v", err)
+			}
+			fileInfo, statErr := file.Stat()
+			if statErr != nil {
+				_ = file.Close()
+				return errorResult("%v", statErr)
+			}
+			if !fileInfo.Mode().IsRegular() {
+				_ = file.Close()
+				return errorResult("path is not a regular file")
 			}
 			data, readErr := io.ReadAll(io.LimitReader(file, maxFileBytes+1))
 			closeErr := file.Close()
@@ -119,7 +138,16 @@ func newGrepTool(root string) Tool {
 			if deniedPath(start) {
 				return errorResult("path is denied")
 			}
-			info, err := os.Stat(start)
+			rootFS, err := os.OpenRoot(root)
+			if err != nil {
+				return errorResult("%v", err)
+			}
+			defer func() { _ = rootFS.Close() }()
+			startRelative, err := rootRelativePath(root, start)
+			if err != nil {
+				return errorResult("%v", err)
+			}
+			info, err := rootFS.Stat(startRelative)
 			if err != nil {
 				return errorResult("%v", err)
 			}
@@ -138,7 +166,7 @@ func newGrepTool(root string) Tool {
 				return errorResult("glob must be relative")
 			}
 			results := make([]string, 0, maxSearchItems)
-			err = walkFiles(ctx, root, start, func(filePath string) error {
+			err = walkFiles(ctx, root, rootFS, start, func(filePath, relative string) error {
 				if glob != "" && !globMatch(glob, relativeTo(start, filePath)) {
 					return nil
 				}
@@ -146,7 +174,7 @@ func newGrepTool(root string) Tool {
 					return errSearchLimit
 				}
 				remaining := maxSearchItems - len(results)
-				matches, scanErr := grepFile(filePath, expression, mode, relativeTo(root, filePath), remaining)
+				matches, scanErr := grepFile(rootFS, relative, expression, mode, relativeTo(root, filePath), remaining)
 				if scanErr != nil {
 					return nil
 				}
@@ -201,7 +229,16 @@ func newGlobTool(root string) Tool {
 			if deniedPath(start) {
 				return errorResult("path is denied")
 			}
-			info, err := os.Stat(start)
+			rootFS, err := os.OpenRoot(root)
+			if err != nil {
+				return errorResult("%v", err)
+			}
+			defer func() { _ = rootFS.Close() }()
+			startRelative, err := rootRelativePath(root, start)
+			if err != nil {
+				return errorResult("%v", err)
+			}
+			info, err := rootFS.Stat(startRelative)
 			if err != nil {
 				return errorResult("%v", err)
 			}
@@ -209,7 +246,7 @@ func newGlobTool(root string) Tool {
 				return errorResult("path is not a directory")
 			}
 			matches := make([]string, 0, maxSearchItems)
-			err = walkFiles(ctx, root, start, func(filePath string) error {
+			err = walkFiles(ctx, root, rootFS, start, func(filePath, _ string) error {
 				if globMatch(filepath.ToSlash(pattern), filepath.ToSlash(relativeTo(start, filePath))) {
 					matches = append(matches, filepath.ToSlash(relativeTo(start, filePath)))
 					if len(matches) >= maxSearchItems {
@@ -249,14 +286,35 @@ func newListDirTool(root string) Tool {
 			if deniedPath(resolved) {
 				return errorResult("path is denied")
 			}
-			entries, err := os.ReadDir(resolved)
+			rootFS, err := os.OpenRoot(root)
 			if err != nil {
 				return errorResult("%v", err)
+			}
+			defer func() { _ = rootFS.Close() }()
+			relative, err := rootRelativePath(root, resolved)
+			if err != nil {
+				return errorResult("%v", err)
+			}
+			directoryFile, err := rootFS.Open(relative)
+			if err != nil {
+				return errorResult("%v", err)
+			}
+			entries, readErr := directoryFile.ReadDir(-1)
+			closeErr := directoryFile.Close()
+			if readErr != nil {
+				return errorResult("%v", readErr)
+			}
+			if closeErr != nil {
+				return errorResult("%v", closeErr)
 			}
 			sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 			output := make([]string, 0, min(len(entries), maxDirEntries))
 			for _, entry := range entries {
 				entryPath := filepath.Join(resolved, entry.Name())
+				entryRelative := filepath.Join(relative, entry.Name())
+				if _, statErr := rootFS.Stat(entryRelative); statErr != nil {
+					continue
+				}
 				target, targetErr := filepath.EvalSymlinks(entryPath)
 				if entry.Name() == ".git" || deniedPath(entryPath) || targetErr != nil || !isWithin(root, target) || deniedPath(target) {
 					continue
@@ -306,6 +364,21 @@ func resolvePath(root, requested string) (string, error) {
 	return resolved, nil
 }
 
+func rootRelativePath(root, validatedPath string) (string, error) {
+	relative, err := filepath.Rel(root, validatedPath)
+	if err != nil {
+		return "", err
+	}
+	if filepath.IsAbs(relative) || escapesRoot(relative) {
+		return "", errors.New("path escapes the current working directory")
+	}
+	return filepath.Clean(relative), nil
+}
+
+func openRootFile(root *os.Root, relative string) (*os.File, error) {
+	return root.Open(relative)
+}
+
 func isWithin(root, candidate string) bool {
 	relative, err := filepath.Rel(root, candidate)
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)) && !filepath.IsAbs(relative)
@@ -340,37 +413,47 @@ func deniedPath(candidate string) bool {
 	return false
 }
 
-func walkFiles(ctx context.Context, root, start string, visit func(string) error) error {
-	return filepath.WalkDir(start, func(filePath string, entry os.DirEntry, walkErr error) error {
+func walkFiles(ctx context.Context, rootPath string, root *os.Root, start string, visit func(string, string) error) error {
+	startRelative, err := rootRelativePath(rootPath, start)
+	if err != nil {
+		return err
+	}
+	walkStart := filepath.ToSlash(startRelative)
+	return fs.WalkDir(root.FS(), walkStart, func(walkPath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if filePath != start && deniedPath(filePath) {
+		filePath := filepath.Join(rootPath, filepath.FromSlash(walkPath))
+		if walkPath != walkStart && deniedPath(filePath) {
 			if entry.IsDir() {
-				return filepath.SkipDir
+				return fs.SkipDir
 			}
 			return nil
 		}
 		resolved, err := filepath.EvalSymlinks(filePath)
-		if err != nil || !isWithin(root, resolved) || deniedPath(resolved) {
+		if err != nil || !isWithin(rootPath, resolved) || deniedPath(resolved) {
 			if entry.IsDir() {
-				return filepath.SkipDir
+				return fs.SkipDir
 			}
 			return nil
 		}
-		info, err := os.Stat(resolved)
+		relative, err := rootRelativePath(rootPath, filePath)
+		if err != nil {
+			return nil
+		}
+		info, err := root.Stat(relative)
 		if err != nil || !info.Mode().IsRegular() {
 			return nil
 		}
-		return visit(filePath)
+		return visit(filePath, relative)
 	})
 }
 
-func grepFile(filePath string, expression *regexp.Regexp, mode, displayPath string, maxMatches int) ([]string, error) {
-	file, err := os.Open(filePath)
+func grepFile(root *os.Root, relative string, expression *regexp.Regexp, mode, displayPath string, maxMatches int) ([]string, error) {
+	file, err := openRootFile(root, relative)
 	if err != nil {
 		return nil, err
 	}
