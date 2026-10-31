@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -12,6 +13,22 @@ func TestOriginMasksSecretArgs(t *testing.T) {
 	origin := ServerConfig{Command: "gh-mcp", Args: []string{"--token=sk-live", "--api-key", "abc", "serve"}}.Origin()
 	if strings.Contains(origin, "sk-live") || strings.Contains(origin, "abc") || !strings.Contains(origin, "serve") {
 		t.Fatalf("origin leaks secrets: %q", origin)
+	}
+}
+
+func TestMaskToolArgumentsRedactsCommandAndCLISecrets(t *testing.T) {
+	values := map[string]any{
+		"command": "export AWS_SECRET_ACCESS_KEY=aws-secret && gh --token 'cli-token'",
+		"args":    []any{"--api-key", "api-secret", "AWS_ACCESS_KEY_ID=access-secret"},
+	}
+	encoded, err := json.Marshal(MaskToolArguments(values))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"aws-secret", "cli-token", "api-secret", "access-secret"} {
+		if strings.Contains(string(encoded), secret) {
+			t.Errorf("masked arguments leaked %q: %s", secret, encoded)
+		}
 	}
 }
 

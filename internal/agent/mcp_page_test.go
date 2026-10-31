@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,14 +14,26 @@ import (
 
 type fakeMCPManager struct {
 	fakeLocalTools
-	views    []mcp.ServerView
-	toggled  []string
-	approved []string
-	problems []string
-	changes  chan struct{}
+	views          []mcp.ServerView
+	builtins       []mcp.BuiltinToolInfo
+	toggled        []string
+	approved       []string
+	builtinToggles []string
+	problems       []string
+	changes        chan struct{}
 }
 
-func (f *fakeMCPManager) Views() []mcp.ServerView  { return f.views }
+func (f *fakeMCPManager) Views() []mcp.ServerView             { return f.views }
+func (f *fakeMCPManager) BuiltinTools() []mcp.BuiltinToolInfo { return f.builtins }
+func (f *fakeMCPManager) SetBuiltinEnabled(name string, enabled bool) error {
+	f.builtinToggles = append(f.builtinToggles, fmt.Sprintf("%s:%t", name, enabled))
+	for index := range f.builtins {
+		if f.builtins[index].Name == name {
+			f.builtins[index].Enabled = enabled
+		}
+	}
+	return nil
+}
 func (f *fakeMCPManager) Changes() <-chan struct{} { return f.changes }
 func (f *fakeMCPManager) Problems() []string       { return f.problems }
 func (f *fakeMCPManager) Connecting() int          { return 0 }
@@ -191,5 +204,76 @@ func TestTUIClientToolWriteNeedsApproval(t *testing.T) {
 	}
 	if len(manager.calls) != 0 {
 		t.Fatal("declined tool must not run")
+	}
+}
+
+func TestBuiltinMCPPageTogglesOnlyWithSpace(t *testing.T) {
+	manager := &fakeMCPManager{
+		builtins: []mcp.BuiltinToolInfo{
+			{Name: "local_read_file", Description: "Read a file", ReadOnly: true, Enabled: true},
+			{Name: "local_bash", Description: "Run bash", Enabled: false},
+		},
+		changes: make(chan struct{}),
+	}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.refreshMCPViews()
+	view := &model.mcpPage.views[0]
+	model.mcpAction(view, "a")
+	if len(manager.builtinToggles) != 0 {
+		t.Fatal("built-in tools should not expose the MCP approve action")
+	}
+	model.mcpAction(view, " ")
+	if got := strings.Join(manager.builtinToggles, ","); got != "local_read_file:false" {
+		t.Fatalf("space toggle calls = %s", got)
+	}
+	if got := mcpStatusLabel(model.mcpPage.views[0]); got != "0/2 enabled" {
+		t.Fatalf("built-in summary status = %q", got)
+	}
+}
+
+func TestTUILocalToolDispatchSerializesWritesWithReadOnlyCalls(t *testing.T) {
+	manager := &fakeMCPManager{changes: make(chan struct{})}
+	manager.tools = map[string]mcp.ToolRef{
+		"local_read_one":  {ServerID: "builtin", ServerName: "Built-in", Tool: "read_one", ReadOnly: true},
+		"local_write_one": {ServerID: "builtin", ServerName: "Built-in", Tool: "write_one"},
+		"local_read_two":  {ServerID: "builtin", ServerName: "Built-in", Tool: "read_two", ReadOnly: true},
+	}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.turn = 1
+
+	readCommand := model.handleClientToolCall(&ClientToolCall{CallID: "read-1", Name: "local_read_one"})
+	if readCommand == nil || model.localReadOnlyRunning != 1 {
+		t.Fatal("read-only tool should start concurrently")
+	}
+	readDone, ok := readCommand().(localToolDoneMsg)
+	if !ok || !readDone.readOnly {
+		t.Fatalf("read-only completion = %#v", readDone)
+	}
+	_ = model.handleClientToolCall(&ClientToolCall{CallID: "write-1", Name: "local_write_one"})
+	_ = model.handleClientToolCall(&ClientToolCall{CallID: "read-2", Name: "local_read_two"})
+	if model.localConfirm != nil || len(model.localToolQueue) != 2 {
+		t.Fatal("write and subsequent read should wait behind the active read")
+	}
+	if cmd := model.handleLocalToolDone(readDone); cmd != nil {
+		t.Fatal("write confirmation should be presented before starting queued calls")
+	}
+	if model.localConfirm == nil || model.localConfirm.call.Name != "local_write_one" {
+		t.Fatal("queued write was not presented for approval after the read completed")
+	}
+	writeCommand := model.resolveLocalConfirmation(true)
+	writeDone, ok := writeCommand().(localToolDoneMsg)
+	if !ok || !writeDone.approval {
+		t.Fatalf("approved write completion = %#v", writeDone)
+	}
+	next := model.handleLocalToolDone(writeDone)
+	if next == nil {
+		t.Fatal("queued read-only call did not start after the approved write completed")
+	}
+	runCmd(model, next)
+	if got := strings.Join(manager.calls, ","); got != "local_read_one,local_write_one,local_read_two" {
+		t.Fatalf("local tool order = %s", got)
+	}
+	if model.localReadOnlyRunning != 0 || model.localApprovalRunning {
+		t.Fatal("local tool scheduler did not return to idle")
 	}
 }

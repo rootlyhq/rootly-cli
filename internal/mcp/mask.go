@@ -73,7 +73,10 @@ func MaskedPairs(values map[string]string, separator string) []string {
 	return pairs
 }
 
-var secretArgName = regexp.MustCompile(`(?i)(token|secret|password|passwd|api[-_]?key|apikey|auth|credential|bearer)`)
+var secretArgName = regexp.MustCompile(`(?i)(token|secret|password|passwd|api[-_]?key|apikey|auth|credential|bearer|access[-_]?key|private[-_]?key)`)
+var secretCommandArgument = regexp.MustCompile(`(?i)(--?[\w-]*(?:token|secret|password|passwd|api[-_]?key|apikey|auth|credential|access[-_]?key|private[-_]?key)[\w-]*(?:=|\s+)|\b[A-Z_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|ACCESS_KEY|PRIVATE_KEY)[A-Z_]*=)("[^"]*"|'[^']*'|[^\s;&|]+)`)
+var secretEnvironmentArgument = regexp.MustCompile(`(?i)^[A-Z_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|ACCESS_KEY|PRIVATE_KEY)[A-Z_]*=`)
+var bearerCommandValue = regexp.MustCompile(`(?i)\bBearer\s+[^\s"';&|]+`)
 
 // maskArgs hides values of secret-looking flags (--token=x, --api-key x)
 // and inline Bearer tokens.
@@ -88,6 +91,9 @@ func maskArgs(args []string) []string {
 		case hideNext:
 			masked[index] = Mask
 			hideNext = false
+		case secretEnvironmentArgument.MatchString(arg):
+			name, _, _ := strings.Cut(arg, "=")
+			masked[index] = name + "=" + Mask
 		case strings.HasPrefix(arg, "-") && strings.Contains(arg, "="):
 			name, _, _ := strings.Cut(arg, "=")
 			if secretArgName.MatchString(name) {
@@ -105,4 +111,64 @@ func maskArgs(args []string) []string {
 		}
 	}
 	return masked
+}
+
+func MaskCommandArgs(args []string) []string {
+	return maskArgs(args)
+}
+
+func MaskCommand(command string) string {
+	command = secretCommandArgument.ReplaceAllString(command, "$1"+Mask)
+	return bearerCommandValue.ReplaceAllString(command, "Bearer "+Mask)
+}
+
+func MaskToolArguments(args map[string]any) map[string]any {
+	if args == nil {
+		return nil
+	}
+	masked := make(map[string]any, len(args))
+	for key, value := range args {
+		masked[key] = maskToolArgument(key, value)
+	}
+	return masked
+}
+
+func maskToolArgument(key string, value any) any {
+	if secretArgName.MatchString(key) {
+		return Mask
+	}
+	switch item := value.(type) {
+	case map[string]any:
+		return MaskToolArguments(item)
+	case []string:
+		if key == "args" {
+			return maskArgs(item)
+		}
+		masked := make([]string, len(item))
+		for index, text := range item {
+			masked[index] = MaskCommand(text)
+		}
+		return masked
+	case []any:
+		if key == "args" {
+			args := make([]string, len(item))
+			for index, argument := range item {
+				if text, ok := argument.(string); ok {
+					args[index] = text
+					continue
+				}
+				args[index] = Mask
+			}
+			return maskArgs(args)
+		}
+		masked := make([]any, len(item))
+		for index, nested := range item {
+			masked[index] = maskToolArgument("", nested)
+		}
+		return masked
+	case string:
+		return MaskCommand(item)
+	default:
+		return value
+	}
 }

@@ -39,6 +39,11 @@ func (f *fakeLocalTools) Lookup(name string) (mcp.ToolRef, bool) {
 	return ref, ok
 }
 
+func (f *fakeLocalTools) NeedsApproval(name string, _ map[string]any) bool {
+	ref, ok := f.tools[name]
+	return !ok || !ref.ReadOnly
+}
+
 func (f *fakeLocalTools) Call(_ context.Context, name string, arguments map[string]any) mcp.CallResult {
 	f.mu.Lock()
 	defer f.mu.Unlock()

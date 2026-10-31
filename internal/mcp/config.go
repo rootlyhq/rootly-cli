@@ -24,6 +24,7 @@ const (
 	ScopeUser     = "user"
 	ScopeProject  = "project"
 	ScopeImported = "imported"
+	ScopeBuiltin  = "builtin"
 
 	userConfigFile    = "mcp.json"
 	projectConfigFile = ".mcp.json"

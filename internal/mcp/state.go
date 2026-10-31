@@ -20,9 +20,10 @@ type Approval struct {
 // State is rootly-owned MCP state: which imported servers are enabled and
 // which project .mcp.json servers were approved.
 type State struct {
-	EnabledImported []string   `json:"enabled_imported,omitempty"`
-	Disabled        []string   `json:"disabled,omitempty"`
-	Approvals       []Approval `json:"approvals,omitempty"`
+	EnabledImported []string        `json:"enabled_imported,omitempty"`
+	Disabled        []string        `json:"disabled,omitempty"`
+	Approvals       []Approval      `json:"approvals,omitempty"`
+	BuiltinTools    map[string]bool `json:"builtin_tools,omitempty"`
 }
 
 type StateStore struct {
@@ -108,6 +109,20 @@ func (state *State) SetEnabled(server Server, enabled bool) {
 		return
 	}
 	state.Disabled = setString(state.Disabled, server.ID(), !enabled)
+}
+
+func (state State) IsBuiltinEnabled(name string) bool {
+	if enabled, ok := state.BuiltinTools[name]; ok {
+		return enabled
+	}
+	return name != "local_bash"
+}
+
+func (state *State) SetBuiltinEnabled(name string, enabled bool) {
+	if state.BuiltinTools == nil {
+		state.BuiltinTools = make(map[string]bool)
+	}
+	state.BuiltinTools[name] = enabled
 }
 
 func containsString(values []string, value string) bool {

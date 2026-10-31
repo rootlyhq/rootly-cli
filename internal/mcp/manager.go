@@ -17,6 +17,8 @@ import (
 	"unicode/utf8"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/rootlyhq/rootly-cli/internal/mcp/builtin"
 )
 
 type Status string
@@ -29,6 +31,8 @@ const (
 	StatusNeedsAuth  Status = "auth"
 	StatusError      Status = "error"
 )
+
+const builtinServerID = "builtin"
 
 const (
 	MaxClientTools       = 64
@@ -43,6 +47,14 @@ type ToolInfo struct {
 	Name        string
 	Description string
 	ReadOnly    bool
+	Enabled     bool
+}
+
+type BuiltinToolInfo struct {
+	Name        string
+	Description string
+	ReadOnly    bool
+	Enabled     bool
 }
 
 type ServerView struct {
@@ -91,6 +103,7 @@ type ManagerOptions struct {
 	Discovery *Discovery
 	Version   string
 	Lookup    func(string) (string, bool)
+	LookPath  builtin.LookPathFunc
 }
 
 // Manager owns local MCP connections for one agent run.
@@ -99,13 +112,16 @@ type Manager struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 
-	mu       sync.Mutex
-	servers  []*runtimeServer
-	byID     map[string]*runtimeServer
-	toolRefs map[string]ToolRef
-	problems []string
-	changes  chan struct{}
-	closed   bool
+	mu             sync.Mutex
+	servers        []*runtimeServer
+	byID           map[string]*runtimeServer
+	toolRefs       map[string]ToolRef
+	builtins       *builtin.Registry
+	builtinEnabled map[string]bool
+	builtinErr     error
+	problems       []string
+	changes        chan struct{}
+	closed         bool
 }
 
 func NewManager(options ManagerOptions) *Manager {
@@ -125,8 +141,19 @@ func NewManager(options ManagerOptions) *Manager {
 	if options.Lookup == nil {
 		options.Lookup = os.LookupEnv
 	}
+	builtins, builtinErr := builtin.NewRegistry(options.CWD, options.LookPath)
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{options: options, ctx: ctx, cancel: cancel, byID: map[string]*runtimeServer{}, toolRefs: map[string]ToolRef{}, changes: make(chan struct{}, 1)}
+	return &Manager{
+		options:        options,
+		ctx:            ctx,
+		cancel:         cancel,
+		byID:           map[string]*runtimeServer{},
+		toolRefs:       map[string]ToolRef{},
+		builtins:       builtins,
+		builtinEnabled: map[string]bool{},
+		builtinErr:     builtinErr,
+		changes:        make(chan struct{}, 1),
+	}
 }
 
 // Changes signals (coalesced) whenever a server's status or tools change.
@@ -153,8 +180,15 @@ func (m *Manager) Load() error {
 	if err != nil {
 		m.problems = append(m.problems, err.Error())
 	}
+	if m.builtinErr != nil {
+		m.problems = append(m.problems, m.builtinErr.Error())
+	}
 	if stateErr != nil {
 		m.problems = append(m.problems, stateErr.Error())
+	}
+	m.builtinEnabled = make(map[string]bool, len(state.BuiltinTools))
+	for name, enabled := range state.BuiltinTools {
+		m.builtinEnabled[name] = enabled
 	}
 	for _, problem := range importProblems {
 		m.problems = append(m.problems, fmt.Sprintf("%s (%s): %v", problem.Source.Label, problem.Source.Path, problem.Err))
@@ -622,6 +656,41 @@ func (m *Manager) ClientTools() (advertised []ClientTool, omitted int) {
 	var tools []ClientTool
 	skipped := 0
 	total := 2
+	if m.builtins != nil {
+		builtinTools := m.builtins.Tools()
+		for _, tool := range builtinTools {
+			namer.Reserve(tool.Name())
+		}
+		for _, tool := range builtinTools {
+			if !m.builtinEnabledLocked(tool.Name()) {
+				continue
+			}
+			schema := tool.Schema()
+			if len(schema) > MaxSchemaBytes || len(tools) >= MaxClientTools {
+				skipped++
+				continue
+			}
+			candidate := ClientTool{
+				Name:        tool.Name(),
+				Description: truncateRunes(tool.Description(), maxDescriptionLength),
+				InputSchema: schema,
+				ReadOnly:    tool.AdvertisedReadOnly(),
+			}
+			encoded, err := json.Marshal(candidate)
+			if err != nil || total+len(encoded)+1 > MaxClientToolsBytes {
+				skipped++
+				continue
+			}
+			total += len(encoded) + 1
+			tools = append(tools, candidate)
+			refs[candidate.Name] = ToolRef{
+				ServerID:   builtinServerID,
+				ServerName: "Built-in",
+				Tool:       strings.TrimPrefix(candidate.Name, ClientToolPrefix),
+				ReadOnly:   candidate.ReadOnly,
+			}
+		}
+	}
 	for _, runtime := range m.servers {
 		if runtime.status != StatusConnected || runtime.sessionOff {
 			continue
@@ -702,10 +771,80 @@ func (m *Manager) Lookup(name string) (ToolRef, bool) {
 	return ref, ok
 }
 
+func (m *Manager) NeedsApproval(name string, args map[string]any) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ref, ok := m.toolRefs[name]
+	if !ok {
+		return true
+	}
+	if ref.ServerID != builtinServerID {
+		return !ref.ReadOnly
+	}
+	tool, ok := m.builtins.Lookup(name)
+	return !ok || !m.builtinEnabledLocked(name) || tool.NeedsApproval(args)
+}
+
+func (m *Manager) BuiltinTools() []BuiltinToolInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.builtins == nil {
+		return nil
+	}
+	tools := m.builtins.Tools()
+	result := make([]BuiltinToolInfo, 0, len(tools))
+	for _, tool := range tools {
+		result = append(result, BuiltinToolInfo{
+			Name:        tool.Name(),
+			Description: tool.Description(),
+			ReadOnly:    tool.AdvertisedReadOnly(),
+			Enabled:     m.builtinEnabledLocked(tool.Name()),
+		})
+	}
+	return result
+}
+
+func (m *Manager) SetBuiltinEnabled(name string, enabled bool) error {
+	if m.builtins == nil {
+		return errors.New("built-in tools are unavailable")
+	}
+	if _, ok := m.builtins.Lookup(name); !ok {
+		return fmt.Errorf("unknown built-in tool %q", name)
+	}
+	if err := m.options.State.Update(func(state *State) { state.SetBuiltinEnabled(name, enabled) }); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.builtinEnabled[name] = enabled
+	m.mu.Unlock()
+	m.notify()
+	return nil
+}
+
+func (m *Manager) builtinEnabledLocked(name string) bool {
+	if enabled, ok := m.builtinEnabled[name]; ok {
+		return enabled
+	}
+	return name != "local_bash"
+}
+
 // Call runs a client tool by its generated name.
 func (m *Manager) Call(ctx context.Context, name string, arguments map[string]any) CallResult {
 	m.mu.Lock()
 	ref, ok := m.toolRefs[name]
+	if ok && ref.ServerID == builtinServerID {
+		tool, found := m.builtins.Lookup(name)
+		enabled := m.builtinEnabledLocked(name)
+		m.mu.Unlock()
+		if !found {
+			return CallResult{Output: "Unknown built-in tool " + name, IsError: true}
+		}
+		if !enabled {
+			return CallResult{Output: "Built-in tool " + name + " is off", IsError: true}
+		}
+		result := tool.Run(ctx, arguments)
+		return CallResult{Output: TruncateOutput(result.Output), IsError: result.IsError}
+	}
 	var session *sdk.ClientSession
 	if ok {
 		if runtime := m.byID[ref.ServerID]; runtime != nil && !runtime.sessionOff {

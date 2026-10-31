@@ -21,6 +21,8 @@ const cloudConnectorPageSize = 25
 type MCPManager interface {
 	LocalTools
 	Views() []mcp.ServerView
+	BuiltinTools() []mcp.BuiltinToolInfo
+	SetBuiltinEnabled(string, bool) error
 	Problems() []string
 	Changes() <-chan struct{}
 	Connecting() int
@@ -123,6 +125,19 @@ func (m *TUIModel) refreshMCPViews() {
 		return
 	}
 	m.mcpPage.views = m.mcp.Views()
+	builtinTools := m.mcp.BuiltinTools()
+	if len(builtinTools) == 0 {
+		return
+	}
+	builtinView := mcp.ServerView{
+		Server: mcp.Server{Name: "Built-in", Scope: mcp.ScopeBuiltin, Path: "builtin"},
+		Status: mcp.StatusConnected,
+		Tools:  make([]mcp.ToolInfo, 0, len(builtinTools)),
+	}
+	for _, tool := range builtinTools {
+		builtinView.Tools = append(builtinView.Tools, mcp.ToolInfo(tool))
+	}
+	m.mcpPage.views = append([]mcp.ServerView{builtinView}, m.mcpPage.views...)
 }
 
 func (m *TUIModel) loadCloudConnectors(page int) tea.Cmd {
@@ -186,6 +201,7 @@ func (m *TUIModel) mcpRows() []mcpRow {
 		title  string
 		scopes []string
 	}{
+		{"Built-in", []string{mcp.ScopeBuiltin}},
 		{"Project MCPs", []string{mcp.ScopeProject, mcp.ScopeLocal}},
 		{"User MCPs (~/.rootly-cli/mcp.json)", []string{mcp.ScopeUser}},
 		{"Imported (read-only)", []string{mcp.ScopeImported}},
@@ -200,7 +216,7 @@ func (m *TUIModel) mcpRows() []mcpRow {
 		groupRows := []mcpRow{}
 		for index := range page.views {
 			view := &page.views[index]
-			if !containsString(group.scopes, view.Server.Scope) || !match(view.Server.Name) {
+			if !containsString(group.scopes, view.Server.Scope) || !matchesMCPView(view, match) {
 				continue
 			}
 			groupRows = append(groupRows, mcpRow{kind: mcpRowServer, view: view})
@@ -211,14 +227,32 @@ func (m *TUIModel) mcpRows() []mcpRow {
 		rows = append(rows, mcpRow{kind: mcpRowHeader, text: title})
 		if len(groupRows) == 0 {
 			hint := "None · rootly mcp add …"
-			if group.scopes[0] == mcp.ScopeImported {
+			switch group.scopes[0] {
+			case mcp.ScopeImported:
 				hint = "None found in Claude Code, Codex, Cursor, VS Code or Claude Desktop"
+			case mcp.ScopeBuiltin:
+				hint = "No built-in tools available"
 			}
 			rows = append(rows, mcpRow{kind: mcpRowNote, text: hint})
 		}
 		rows = append(rows, groupRows...)
 	}
 	return rows
+}
+
+func matchesMCPView(view *mcp.ServerView, match func(string) bool) bool {
+	if match(view.Server.Name) {
+		return true
+	}
+	if view.Server.Scope != mcp.ScopeBuiltin {
+		return false
+	}
+	for _, tool := range view.Tools {
+		if match(tool.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsString(values []string, value string) bool {
@@ -440,6 +474,12 @@ func (m *TUIModel) mcpAction(view *mcp.ServerView, key string) tea.Cmd {
 		return nil
 	}
 	page := &m.mcpPage
+	if view.Server.Scope == mcp.ScopeBuiltin {
+		if key == "space" || key == " " {
+			m.toggleBuiltinTool(view)
+		}
+		return nil
+	}
 	id := view.Server.ID()
 	name := sanitizeTerminalText(view.Server.Name)
 	var err error
@@ -475,6 +515,23 @@ func (m *TUIModel) mcpAction(view *mcp.ServerView, key string) tea.Cmd {
 	}
 	m.refreshMCPViews()
 	return nil
+}
+
+func (m *TUIModel) toggleBuiltinTool(view *mcp.ServerView) {
+	tools := m.detailTools(view)
+	if len(tools) == 0 || m.mcpPage.detailCursor >= len(tools) {
+		return
+	}
+	tool := tools[m.mcpPage.detailCursor]
+	enabled := !tool.Enabled
+	if err := m.mcp.SetBuiltinEnabled(tool.Name, enabled); err != nil {
+		m.mcpPage.message = sanitizeTerminalText(err.Error())
+	} else if enabled {
+		m.mcpPage.message = "Enabled " + sanitizeTerminalText(tool.Name)
+	} else {
+		m.mcpPage.message = "Disabled " + sanitizeTerminalText(tool.Name)
+	}
+	m.refreshMCPViews()
 }
 
 func (m *TUIModel) startMCPLogin(id string) tea.Cmd {
@@ -540,6 +597,15 @@ func (m *TUIModel) mcpListHeight() int {
 }
 
 func mcpStatusLabel(view mcp.ServerView) string {
+	if view.Server.Scope == mcp.ScopeBuiltin {
+		enabled := 0
+		for _, tool := range view.Tools {
+			if tool.Enabled {
+				enabled++
+			}
+		}
+		return fmt.Sprintf("%d/%d enabled", enabled, len(view.Tools))
+	}
 	if view.SessionOff {
 		return "○ off for this session"
 	}
@@ -591,6 +657,14 @@ func (m *TUIModel) mcpSummary() string {
 		}
 	}
 	for _, view := range m.mcpPage.views {
+		if view.Server.Scope == mcp.ScopeBuiltin {
+			for _, tool := range view.Tools {
+				if tool.Enabled {
+					tools++
+				}
+			}
+			continue
+		}
 		servers++
 		if view.Status == mcp.StatusConnected && !view.SessionOff {
 			tools += len(view.Tools)
@@ -666,6 +740,9 @@ func (m *TUIModel) renderMCPRow(row mcpRow, selected bool) string {
 		view := row.view
 		name := sanitizeTerminalText(view.Server.Name)
 		origin := sanitizeTerminalText(view.Server.Config.Masked().Origin())
+		if view.Server.Scope == mcp.ScopeBuiltin {
+			origin = "local tools"
+		}
 		if view.Server.Scope == mcp.ScopeImported {
 			origin += " · " + view.Server.SourceLabel
 		}
@@ -706,6 +783,9 @@ func (m *TUIModel) mcpDetailView() string {
 		return strings.Join(lines, "\n")
 	case view == nil:
 		return "This server is no longer configured.\n\n" + faint(m.noColor, "Esc back")
+	}
+	if view.Server.Scope == mcp.ScopeBuiltin {
+		return m.builtinDetailView(view, width, bold)
 	}
 	config := view.Server.Config.Masked()
 	source := displayHomePath(view.Server.Path)
@@ -757,13 +837,64 @@ func (m *TUIModel) mcpDetailView() string {
 		if tool.ReadOnly {
 			mark = "read-only"
 		}
-		description := strings.Join(strings.Fields(sanitizeTerminalText(tool.Description)), " ")
+		description := strings.Join(strings.Fields(sanitizeTerminalText(mcp.MaskCommand(tool.Description))), " ")
 		lines = append(lines, ansi.Truncate(prefix+padRight(sanitizeTerminalText(tool.Name), 32)+" "+padRight(mark, 10)+" "+faint(m.noColor, description), width, "…"))
 	}
 	if len(view.Tools) == 0 {
 		lines = append(lines, faint(m.noColor, "  No tools yet"))
 	}
 	footer := "↑/↓ move · / filter tools · Esc back"
+	if page.message != "" {
+		footer = sanitizeTerminalText(page.message)
+	}
+	lines = append(lines, "", faint(m.noColor, ansi.Truncate(footer, width, "…")))
+	return strings.Join(lines, "\n")
+}
+
+func (m *TUIModel) builtinDetailView(view *mcp.ServerView, width int, bold lipgloss.Style) string {
+	lines := []string{
+		m.mcpStyle(bold, "Built-in tools") + "  " + mcpStatusLabel(*view),
+		faint(m.noColor, "Filesystem access is confined to the current working directory."),
+		"",
+		"[space] enable/disable selected tool   [bash] always requires approval",
+	}
+	tools := m.detailTools(view)
+	header := fmt.Sprintf("Tools (%d)", len(view.Tools))
+	if m.mcpPage.detailFiltering || m.mcpPage.detailFilter != "" {
+		header += fmt.Sprintf(" · filter: %s%s · %d match", sanitizeTerminalText(m.mcpPage.detailFilter), map[bool]string{true: "▌", false: ""}[m.mcpPage.detailFiltering], len(tools))
+	}
+	lines = append(lines, m.mcpStyle(bold, header))
+	height := max(1, m.height-len(lines)-3)
+	page := &m.mcpPage
+	page.detailCursor = min(page.detailCursor, max(0, len(tools)-1))
+	if page.detailCursor < page.detailOffset {
+		page.detailOffset = page.detailCursor
+	}
+	if page.detailCursor >= page.detailOffset+height {
+		page.detailOffset = page.detailCursor - height + 1
+	}
+	page.detailOffset = max(0, min(page.detailOffset, max(0, len(tools)-height)))
+	end := min(len(tools), page.detailOffset+height)
+	for index := page.detailOffset; index < end; index++ {
+		tool := tools[index]
+		prefix := "  "
+		if index == page.detailCursor {
+			prefix = "❯ "
+		}
+		mark := "off"
+		if tool.Enabled {
+			mark = "enabled"
+		}
+		if tool.Name == "local_bash" {
+			mark += " · approval"
+		}
+		description := strings.Join(strings.Fields(sanitizeTerminalText(mcp.MaskCommand(tool.Description))), " ")
+		lines = append(lines, ansi.Truncate(prefix+padRight(sanitizeTerminalText(tool.Name), 32)+" "+padRight(mark, 16)+" "+faint(m.noColor, description), width, "…"))
+	}
+	if len(view.Tools) == 0 {
+		lines = append(lines, faint(m.noColor, "  No built-in tools available"))
+	}
+	footer := "↑/↓ move · space toggle · / filter tools · Esc back"
 	if page.message != "" {
 		footer = sanitizeTerminalText(page.message)
 	}
@@ -785,7 +916,8 @@ func (m *TUIModel) mcpStatusLine() string {
 	}
 	attention := 0
 	for _, view := range m.mcpPage.views {
-		if !view.SessionOff && (view.Status == mcp.StatusError || view.Status == mcp.StatusNeedsAuth || view.Status == mcp.StatusPending) {
+		if view.Server.Scope != mcp.ScopeBuiltin && !view.SessionOff &&
+			(view.Status == mcp.StatusError || view.Status == mcp.StatusNeedsAuth || view.Status == mcp.StatusPending) {
 			attention++
 		}
 	}
@@ -799,7 +931,7 @@ func (m *TUIModel) mcpStatusLine() string {
 	return faint(m.noColor, fmt.Sprintf("MCP · %d %s attention · /mcp", attention, noun))
 }
 
-func (m *TUIModel) updateLocalMCP(message tea.Msg) (cmd tea.Cmd, handled bool) {
+func (m *TUIModel) updateLocalMCP(message tea.Msg) (tea.Cmd, bool) {
 	switch msg := message.(type) {
 	case mcpChangedMsg:
 		m.refreshMCPViews()
@@ -811,11 +943,28 @@ func (m *TUIModel) updateLocalMCP(message tea.Msg) (cmd tea.Cmd, handled bool) {
 		return m.handleMCPLogin(msg), true
 	case localToolDoneMsg:
 		if msg.err != nil && msg.turn == m.turn {
+			cmd := m.handleLocalToolDone(msg)
+			if cmd != nil {
+				return tea.Batch(cmd, m.println(faint(m.noColor, sanitizeTerminalText(msg.err.Error())))), true
+			}
 			return m.println(faint(m.noColor, sanitizeTerminalText(msg.err.Error()))), true
 		}
-		return nil, true
+		return m.handleLocalToolDone(msg), true
 	}
 	return nil, false
+}
+
+func (m *TUIModel) handleLocalToolDone(msg localToolDoneMsg) tea.Cmd {
+	if msg.turn != m.turn {
+		return nil
+	}
+	if msg.approval {
+		m.localApprovalRunning = false
+	}
+	if msg.readOnly && m.localReadOnlyRunning > 0 {
+		m.localReadOnlyRunning--
+	}
+	return m.startNextLocalTool()
 }
 
 func (m *TUIModel) updateOtherMessage(message tea.Msg) (tea.Model, tea.Cmd) {
