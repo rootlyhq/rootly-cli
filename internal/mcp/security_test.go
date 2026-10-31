@@ -33,18 +33,34 @@ func TestMaskToolArgumentsRedactsCommandAndCLISecrets(t *testing.T) {
 }
 
 func TestMaskCommandKeepsShellCodeVisible(t *testing.T) {
-	const command = `export TOKEN="$(rm -rf ./data)"`
-	masked := MaskCommand(command)
-	if !strings.Contains(masked, "rm -rf ./data") {
-		t.Fatalf("masked command hid executable code: %q", masked)
+	for _, command := range []string{
+		`export TOKEN="$(rm -rf ./data)"`,
+		`export TOKEN="<(rm x)"`,
+		`export TOKEN=">(rm x)"`,
+	} {
+		masked := MaskCommand(command)
+		if !strings.Contains(masked, "rm ") {
+			t.Errorf("masked command hid executable code: %q", masked)
+		}
 	}
-	arguments := MaskToolArguments(map[string]any{"command": command})
-	if got := arguments["command"].(string); !strings.Contains(got, "rm -rf ./data") {
-		t.Fatalf("masked tool arguments hid executable code: %q", got)
+	toolArguments := MaskToolArguments(map[string]any{"command": `export TOKEN="$(rm -rf ./data)"`})
+	if got := toolArguments["command"].(string); strings.Contains(got, "rm -rf ./data") {
+		t.Fatalf("tool arguments bypassed command masking: %q", got)
 	}
 	secret := MaskCommand("export TOKEN=abc123secret")
 	if strings.Contains(secret, "abc123secret") || !strings.Contains(secret, Mask) {
 		t.Fatalf("ordinary secret was not masked: %q", secret)
+	}
+}
+
+func TestMaskingKeepsArgvSecretsMaskedRegardlessOfShellSyntax(t *testing.T) {
+	args := MaskCommandArgs([]string{"--password", "a$(b"})
+	if strings.Contains(strings.Join(args, " "), "a$(b") || args[1] != Mask {
+		t.Fatalf("argv secret was not masked: %#v", args)
+	}
+	toolArguments := MaskToolArguments(map[string]any{"password": "x${y}"})
+	if toolArguments["password"] != Mask {
+		t.Fatalf("tool argument secret was not masked: %#v", toolArguments)
 	}
 }
 

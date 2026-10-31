@@ -89,14 +89,8 @@ func maskArgs(args []string) []string {
 	for index, arg := range args {
 		switch {
 		case hideNext:
-			if containsShellCode(arg) {
-				masked[index] = arg
-			} else {
-				masked[index] = Mask
-			}
+			masked[index] = Mask
 			hideNext = false
-		case containsShellCode(arg):
-			masked[index] = arg
 		case secretEnvironmentArgument.MatchString(arg):
 			name, _, _ := strings.Cut(arg, "=")
 			masked[index] = name + "=" + Mask
@@ -124,15 +118,19 @@ func MaskCommandArgs(args []string) []string {
 }
 
 func MaskCommand(command string) string {
+	return maskCommand(command, true)
+}
+
+func maskCommand(command string, allowShellCode bool) string {
 	command = secretCommandArgument.ReplaceAllStringFunc(command, func(argument string) string {
 		parts := secretCommandArgument.FindStringSubmatch(argument)
-		if containsShellCode(parts[2]) {
+		if allowShellCode && containsShellCode(parts[2]) {
 			return argument
 		}
 		return parts[1] + Mask
 	})
 	return bearerCommandValue.ReplaceAllStringFunc(command, func(argument string) string {
-		if containsShellCode(argument) {
+		if allowShellCode && containsShellCode(argument) {
 			return argument
 		}
 		return "Bearer " + Mask
@@ -151,9 +149,6 @@ func MaskToolArguments(args map[string]any) map[string]any {
 }
 
 func maskToolArgument(key string, value any) any {
-	if text, ok := value.(string); ok && containsShellCode(text) {
-		return text
-	}
 	if secretArgName.MatchString(key) {
 		return Mask
 	}
@@ -166,7 +161,7 @@ func maskToolArgument(key string, value any) any {
 		}
 		masked := make([]string, len(item))
 		for index, text := range item {
-			masked[index] = MaskCommand(text)
+			masked[index] = maskCommand(text, false)
 		}
 		return masked
 	case []any:
@@ -187,12 +182,16 @@ func maskToolArgument(key string, value any) any {
 		}
 		return masked
 	case string:
-		return MaskCommand(item)
+		return maskCommand(item, false)
 	default:
 		return value
 	}
 }
 
 func containsShellCode(value string) bool {
-	return strings.Contains(value, "$(") || strings.ContainsRune(value, '`') || strings.Contains(value, "${")
+	return strings.Contains(value, "$(") ||
+		strings.Contains(value, "<(") ||
+		strings.Contains(value, ">(") ||
+		strings.ContainsRune(value, '`') ||
+		strings.Contains(value, "${")
 }
