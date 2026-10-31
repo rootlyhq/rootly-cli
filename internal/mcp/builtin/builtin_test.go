@@ -317,6 +317,10 @@ func TestCLIApprovalHeuristics(t *testing.T) {
 		want bool
 	}{
 		{bin: "aws", args: []string{"ec2", "describe-instances"}, want: false},
+		{bin: "aws", args: []string{"--profile", "get-prod", "ec2", "terminate-instances"}, want: true},
+		{bin: "aws", args: []string{"--region", "us-east-1", "ec2", "describe-instances"}, want: false},
+		{bin: "aws", args: []string{"--weird", "x", "ec2", "describe-instances"}, want: true},
+		{bin: "aws", args: []string{"--profile"}, want: true},
 		{bin: "aws", args: []string{"ec2", "delete-vpc"}, want: true},
 		{bin: "aws", args: []string{"secretsmanager", "get-secret-value"}, want: true},
 		{bin: "aws", args: []string{"ssm", "get-parameter"}, want: true},

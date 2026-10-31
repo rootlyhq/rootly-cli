@@ -273,10 +273,10 @@ func ghNeedsApproval(args []string) bool {
 }
 
 func awsNeedsApproval(args []string) bool {
-	if len(args) < 2 {
+	_, action, ok := awsServiceOperation(args)
+	if !ok {
 		return true
 	}
-	action := args[1]
 	for _, sensitive := range []string{"secret", "password", "token", "credential", "login", "key", "decrypt"} {
 		if strings.Contains(action, sensitive) {
 			return true
@@ -293,6 +293,56 @@ func awsNeedsApproval(args []string) bool {
 	return !strings.HasPrefix(action, "describe-") &&
 		!strings.HasPrefix(action, "list-") &&
 		!strings.HasPrefix(action, "get-")
+}
+
+func awsServiceOperation(args []string) (string, string, bool) {
+	positionals := make([]string, 0, 2)
+	for index := 0; index < len(args) && len(positionals) < 2; index++ {
+		arg := args[index]
+		if !strings.HasPrefix(arg, "-") {
+			positionals = append(positionals, arg)
+			continue
+		}
+		option, _, hasValue := strings.Cut(arg, "=")
+		if hasValue && awsValueOption(option) {
+			continue
+		}
+		if awsBooleanOption(arg) {
+			continue
+		}
+		if awsValueOption(arg) {
+			if index+1 >= len(args) {
+				return "", "", false
+			}
+			index++
+			continue
+		}
+		return "", "", false
+	}
+	if len(positionals) < 2 {
+		return "", "", false
+	}
+	return positionals[0], positionals[1], true
+}
+
+func awsValueOption(option string) bool {
+	switch option {
+	case "--profile", "--region", "--output", "--endpoint-url", "--query",
+		"--cli-read-timeout", "--cli-connect-timeout", "--ca-bundle", "--color",
+		"--cli-binary-format":
+		return true
+	default:
+		return false
+	}
+}
+
+func awsBooleanOption(option string) bool {
+	switch option {
+	case "--debug", "--no-verify-ssl", "--no-paginate", "--no-sign-request", "--no-cli-pager":
+		return true
+	default:
+		return false
+	}
 }
 
 func kubectlNeedsApproval(args []string) bool {
