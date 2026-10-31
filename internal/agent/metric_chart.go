@@ -154,7 +154,8 @@ func renderMetricChart(source string, opts markdownOpts) ([]string, bool) {
 		if spec.Type == "step" {
 			graph = asciigraph.Plot(expandStepSeries(values, width), asciigraph.Height(8))
 		} else {
-			graph = asciigraph.Plot(values, asciigraph.Height(8), asciigraph.Width(width))
+			series, plotWidth := fitLineSeries(values, width)
+			graph = asciigraph.Plot(series, asciigraph.Height(8), asciigraph.Width(plotWidth))
 		}
 		if !opts.noColor {
 			graph = lipgloss.NewStyle().Foreground(lipgloss.Color(metricChartColor)).Render(graph)
@@ -248,6 +249,33 @@ func metricValueCount(values []*float64) int {
 		}
 	}
 	return count
+}
+
+// fitLineSeries keeps every measurement on a plotted column: asciigraph's
+// interpolation only hits the original points when the plot width is
+// (n-1)*k+1, and longer series are bucketed by max so peaks survive.
+func fitLineSeries(values []float64, width int) (series []float64, plotWidth int) {
+	width = max(2, width)
+	if len(values) < 2 {
+		return values, max(1, len(values))
+	}
+	if len(values) <= width {
+		step := (width - 1) / (len(values) - 1)
+		return values, (len(values)-1)*step + 1
+	}
+	bucketed := make([]float64, width)
+	for index := range bucketed {
+		start := index * len(values) / width
+		end := max(start+1, (index+1)*len(values)/width)
+		peak := math.NaN()
+		for _, value := range values[start:end] {
+			if !math.IsNaN(value) && (math.IsNaN(peak) || value > peak) {
+				peak = value
+			}
+		}
+		bucketed[index] = peak
+	}
+	return bucketed, width
 }
 
 func expandStepSeries(values []float64, width int) []float64 {

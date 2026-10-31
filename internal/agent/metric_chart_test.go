@@ -2,6 +2,8 @@ package agent
 
 import (
 	"bytes"
+	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -257,5 +259,42 @@ func TestExpandStepSeriesKeepsEveryMeasurement(t *testing.T) {
 				t.Errorf("%d values at width %d: %d distinct measurements plotted", tc.count, tc.width, len(seen))
 			}
 		}
+	}
+}
+
+func TestLineChartKeepsPeakAtEveryWidth(t *testing.T) {
+	values := make([]string, 31)
+	for index := range values {
+		values[index] = "0"
+	}
+	for _, index := range []int{3, 11, 19, 27} {
+		values[index] = "1"
+	}
+	labels := make([]string, len(values))
+	for index := range labels {
+		labels[index] = fmt.Sprintf("%q", fmt.Sprintf("Oct %d", index+1))
+	}
+	source := fmt.Sprintf(`{"type":"line","labels":[%s],"values":[%s]}`, strings.Join(labels, ","), strings.Join(values, ","))
+	for _, width := range []int{139, 110, 70, 40} {
+		lines, ok := renderMetricChart(source, markdownOpts{width: width, noColor: true})
+		if !ok {
+			t.Fatalf("width %d: chart not rendered", width)
+		}
+		graph := strings.Join(lines, "\n")
+		if !strings.Contains(graph, "1.00") || strings.Contains(graph, "0.90") || strings.Contains(graph, "0.79") {
+			t.Errorf("width %d: peak not preserved:\n%s", width, graph)
+		}
+	}
+}
+
+func TestFitLineSeriesBucketsLongSeriesByPeak(t *testing.T) {
+	values := make([]float64, 90)
+	values[44] = 7
+	series, width := fitLineSeries(values, 30)
+	if width != 30 || len(series) != 30 {
+		t.Fatalf("got %d values at width %d, want 30", len(series), width)
+	}
+	if peak := slices.Max(series); peak != 7 {
+		t.Errorf("peak = %v, want 7", peak)
 	}
 }
