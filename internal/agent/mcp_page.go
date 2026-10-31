@@ -21,6 +21,7 @@ const cloudConnectorPageSize = 25
 type MCPManager interface {
 	LocalTools
 	Views() []mcp.ServerView
+	Problems() []string
 	Changes() <-chan struct{}
 	Connecting() int
 	ToggleSession(string) error
@@ -109,8 +110,8 @@ func (m *TUIModel) openMCPPage() tea.Cmd {
 	m.mcpPage.detail = ""
 	m.mcpPage.message = ""
 	m.refreshMCPViews()
-	if !m.mcpPage.cloudLoaded && !m.mcpPage.cloudLoading {
-		m.mcpPage.cloud = nil
+	if !m.mcpPage.cloudLoading {
+		m.mcpPage.cloud, m.mcpPage.cloudLoaded = nil, false
 		return m.loadCloudConnectors(1)
 	}
 	return nil
@@ -612,6 +613,11 @@ func (m *TUIModel) mcpPageView() string {
 	width := max(20, m.width-1)
 	bold := lipgloss.NewStyle().Bold(true)
 	lines := []string{m.mcpStyle(bold, "Manage MCP servers"), faint(m.noColor, m.mcpSummary()), ""}
+	if m.mcp != nil {
+		if problems := m.mcp.Problems(); len(problems) > 0 {
+			lines[1] += faint(m.noColor, " · ✘ config: "+sanitizeTerminalText(strings.Join(problems, "; ")))
+		}
+	}
 	if m.mcpPage.filtering || m.mcpPage.filter != "" {
 		lines[2] = "Filter: " + sanitizeTerminalText(m.mcpPage.filter) + map[bool]string{true: "▌", false: ""}[m.mcpPage.filtering]
 	}
@@ -739,6 +745,7 @@ func (m *TUIModel) mcpDetailView() string {
 	if page.detailCursor >= page.detailOffset+height {
 		page.detailOffset = page.detailCursor - height + 1
 	}
+	page.detailOffset = max(0, min(page.detailOffset, max(0, len(tools)-height)))
 	end := min(len(tools), page.detailOffset+height)
 	for index := page.detailOffset; index < end; index++ {
 		tool := tools[index]

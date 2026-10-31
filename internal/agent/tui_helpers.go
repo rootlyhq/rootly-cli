@@ -188,6 +188,7 @@ var builtinSkillSlugs = map[string]struct{}{
 	"exit": {}, "quit": {}, "new": {}, "clear": {}, "resume": {}, "sessions": {},
 	"rename": {}, "pin": {}, "unpin": {}, "archive": {}, "delete": {}, "copy": {},
 	"export": {}, "incident": {}, "alert": {}, "status": {}, "help": {}, "skills": {},
+	"mcp": {}, "connectors": {},
 }
 
 func isSkillInvocationToken(token string) bool {

@@ -16,11 +16,13 @@ type fakeMCPManager struct {
 	views    []mcp.ServerView
 	toggled  []string
 	approved []string
+	problems []string
 	changes  chan struct{}
 }
 
 func (f *fakeMCPManager) Views() []mcp.ServerView  { return f.views }
 func (f *fakeMCPManager) Changes() <-chan struct{} { return f.changes }
+func (f *fakeMCPManager) Problems() []string       { return f.problems }
 func (f *fakeMCPManager) Connecting() int          { return 0 }
 func (f *fakeMCPManager) Enable(string) error      { return nil }
 func (f *fakeMCPManager) Reconnect(string) error   { return nil }
@@ -107,8 +109,8 @@ func TestMCPPageOpensGroupsAndEscRestoresChat(t *testing.T) {
 	if after := model.View().Content; after != before {
 		t.Fatalf("chat changed after Esc:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
-	if len(connectors.pages) != 1 {
-		t.Fatalf("connectors should load once, pages = %v", connectors.pages)
+	if len(connectors.pages) != 2 || connectors.pages[1] != 1 {
+		t.Fatalf("each /mcp visit should refetch page 1, pages = %v", connectors.pages)
 	}
 }
 
