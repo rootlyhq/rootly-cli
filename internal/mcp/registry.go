@@ -351,3 +351,27 @@ func AddFromMarket(store *Store, states *StateStore, entry MarketEntry) (Server,
 	}
 	return server, nil
 }
+
+// LoadCatalog uses the cached index, refetching it when missing, stale or forced; on fetch failure it falls back to the cache or the curated list.
+func LoadCatalog(ctx context.Context, client *http.Client, registryURL, indexPath string, refresh bool, progress func(entries, pages int)) ([]MarketEntry, error) {
+	cached, indexedAt, cacheErr := LoadIndex(indexPath)
+	if !refresh && cacheErr == nil && time.Since(indexedAt) < IndexMaxAge {
+		return Catalog(cached), nil
+	}
+	fetched, err := FetchRegistry(ctx, client, registryURL, progress)
+	if err != nil {
+		return Catalog(cached), fmt.Errorf("could not refresh the MCP registry index: %w", err)
+	}
+	if err := SaveIndex(indexPath, fetched, time.Now()); err != nil {
+		return Catalog(fetched), fmt.Errorf("could not cache the MCP registry index: %w", err)
+	}
+	return Catalog(fetched), nil
+}
+
+// AddCommand is the equivalent `rootly mcp add` invocation for an entry.
+func AddCommand(entry MarketEntry) string {
+	if entry.Config.URL != "" {
+		return fmt.Sprintf("rootly mcp add -s user -t %s %s %s", entry.Config.Type, entry.Name, entry.Config.URL)
+	}
+	return strings.TrimSpace(fmt.Sprintf("rootly mcp add -s user %s -- %s", entry.Name, InstallLabel(entry)))
+}
