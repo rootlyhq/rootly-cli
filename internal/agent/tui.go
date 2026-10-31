@@ -56,6 +56,7 @@ type TUIOptions struct {
 	Alert        *api.Alert
 	MCP          MCPManager
 	ToolResults  ToolResultPoster
+	WorkingDir   string
 }
 
 type TUIAPI interface {
@@ -209,6 +210,10 @@ type TUIModel struct {
 	sentTools            int
 	toolsOffShown        bool
 	localConfirm         *localConfirmation
+	workingDir           string
+	terminalBlurred      bool
+	toolsOnShown         bool
+	mcpStartupReported   bool
 }
 
 type localConfirmation struct {
@@ -272,6 +277,7 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 		skillSuggestionCache: make(map[string][]rootly.AiSkill),
 		mcp:                  options.MCP,
 		toolResults:          options.ToolResults,
+		workingDir:           options.WorkingDir,
 	}
 	model.refreshMCPViews()
 	model.viewport = viewport.New()
@@ -296,7 +302,7 @@ func (m *TUIModel) Init() tea.Cmd {
 		cmds = append(cmds, m.welcomeBannerTick())
 	}
 	if watch := m.watchMCP(); watch != nil {
-		return tea.Batch(tea.Sequence(cmds...), watch)
+		return tea.Batch(tea.Sequence(cmds...), watch, mcpStartupCheck)
 	}
 	return tea.Sequence(cmds...)
 }
@@ -349,11 +355,7 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if title := normalizeSessionTitle(msg.sessionTitle); title != "" {
 			m.sessionTitle = title
 		}
-		if msg.err != nil {
-			cmd := m.println(faint(m.noColor, "Could not load session history: "+sanitizeTerminalText(msg.err.Error())))
-			return m, cmd
-		}
-		m.printHistory(msg.messages)
+		m.handleHistoryLoaded(msg)
 		return m, nil
 	case statusLoadedMsg:
 		if msg.request != m.statusRequest {
@@ -514,10 +516,7 @@ func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, m.waitForStream())
 	}
 	m.handleEvent(message.event)
-	if accepted := message.event.ClientToolsAccepted; accepted != nil && *accepted == 0 && m.sentTools > 0 && !m.toolsOffShown {
-		m.toolsOffShown = true
-		m.println(faint(m.noColor, localToolsOffMessage))
-	}
+	m.noteClientToolsAccepted(message.event.ClientToolsAccepted)
 	if message.event.Type == rootly.AiChatStreamEventError && message.event.Error != nil {
 		return m.finishTurn(errors.New(sanitizeTerminalText(message.event.Error.Message)))
 	}
@@ -530,7 +529,7 @@ func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
 
 func (m *TUIModel) handleEvent(event Event) {
 	for _, line := range m.activities.Handle(event) {
-		m.println(faint(m.noColor, sanitizeTerminalText(line)))
+		m.println(m.activityLine(line))
 	}
 	switch event.Type {
 	case rootly.AiChatStreamEventSessionID:
@@ -665,16 +664,16 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	m.state = tuiIdle
 	if err != nil {
 		for _, line := range m.activities.Finish(false) {
-			m.println(faint(m.noColor, line))
+			m.println(m.activityLine(line))
 		}
 	} else if m.doneStatus == "confirmation_required" {
 		m.activities.dropConfirmation()
 		for _, line := range m.activities.Finish(true) {
-			m.println(faint(m.noColor, line))
+			m.println(m.activityLine(line))
 		}
 	} else if m.doneStatus != "" {
 		for _, line := range m.activities.Finish(isSuccessfulDoneStatus(m.doneStatus)) {
-			m.println(faint(m.noColor, line))
+			m.println(m.activityLine(line))
 		}
 	}
 	var commands []tea.Cmd
@@ -960,6 +959,9 @@ func (m *TUIModel) handleConfirmationDecision(decision rootly.StreamAiChatParams
 }
 
 func (m *TUIModel) submit() tea.Cmd {
+	if m.continueLine() {
+		return nil
+	}
 	m.settleWelcomeAnimation()
 	message := strings.TrimSpace(m.composer.Value())
 	m.composer.Reset()
@@ -1201,6 +1203,7 @@ func (m *TUIModel) View() tea.View {
 	content := m.viewContent()
 	view := tea.NewView(content)
 	view.AltScreen = true
+	view.ReportFocus = true
 	return view
 }
 
@@ -1411,7 +1414,10 @@ func (m *TUIModel) footerContent() string {
 		hint += " · " + faint(m.noColor, "↓ new output · ctrl+end to jump")
 	}
 	hint = ansi.Truncate(hint, max(1, m.width-1), "")
-	footer := []string{rule, m.composer.View(), rule, faint(m.noColor, hint)}
+	footer := []string{rule, m.composerView(), rule, faint(m.noColor, hint)}
+	if hidden := m.composer.ScrollYOffset(); hidden > 0 {
+		footer = append([]string{faint(m.noColor, moreLinesHint(hidden))}, footer...)
+	}
 	if statusLine := m.streamingStatusLine(); statusLine != "" {
 		footer = append([]string{statusLine, ""}, footer...)
 	} else if mcpLine := m.mcpStatusLine(); mcpLine != "" {

@@ -37,7 +37,7 @@ func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
 		"       ▀█     ",
 		"Rootly AI",
 		"v1.2.3",
-		"Avery Rootly · Incident Response",
+		"Welcome back, Avery · Incident Response",
 		"api.rootly.com",
 		"New session",
 	} {
@@ -49,12 +49,23 @@ func TestWelcomeBannerIncludesVersionUserTeamAndHost(t *testing.T) {
 		t.Errorf("welcome banner = %q, want one leading v", banner)
 	}
 	bannerLines := strings.Split(strings.TrimSuffix(banner, "\n"), "\n")
-	if len(bannerLines) != welcomeLogoHeight {
-		t.Errorf("welcome banner rows = %d, want %d", len(bannerLines), welcomeLogoHeight)
+	textRows := strings.Split(model.welcomeTextRows(), "\n")
+	if len(bannerLines) != max(welcomeLogoHeight, len(textRows)) {
+		t.Errorf("welcome banner rows = %d, want %d", len(bannerLines), max(welcomeLogoHeight, len(textRows)))
+	}
+	logoStart := -1
+	for index, line := range bannerLines {
+		if strings.HasPrefix(line, welcomeLogoLines[0]) {
+			logoStart = index
+			break
+		}
+	}
+	if logoStart < 0 || logoStart+len(welcomeLogoLines) > len(bannerLines) {
+		t.Fatalf("welcome banner = %q, want the logo rows", banner)
 	}
 	for index, expected := range welcomeLogoLines {
-		if !strings.HasPrefix(bannerLines[index], expected) {
-			t.Errorf("welcome banner row %d = %q, want logo row %q at its start", index+1, bannerLines[index], expected)
+		if !strings.HasPrefix(bannerLines[logoStart+index], expected) {
+			t.Errorf("welcome banner row %d = %q, want logo row %q at its start", logoStart+index+1, bannerLines[logoStart+index], expected)
 		}
 	}
 	for index, line := range strings.Split(pulseLogo(true), "\n") {
@@ -98,7 +109,7 @@ func TestWelcomeBannerNoColorAndSanitizesUser(t *testing.T) {
 	if strings.Contains(banner, "\x1b") || model.welcomeAnimating {
 		t.Errorf("no-color welcome banner = %q, animating = %t", banner, model.welcomeAnimating)
 	}
-	if !strings.Contains(banner, "Avery Rootly") {
+	if !strings.Contains(banner, "Welcome back, Avery") {
 		t.Errorf("welcome banner = %q, want safe user name text", banner)
 	}
 }
@@ -367,11 +378,11 @@ func TestWelcomeHeaderContextUsesSessionBoundaryAndBinding(t *testing.T) {
 			options.NoColor = true
 			model := NewTUIModel(context.Background(), &fakeStreamer{}, options)
 			lines := strings.Split(model.welcomeTextRows(), "\n")
-			if len(lines) != 4 {
-				t.Fatalf("header text rows = %d, want four: %q", len(lines), lines)
+			if len(lines) < 4 {
+				t.Fatalf("header text rows = %d, want at least four: %q", len(lines), lines)
 			}
-			if lines[3] != test.want {
-				t.Errorf("header context = %q, want %q", lines[3], test.want)
+			if last := lines[len(lines)-1]; last != test.want {
+				t.Errorf("header context = %q, want %q", last, test.want)
 			}
 		})
 	}
@@ -381,8 +392,8 @@ func TestWelcomeHeaderOmitsLogoBelowFiftyColumns(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
 	model.width = 49
 	lines := strings.Split(strings.TrimSuffix(model.welcomeBanner(), "\n"), "\n")
-	if len(lines) != 4 {
-		t.Fatalf("narrow header rows = %d, want four: %q", len(lines), lines)
+	if len(lines) != len(strings.Split(model.welcomeTextRows(), "\n")) {
+		t.Fatalf("narrow header rows = %q, want only the text rows", lines)
 	}
 	if strings.Contains(strings.Join(lines, "\n"), "▄") {
 		t.Errorf("narrow header includes logo: %q", lines)

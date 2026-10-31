@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -140,6 +141,14 @@ func SetVersionInfo(v, c, d string) {
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
+}
+
+func exitCode(err error) int {
+	var coder interface{ ExitCode() int }
+	if errors.As(err, &coder) && coder.ExitCode() > 0 {
+		return coder.ExitCode()
+	}
+	return 1
 }

@@ -78,6 +78,9 @@ func TestPreflightAIFeatureFlag(t *testing.T) {
 				if got := aiagent.IsAIChatDisabled(err); got != test.wantAIChatDisabled {
 					t.Errorf("IsAIChatDisabled(error) = %v, want %v", got, test.wantAIChatDisabled)
 				}
+				if got, want := aiagent.IsNotAuthenticated(err), test.status == http.StatusUnauthorized; got != want {
+					t.Errorf("IsNotAuthenticated(error) = %v, want %v", got, want)
+				}
 				return
 			}
 			if err != nil {
@@ -428,4 +431,31 @@ func TestRunAgentTUITranscriptWriteErrorPrecedence(t *testing.T) {
 			t.Errorf("runAgentTUI() error = %v, want %v", err, uiWriteErr)
 		}
 	})
+}
+
+func TestPrintModeExitsTwoWhenNotAuthenticated(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	previousKey := viper.GetString("api_key")
+	viper.Set("api_key", "")
+	t.Cleanup(func() { viper.Set("api_key", previousKey) })
+	cmd := &cobra.Command{}
+	cmd.Flags().String("print", "", "")
+	if err := cmd.Flags().Set("print", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	cmd.SetContext(context.Background())
+	_, err := getAPIClient()
+	if !aiagent.IsNotAuthenticated(err) {
+		t.Fatalf("getAPIClient() error = %v, want not authenticated", err)
+	}
+	var coder interface{ ExitCode() int }
+	if !isPrintMode(cmd) {
+		t.Fatal("isPrintMode() = false with --print")
+	}
+	if wrapped := aiagent.PrintExitError(err); !errors.As(wrapped, &coder) || coder.ExitCode() != 2 {
+		t.Errorf("print exit error = %v, want exit code 2", wrapped)
+	}
+	if !strings.Contains(AgentCmd.Long, "2  not authenticated") {
+		t.Errorf("agent help = %q, want exit codes documented", AgentCmd.Long)
+	}
 }

@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -59,10 +61,13 @@ func (m *TUIModel) welcomeTextRows() string {
 	userLine := ""
 	if m.currentUser != nil {
 		attributes := m.currentUser.Data.Attributes
-		name := currentUserName(attributes)
+		name := currentUserFirstName(attributes)
 		team := currentUserTeamName(attributes)
 		if name == "" {
 			name = sanitizeTerminalText(attributes.Email)
+		}
+		if name != "" {
+			name = "Welcome back, " + name
 		}
 		if name != "" && team != "" {
 			name += " · " + team
@@ -76,7 +81,15 @@ func (m *TUIModel) welcomeTextRows() string {
 	}
 	hostLine := host
 	contextLine := m.sessionHeaderContext()
-	lines := []string{title, userLine, hostLine, contextLine}
+	lines := []string{title, userLine}
+	if dir := displayWorkingDir(m.workingDir); dir != "" {
+		lines = append(lines, dir)
+	}
+	lines = append(lines, hostLine)
+	if capability := m.welcomeCapabilityLine(); capability != "" {
+		lines = append(lines, capability)
+	}
+	lines = append(lines, contextLine)
 	for index := 1; index < len(lines); index++ {
 		line := lines[index]
 		line = sanitizeTerminalText(line)
@@ -120,6 +133,44 @@ func pulseLogo(noColor bool) string {
 		return logo
 	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color("#7C5CE6")).Render(logo)
+}
+
+const welcomeCapabilityText = "Ask me about incidents, alerts and on-call"
+
+func (m *TUIModel) welcomeCapabilityLine() string {
+	available := m.width
+	if m.width >= 50 {
+		available = m.width - welcomeLogoWidth - 2
+	}
+	if available <= 0 || ansi.StringWidth(welcomeCapabilityText) > available {
+		return ""
+	}
+	return welcomeCapabilityText
+}
+
+func displayWorkingDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if dir == home {
+			return "~"
+		}
+		if rest, ok := strings.CutPrefix(dir, home+string(os.PathSeparator)); ok {
+			return filepath.Join("~", rest)
+		}
+	}
+	return dir
+}
+
+func currentUserFirstName(attributes rootly.CurrentUser) string {
+	if first := strings.TrimSpace(attributes.FirstName.GetOrEmpty()); first != "" {
+		return sanitizeTerminalText(first)
+	}
+	if fields := strings.Fields(currentUserName(attributes)); len(fields) > 0 {
+		return fields[0]
+	}
+	return ""
 }
 
 func currentUserName(attributes rootly.CurrentUser) string {

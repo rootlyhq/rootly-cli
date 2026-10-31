@@ -95,7 +95,7 @@ func prepareAssistantMarkdown(markdown string, opts markdownOpts) (string, []mar
 		}
 	}
 
-	return strings.Join(prepared, "\n"), charts
+	return bulletizeWideTables(strings.Join(prepared, "\n"), opts.width), charts
 }
 
 func expandAssistantMarkdownCharts(markdown string, charts []markdownChart) string {

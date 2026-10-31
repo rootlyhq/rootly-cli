@@ -28,118 +28,136 @@ var AgentCmd = &cobra.Command{
 	Use:     "agent",
 	Aliases: []string{"chat"},
 	Short:   "Chat with Rootly AI",
-	Hidden:  true,
-	Args:    cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		prompt, _ := cmd.Flags().GetString("print")
-		stdin := cmd.InOrStdin()
-		resumeValue, _ := cmd.Flags().GetString("resume")
-		continueSession, _ := cmd.Flags().GetBool("continue")
-		incidentValue, _ := cmd.Flags().GetString("incident")
-		alertValue, _ := cmd.Flags().GetString("alert")
-		outputFormat, _ := cmd.Flags().GetString("output-format")
-		printMode := cmd.Flags().Changed("print") || !isTerminalReader(stdin)
-		if cmd.Flags().Changed("output-format") && !printMode {
-			return fmt.Errorf("--output-format is only valid with print or stdin mode")
-		}
-		if outputFormat != "text" && outputFormat != "json" && outputFormat != "stream-json" {
-			return fmt.Errorf("invalid output format %q (expected text, json, or stream-json)", outputFormat)
-		}
-		var (
-			uiWriter io.Writer
-			err      error
-		)
-		if !printMode {
-			uiWriter, err = agentUIWriter(cmd.OutOrStdout(), cmd.ErrOrStderr(), isTerminalWriter)
-			if err != nil {
-				return err
-			}
-		}
-		client, err := getAPIClient()
-		if err != nil {
-			return err
-		}
-		var sessionID *uuid.UUID
-		sessionTitle := ""
-		if resumeValue != "" {
-			id, parseErr := uuid.Parse(resumeValue)
-			if parseErr != nil {
-				return fmt.Errorf("invalid resume session UUID %q: %w", resumeValue, parseErr)
-			}
-			sessionID = &id
-		}
-		currentUser, err := preflightAI(cmd, client)
-		if err != nil {
-			return err
-		}
-		if continueSession {
-			id, title, err := latestSession(cmd.Context(), client)
-			if err != nil {
-				return aiagent.SanitizeTerminalError(err)
-			}
-			sessionID = &id
-			sessionTitle = title
-		}
-		var incident *api.Incident
-		if incidentValue != "" {
-			incident, err = client.GetIncidentByID(cmd.Context(), api.NormalizeIncidentID(incidentValue))
-			if err != nil {
-				return fmt.Errorf("incident not found: %w", aiagent.SanitizeTerminalError(err))
-			}
-		}
-		var boundAlert *api.Alert
-		if alertValue != "" {
-			boundAlert, err = client.GetAlertByID(cmd.Context(), alertValue)
-			if err != nil {
-				return fmt.Errorf("alert not found: %w", aiagent.SanitizeTerminalError(err))
-			}
-		}
-		manager := startLocalMCP(cmd)
-		defer manager.Close()
-		if printMode {
-			waitForLocalMCP(cmd.Context(), manager, 20*time.Second)
-			return aiagent.RunPrint(cmd.Context(), client, aiagent.PrintOptions{
-				Prompt:       prompt,
-				Stdin:        stdin,
-				Stdout:       cmd.OutOrStdout(),
-				Stderr:       cmd.ErrOrStderr(),
-				NoColor:      viper.GetBool("no-color"),
-				Quiet:        viper.GetBool("quiet"),
-				APIHost:      client.APIHost(),
-				SessionID:    sessionID,
-				OutputFormat: outputFormat,
-				Incident:     incident,
-				Alert:        boundAlert,
-				IsStdinTTY:   func() bool { return isTerminalReader(stdin) },
-				IsStdoutTTY:  func() bool { return isTerminalWriter(cmd.OutOrStdout()) },
-				IsStderrTTY:  func() bool { return isTerminalWriter(cmd.ErrOrStderr()) },
-				LocalTools:   manager,
-				ToolResults:  client,
-			})
-		}
+	Long: `Chat with Rootly AI.
 
-		noColor := viper.GetBool("no-color")
-		model := aiagent.NewTUIModel(cmd.Context(), client, aiagent.TUIOptions{
-			NoColor: noColor, Version: cmd.Root().Version, API: client, SessionID: sessionID, SessionTitle: sessionTitle,
-			APIHost: client.APIHost(), CurrentUser: currentUser,
-			Incident: incident, Alert: boundAlert,
-			MCP: manager, ToolResults: client,
-		})
-		options := []tea.ProgramOption{
-			tea.WithInput(stdin),
-			tea.WithOutput(uiWriter),
-			tea.WithContext(cmd.Context()),
+Print mode (-p, or piped stdin) exit codes:
+  0  success
+  1  error
+  2  not authenticated (run 'rootly login' or set ROOTLY_API_KEY)`,
+	Hidden: true,
+	Args:   cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		err := runAgent(cmd)
+		if isPrintMode(cmd) {
+			return aiagent.PrintExitError(err)
 		}
-		if noColor {
-			options = append(options, tea.WithColorProfile(colorprofile.Ascii))
-		}
-		noClear, _ := cmd.Flags().GetBool("no-clear")
-		if err := clearTerminalForAgent(uiWriter, !noClear, isTerminalWriter(uiWriter)); err != nil {
+		return err
+	},
+}
+
+func isPrintMode(cmd *cobra.Command) bool {
+	return cmd.Flags().Changed("print") || !isTerminalReader(cmd.InOrStdin())
+}
+
+func runAgent(cmd *cobra.Command) error {
+	prompt, _ := cmd.Flags().GetString("print")
+	stdin := cmd.InOrStdin()
+	resumeValue, _ := cmd.Flags().GetString("resume")
+	continueSession, _ := cmd.Flags().GetBool("continue")
+	incidentValue, _ := cmd.Flags().GetString("incident")
+	alertValue, _ := cmd.Flags().GetString("alert")
+	outputFormat, _ := cmd.Flags().GetString("output-format")
+	printMode := isPrintMode(cmd)
+	if cmd.Flags().Changed("output-format") && !printMode {
+		return fmt.Errorf("--output-format is only valid with print or stdin mode")
+	}
+	if outputFormat != "text" && outputFormat != "json" && outputFormat != "stream-json" {
+		return fmt.Errorf("invalid output format %q (expected text, json, or stream-json)", outputFormat)
+	}
+	var (
+		uiWriter io.Writer
+		err      error
+	)
+	if !printMode {
+		uiWriter, err = agentUIWriter(cmd.OutOrStdout(), cmd.ErrOrStderr(), isTerminalWriter)
+		if err != nil {
 			return err
 		}
-		program := tea.NewProgram(model, options...)
-		return runAgentTUI(cmd.OutOrStdout(), uiWriter, program.Run)
-	},
+	}
+	client, err := getAPIClient()
+	if err != nil {
+		return err
+	}
+	var sessionID *uuid.UUID
+	sessionTitle := ""
+	if resumeValue != "" {
+		id, parseErr := uuid.Parse(resumeValue)
+		if parseErr != nil {
+			return fmt.Errorf("invalid resume session UUID %q: %w", resumeValue, parseErr)
+		}
+		sessionID = &id
+	}
+	currentUser, err := preflightAI(cmd, client)
+	if err != nil {
+		return err
+	}
+	if continueSession {
+		id, title, err := latestSession(cmd.Context(), client)
+		if err != nil {
+			return aiagent.SanitizeTerminalError(err)
+		}
+		sessionID = &id
+		sessionTitle = title
+	}
+	var incident *api.Incident
+	if incidentValue != "" {
+		incident, err = client.GetIncidentByID(cmd.Context(), api.NormalizeIncidentID(incidentValue))
+		if err != nil {
+			return fmt.Errorf("incident not found: %w", aiagent.SanitizeTerminalError(err))
+		}
+	}
+	var boundAlert *api.Alert
+	if alertValue != "" {
+		boundAlert, err = client.GetAlertByID(cmd.Context(), alertValue)
+		if err != nil {
+			return fmt.Errorf("alert not found: %w", aiagent.SanitizeTerminalError(err))
+		}
+	}
+	manager := startLocalMCP(cmd)
+	defer manager.Close()
+	if printMode {
+		waitForLocalMCP(cmd.Context(), manager, 20*time.Second)
+		return aiagent.RunPrint(cmd.Context(), client, aiagent.PrintOptions{
+			Prompt:       prompt,
+			Stdin:        stdin,
+			Stdout:       cmd.OutOrStdout(),
+			Stderr:       cmd.ErrOrStderr(),
+			NoColor:      viper.GetBool("no-color"),
+			Quiet:        viper.GetBool("quiet"),
+			APIHost:      client.APIHost(),
+			SessionID:    sessionID,
+			OutputFormat: outputFormat,
+			Incident:     incident,
+			Alert:        boundAlert,
+			IsStdinTTY:   func() bool { return isTerminalReader(stdin) },
+			IsStdoutTTY:  func() bool { return isTerminalWriter(cmd.OutOrStdout()) },
+			IsStderrTTY:  func() bool { return isTerminalWriter(cmd.ErrOrStderr()) },
+			LocalTools:   manager,
+			ToolResults:  client,
+		})
+	}
+
+	noColor := viper.GetBool("no-color")
+	model := aiagent.NewTUIModel(cmd.Context(), client, aiagent.TUIOptions{
+		NoColor: noColor, Version: cmd.Root().Version, API: client, SessionID: sessionID, SessionTitle: sessionTitle,
+		APIHost: client.APIHost(), CurrentUser: currentUser, WorkingDir: agentWorkingDir(),
+		Incident: incident, Alert: boundAlert,
+		MCP: manager, ToolResults: client,
+	})
+	options := []tea.ProgramOption{
+		tea.WithInput(stdin),
+		tea.WithOutput(uiWriter),
+		tea.WithContext(cmd.Context()),
+	}
+	if noColor {
+		options = append(options, tea.WithColorProfile(colorprofile.Ascii))
+	}
+	noClear, _ := cmd.Flags().GetBool("no-clear")
+	if err := clearTerminalForAgent(uiWriter, !noClear, isTerminalWriter(uiWriter)); err != nil {
+		return err
+	}
+	program := tea.NewProgram(model, options...)
+	return runAgentTUI(cmd.OutOrStdout(), uiWriter, program.Run)
 }
 
 func init() {
@@ -215,7 +233,7 @@ func preflightAI(cmd *cobra.Command, client *api.Client) (*rootly.CurrentUserRes
 func getAPIClient() (*api.Client, error) {
 	token := viper.GetString("api_key")
 	if token == "" && !oauth.HasTokens() {
-		return nil, fmt.Errorf("authentication required: run 'rootly login' or set ROOTLY_API_KEY")
+		return nil, aiagent.NotAuthenticatedError("authentication required: run 'rootly login' or set ROOTLY_API_KEY")
 	}
 	endpoint := viper.GetString("api_host")
 	if endpoint == "" {
@@ -303,4 +321,12 @@ func waitForLocalMCP(ctx context.Context, manager *mcp.Manager, timeout time.Dur
 		case <-ticker.C:
 		}
 	}
+}
+
+func agentWorkingDir() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return dir
 }
