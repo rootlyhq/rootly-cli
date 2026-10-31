@@ -25,6 +25,7 @@ import (
 	rootly "github.com/rootlyhq/rootly-go"
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
+	"github.com/rootlyhq/rootly-cli/internal/mcp"
 	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
 
@@ -53,6 +54,8 @@ type TUIOptions struct {
 	CurrentUser  *rootly.CurrentUserResponse
 	Incident     *api.Incident
 	Alert        *api.Alert
+	MCP          MCPManager
+	ToolResults  ToolResultPoster
 }
 
 type TUIAPI interface {
@@ -199,6 +202,23 @@ type TUIModel struct {
 	skillSuggestionReq   int
 	skillSuggestionCache map[string][]rootly.AiSkill
 	skillsUnavailable    bool
+	mcp                  MCPManager
+	mcpPage              mcpPage
+	toolResults          ToolResultPoster
+	streamCtx            context.Context
+	sentTools            int
+	toolsOffShown        bool
+	localConfirm         *localConfirmation
+}
+
+type localConfirmation struct {
+	ref  mcp.ToolRef
+	call *ClientToolCall
+}
+
+type localToolDoneMsg struct {
+	turn int
+	err  error
 }
 
 func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TUIModel {
@@ -250,7 +270,10 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 		alert:                options.Alert,
 		historyIndex:         -1,
 		skillSuggestionCache: make(map[string][]rootly.AiSkill),
+		mcp:                  options.MCP,
+		toolResults:          options.ToolResults,
 	}
+	model.refreshMCPViews()
 	model.viewport = viewport.New()
 	model.viewport.SoftWrap = true
 	model.viewport.FillHeight = true
@@ -271,6 +294,9 @@ func (m *TUIModel) Init() tea.Cmd {
 	}
 	if m.welcomeAnimating {
 		cmds = append(cmds, m.welcomeBannerTick())
+	}
+	if watch := m.watchMCP(); watch != nil {
+		return tea.Batch(tea.Sequence(cmds...), watch)
 	}
 	return tea.Sequence(cmds...)
 }
@@ -389,7 +415,7 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.updateKey(msg)
 	default:
-		return m.updatePickerMessage(message)
+		return m.updateOtherMessage(message)
 	}
 	return m, nil
 }
@@ -483,7 +509,15 @@ func (m *TUIModel) updateStream(message streamMessage) (tea.Model, tea.Cmd) {
 		cmd := m.waitForStream()
 		return m, cmd
 	}
+	if message.event.Type == EventClientToolCall {
+		cmd := m.handleClientToolCall(message.event.ClientToolCall)
+		return m, tea.Batch(cmd, m.waitForStream())
+	}
 	m.handleEvent(message.event)
+	if accepted := message.event.ClientToolsAccepted; accepted != nil && *accepted == 0 && m.sentTools > 0 && !m.toolsOffShown {
+		m.toolsOffShown = true
+		m.println(faint(m.noColor, localToolsOffMessage))
+	}
 	if message.event.Type == rootly.AiChatStreamEventError && message.event.Error != nil {
 		return m.finishTurn(errors.New(sanitizeTerminalText(message.event.Error.Message)))
 	}
@@ -763,6 +797,9 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 	}
+	if m.mcpPage.open {
+		return m.handleMCPPageKey(msg)
+	}
 	if m.pickerOpen {
 		return m.handlePickerKey(msg)
 	}
@@ -781,11 +818,25 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.localConfirm != nil {
+		switch strings.ToLower(msg.String()) {
+		case "y":
+			cmd := m.resolveLocalConfirmation(true)
+			return m, cmd
+		case "n", "esc":
+			cmd := m.resolveLocalConfirmation(false)
+			return m, cmd
+		}
+		if msg.String() != "ctrl+c" {
+			return m, nil
+		}
+	}
 	if m.scrollViewportKey(msg) {
 		return m, nil
 	}
 	if msg.String() == "ctrl+c" {
 		if m.state == tuiStreaming {
+			m.localConfirm = nil
 			cmd := m.scrollback("Stopped locally. The server may still finish this turn and save it to the session.", lipgloss.NewStyle().Faint(true))
 			if m.cancel != nil {
 				m.cancel()
@@ -999,6 +1050,8 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 		return m.statusCommand()
 	case "/resume", "/sessions":
 		return m.openSessionPicker()
+	case "/mcp", "/connectors":
+		return m.openMCPPage()
 	case "/skills":
 		query := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(command), "/skills"))
 		return m.openSkillPicker(query)
@@ -1082,10 +1135,19 @@ func (m *TUIModel) beginStream(params *rootly.StreamAiChatParams) tea.Cmd {
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.cancel = cancel
 	stream := m.stream
+	m.streamCtx = ctx
+	m.localConfirm = nil
+	m.sentTools = 0
+	streamCtx := ctx
+	if m.mcp != nil {
+		tools, _ := m.mcp.ClientTools()
+		m.sentTools = len(tools)
+		streamCtx = api.WithClientTools(ctx, tools)
+	}
 
 	go func() {
 		defer close(stream)
-		err := StreamTurn(ctx, m.streamer, params, func(event Event) bool {
+		err := StreamTurn(streamCtx, m.streamer, params, func(event Event) bool {
 			select {
 			case stream <- streamMessage{event: event, turn: turn}:
 				return true
@@ -1145,6 +1207,9 @@ func (m *TUIModel) View() tea.View {
 func (m *TUIModel) viewContent() string {
 	if m.quitting {
 		return ""
+	}
+	if m.mcpPage.open {
+		return m.mcpPageView()
 	}
 	if m.pickerOpen {
 		return m.sessionPicker.View()
@@ -1290,6 +1355,9 @@ func (m *TUIModel) liveSection() string {
 		if strings.TrimSpace(markdown) != "" {
 			sections = append(sections, m.renderLiveAssistantAnswerPart(markdown, m.committedOffset == 0))
 		}
+		if m.localConfirm != nil {
+			sections = append(sections, renderLocalToolCard(m.localConfirm.ref, m.localConfirm.call, m.width, m.noColor))
+		}
 	case tuiConfirming:
 		if m.pending != nil {
 			sections = append(sections, renderConfirmationCard(m.pending, m.width, m.noColor, m.now()))
@@ -1346,6 +1414,8 @@ func (m *TUIModel) footerContent() string {
 	footer := []string{rule, m.composer.View(), rule, faint(m.noColor, hint)}
 	if statusLine := m.streamingStatusLine(); statusLine != "" {
 		footer = append([]string{statusLine, ""}, footer...)
+	} else if mcpLine := m.mcpStatusLine(); mcpLine != "" {
+		footer = append([]string{ansi.Truncate(mcpLine, max(1, m.width-1), "")}, footer...)
 	}
 	return strings.Join(footer, "\n")
 }
@@ -1478,4 +1548,60 @@ func (m *TUIModel) renderMarkdown(markdown string, width int, streaming bool) st
 		m.renderCount++
 	}
 	return m.rendered
+}
+
+func (m *TUIModel) handleClientToolCall(call *ClientToolCall) tea.Cmd {
+	if call == nil {
+		return nil
+	}
+	var tools LocalTools
+	if m.mcp != nil {
+		tools = m.mcp
+	}
+	ref, known := resolveLocalCall(tools, call)
+	if !known {
+		return m.runClientTool(call, false)
+	}
+	m.println(faint(m.noColor, localToolActivity(ref)))
+	if ref.ReadOnly {
+		return m.runClientTool(call, false)
+	}
+	m.localConfirm = &localConfirmation{ref: ref, call: call}
+	return nil
+}
+
+func (m *TUIModel) resolveLocalConfirmation(approved bool) tea.Cmd {
+	pending := m.localConfirm
+	m.localConfirm = nil
+	if pending == nil {
+		return nil
+	}
+	if !approved {
+		m.println(faint(m.noColor, "Declined local tool "+sanitizeTerminalText(pending.ref.ServerName)+" · "+sanitizeTerminalText(pending.ref.Tool)))
+	}
+	return m.runClientTool(pending.call, !approved)
+}
+
+func (m *TUIModel) runClientTool(call *ClientToolCall, declined bool) tea.Cmd {
+	var tools LocalTools
+	if m.mcp != nil {
+		tools = m.mcp
+	}
+	poster := m.toolResults
+	ctx := m.streamCtx
+	if ctx == nil {
+		ctx = m.ctx
+	}
+	turn := m.turn
+	sessionID := ""
+	if m.sessionID != nil {
+		sessionID = m.sessionID.String()
+	}
+	return func() tea.Msg {
+		result := mcp.CallResult{Output: userDeclinedOutput, IsError: true}
+		if !declined {
+			result = runLocalCall(ctx, tools, call)
+		}
+		return localToolDoneMsg{turn: turn, err: postLocalResult(ctx, poster, sessionID, call, result)}
+	}
 }

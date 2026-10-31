@@ -957,7 +957,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 }
 
 func (c *Client) StreamAiChatEvents(ctx context.Context, params *rootly.StreamAiChatParams) (iter.Seq2[rootly.AiChatStreamEvent, error], error) {
-	return c.raw.StreamAiChatEvents(ctx, params)
+	return c.streamAiChatEvents(ctx, params)
 }
 
 // ensureScheme adds a scheme if missing, using http for localhost/127.0.0.1.

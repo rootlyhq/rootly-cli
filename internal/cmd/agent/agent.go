@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
@@ -19,6 +20,7 @@ import (
 	aiagent "github.com/rootlyhq/rootly-cli/internal/agent"
 	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/config"
+	"github.com/rootlyhq/rootly-cli/internal/mcp"
 	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
 
@@ -92,7 +94,10 @@ var AgentCmd = &cobra.Command{
 				return fmt.Errorf("alert not found: %w", aiagent.SanitizeTerminalError(err))
 			}
 		}
+		manager := startLocalMCP(cmd)
+		defer manager.Close()
 		if printMode {
+			waitForLocalMCP(cmd.Context(), manager, 20*time.Second)
 			return aiagent.RunPrint(cmd.Context(), client, aiagent.PrintOptions{
 				Prompt:       prompt,
 				Stdin:        stdin,
@@ -108,6 +113,8 @@ var AgentCmd = &cobra.Command{
 				IsStdinTTY:   func() bool { return isTerminalReader(stdin) },
 				IsStdoutTTY:  func() bool { return isTerminalWriter(cmd.OutOrStdout()) },
 				IsStderrTTY:  func() bool { return isTerminalWriter(cmd.ErrOrStderr()) },
+				LocalTools:   manager,
+				ToolResults:  client,
 			})
 		}
 
@@ -116,6 +123,7 @@ var AgentCmd = &cobra.Command{
 			NoColor: noColor, Version: cmd.Root().Version, API: client, SessionID: sessionID, SessionTitle: sessionTitle,
 			APIHost: client.APIHost(), CurrentUser: currentUser,
 			Incident: incident, Alert: boundAlert,
+			MCP: manager, ToolResults: client,
 		})
 		options := []tea.ProgramOption{
 			tea.WithInput(stdin),
@@ -266,4 +274,33 @@ func clearTerminalForAgent(writer io.Writer, enabled, terminal bool) error {
 	}
 	_, err := io.WriteString(writer, "\x1b[2J\x1b[3J\x1b[H")
 	return err
+}
+
+func startLocalMCP(cmd *cobra.Command) *mcp.Manager {
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
+	}
+	manager := mcp.NewManager(mcp.ManagerOptions{CWD: cwd, Version: cmd.Root().Version})
+	if err := manager.Load(); err != nil && !viper.GetBool("quiet") {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), aiagent.SanitizeTerminalError(fmt.Errorf("local MCP config: %w", err)))
+	}
+	manager.Start()
+	return manager
+}
+
+func waitForLocalMCP(ctx context.Context, manager *mcp.Manager, timeout time.Duration) {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for manager.Connecting() > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-deadline.C:
+			return
+		case <-ticker.C:
+		}
+	}
 }

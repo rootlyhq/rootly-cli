@@ -188,6 +188,7 @@ var builtinSkillSlugs = map[string]struct{}{
 	"exit": {}, "quit": {}, "new": {}, "clear": {}, "resume": {}, "sessions": {},
 	"rename": {}, "pin": {}, "unpin": {}, "archive": {}, "delete": {}, "copy": {},
 	"export": {}, "incident": {}, "alert": {}, "status": {}, "help": {}, "skills": {},
+	"mcp": {}, "connectors": {},
 }
 
 func isSkillInvocationToken(token string) bool {
@@ -456,6 +457,7 @@ func (m *TUIModel) helpView() string {
 		"/new, /clear: start a new session\n" +
 		"/resume, /sessions: choose a session\n" +
 		"/skills [query]: browse skills\n" +
+		"/mcp, /connectors: manage MCP servers\n" +
 		"/rename [title]: rename or reset title\n" +
 		"/pin, /unpin: change pinned state\n" +
 		"/archive: archive this session\n" +
@@ -977,7 +979,8 @@ func (m *TUIModel) refreshCommandMenu() tea.Cmd {
 		{command: "/exit", description: "exit chat"}, {command: "/quit", description: "exit chat"},
 		{command: "/new", description: "new session"}, {command: "/clear", description: "new session"},
 		{command: "/resume", description: "choose a session"}, {command: "/sessions", description: "browse sessions"},
-		{command: "/skills", description: "browse skills"}, {command: "/rename", description: "rename session"},
+		{command: "/skills", description: "browse skills"}, {command: "/mcp", description: "manage MCP servers"},
+		{command: "/connectors", description: "manage MCP servers"}, {command: "/rename", description: "rename session"},
 		{command: "/pin", description: "pin session"}, {command: "/unpin", description: "unpin session"},
 		{command: "/archive", description: "archive session"}, {command: "/delete", description: "delete session"},
 		{command: "/copy", description: "copy last answer"}, {command: "/export", description: "export transcript"},
