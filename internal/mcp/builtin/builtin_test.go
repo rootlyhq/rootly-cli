@@ -329,6 +329,8 @@ func TestCLIApprovalHeuristics(t *testing.T) {
 		{bin: "aws", args: []string{"kms", "decrypt"}, want: true},
 		{bin: "aws", args: []string{"ec2", "describe-instances", "--with-decryption"}, want: true},
 		{bin: "kubectl", args: []string{"get", "pods"}, want: false},
+		{bin: "kubectl", args: []string{"get", "pods", "--kubeconfig"}, want: true},
+		{bin: "kubectl", args: []string{"get", "pods", "--kubeconfig=/tmp/config"}, want: true},
 		{bin: "kubectl", args: []string{"delete", "pod", "api"}, want: true},
 		{bin: "kubectl", args: []string{"get", "secrets"}, want: true},
 		{bin: "kubectl", args: []string{"get", "pods,secrets"}, want: true},
@@ -359,6 +361,28 @@ func TestCLIApprovalHeuristics(t *testing.T) {
 				t.Fatalf("cliNeedsApproval(%q, %v) = %t, want %t", test.bin, test.args, got, test.want)
 			}
 		})
+	}
+}
+
+func TestKubectlKubeconfigInsideRootNeedsApproval(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config")
+	if err := os.WriteFile(configPath, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsidePath := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(outsidePath, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", strings.Join([]string{outsidePath, configPath}, string(os.PathListSeparator)))
+	kubectl := newCLITool(root, cliSpec{bin: "kubectl"}, func(string) (string, error) { return "", errors.New("unused") })
+	args := map[string]any{"args": []any{"get", "pods"}}
+	if !kubectl.NeedsApproval(args) {
+		t.Fatal("KUBECONFIG entry inside the working directory must require approval")
+	}
+	t.Setenv("KUBECONFIG", "")
+	if kubectl.NeedsApproval(args) {
+		t.Fatal("plain kubectl get pods should not require approval")
 	}
 }
 

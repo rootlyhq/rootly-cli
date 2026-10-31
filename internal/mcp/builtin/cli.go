@@ -62,7 +62,8 @@ func newCLITool(root string, spec cliSpec, lookPath LookPathFunc) Tool {
 		readOnly:    false,
 		needsApproval: func(args map[string]any) bool {
 			values, ok := stringSliceArg(args, "args")
-			return !ok || cliNeedsApproval(spec.bin, values)
+			return !ok || cliNeedsApproval(spec.bin, values) ||
+				(spec.bin == "kubectl" && kubectlKubeconfigInsideRoot(root))
 		},
 		run: func(ctx context.Context, args map[string]any) Result {
 			values, ok := stringSliceArg(args, "args")
@@ -346,6 +347,11 @@ func awsBooleanOption(option string) bool {
 }
 
 func kubectlNeedsApproval(args []string) bool {
+	for _, arg := range args {
+		if arg == "--kubeconfig" || strings.HasPrefix(arg, "--kubeconfig=") {
+			return true
+		}
+	}
 	if len(args) == 0 || !containsCommand(args[0], "get", "describe", "logs") {
 		return true
 	}
@@ -356,6 +362,34 @@ func kubectlNeedsApproval(args []string) bool {
 			strings.HasPrefix(arg, "-k") ||
 			strings.HasPrefix(arg, "--kustomize") ||
 			strings.HasPrefix(arg, "--raw") {
+			return true
+		}
+	}
+	return false
+}
+
+func kubectlKubeconfigInsideRoot(root string) bool {
+	rootPath, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	rootPath, err = filepath.EvalSymlinks(rootPath)
+	if err != nil {
+		return false
+	}
+	for _, configPath := range filepath.SplitList(os.Getenv("KUBECONFIG")) {
+		if configPath == "" {
+			continue
+		}
+		if !filepath.IsAbs(configPath) {
+			configPath = filepath.Join(rootPath, configPath)
+		}
+		configPath, err = filepath.Abs(configPath)
+		if err != nil {
+			continue
+		}
+		configPath, err = filepath.EvalSymlinks(configPath)
+		if err == nil && isWithin(rootPath, configPath) {
 			return true
 		}
 	}
