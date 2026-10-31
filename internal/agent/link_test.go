@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -33,6 +35,61 @@ func TestGlamourRendersLinksWithPrivateUseMarkers(t *testing.T) {
 	}
 	if got := strings.Count(output, ansi.SetHyperlink(target)); got != 1 {
 		t.Errorf("hyperlink start count = %d, want exactly one", got)
+	}
+}
+
+func TestRestoreMarkdownLinksStylesHyperlinkText(t *testing.T) {
+	const destination = "https://rootly.com/account?chat=x"
+	rendered := "\uE000\x1b[1mopen in web\x1b[0m\uE001"
+	output := restoreMarkdownLinks(rendered, []markdownLink{{
+		destination: destination,
+		hyperlink:   true,
+	}})
+
+	start := ansi.SetHyperlink(destination)
+	end := ansi.ResetHyperlink()
+	linkStart := strings.Index(output, start)
+	if linkStart < 0 {
+		t.Fatalf("output = %q, want OSC-8 open sequence", output)
+	}
+	linkEnd := strings.Index(output[linkStart+len(start):], end)
+	if linkEnd < 0 {
+		t.Fatalf("output = %q, want OSC-8 close sequence", output)
+	}
+	styledText := output[linkStart+len(start) : linkStart+len(start)+linkEnd]
+	if !strings.Contains(styledText, "\x1b[4") {
+		t.Errorf("link text = %q, want underline SGR", styledText)
+	}
+	wantStyledText := lipgloss.NewStyle().
+		Underline(true).
+		Foreground(lipgloss.Color(metricChartColor)).
+		Render("open in web")
+	if !strings.Contains(styledText, wantStyledText) {
+		t.Errorf("link text = %q, want foreground %s and underlined label", styledText, metricChartColor)
+	}
+	if got := strings.Count(ansi.Strip(output), "open in web"); got != 1 {
+		t.Errorf("visible link label count = %d, want 1: %q", got, ansi.Strip(output))
+	}
+}
+
+func TestRestoreMarkdownLinksDoesNotUnderlineWrappedIndentation(t *testing.T) {
+	rendered := "\uE000first line\n    \x1b[1msecond line\x1b[0m\uE001"
+	output := restoreMarkdownLinks(rendered, []markdownLink{{
+		destination: "https://rootly.com/wrapped",
+		hyperlink:   true,
+	}})
+	lines := strings.Split(output, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("output lines = %d, want 2: %q", len(lines), output)
+	}
+	if !strings.HasPrefix(lines[1], "    ") {
+		t.Fatalf("wrapped line = %q, want leading indentation before style", lines[1])
+	}
+	if !strings.HasPrefix(strings.TrimLeft(lines[1], " "), "\x1b[") {
+		t.Errorf("wrapped line = %q, want style after its indentation", lines[1])
+	}
+	if got := ansi.Strip(output); got != "first line\n    second line" {
+		t.Errorf("visible output = %q, want wrapped label with indentation", got)
 	}
 }
 
@@ -150,5 +207,72 @@ func TestPreprocessMarkdownLinksUsesASTAndHonorsNoColor(t *testing.T) {
 	}
 	if got := terminalMarkdown(markdown, true); got != markdown {
 		t.Errorf("no-color Markdown = %q, want raw Markdown %q", got, markdown)
+	}
+}
+
+func TestRenderMarkdownStylesRewrittenDashboardLink(t *testing.T) {
+	model := NewTUIModel(t.Context(), &fakeStreamer{}, TUIOptions{APIHost: "api.rootly.com"})
+	output := model.renderMarkdown("[Add to dashboard](#ai-add-to-dashboard:ref)", 80, false)
+	if !strings.Contains(output, ansi.SetHyperlink("https://rootly.com/account")) {
+		t.Errorf("rendered link = %q, want rewritten OSC-8 destination", output)
+	}
+	if !strings.Contains(output, "\x1b[4") {
+		t.Errorf("rendered link = %q, want underlined clickable text", output)
+	}
+	if visible := ansi.Strip(output); !strings.Contains(visible, "Add to dashboard: open in web") {
+		t.Errorf("rendered link = %q, want rewritten label", visible)
+	}
+}
+
+func TestRenderMarkdownStylesOpenInWebLink(t *testing.T) {
+	const destination = "https://rootly.com/account?chat=x"
+	model := NewTUIModel(t.Context(), &fakeStreamer{}, TUIOptions{APIHost: "api.rootly.com"})
+	output := model.renderMarkdown("[open in web]("+destination+")", 80, false)
+	if !strings.Contains(output, ansi.SetHyperlink(destination)) ||
+		!strings.Contains(output, ansi.ResetHyperlink()) {
+		t.Errorf("rendered link = %q, want OSC-8 open and close sequences", output)
+	}
+	if !strings.Contains(output, "\x1b[4") {
+		t.Errorf("rendered link = %q, want underlined clickable text", output)
+	}
+	if got := strings.Count(ansi.Strip(output), "open in web"); got != 1 {
+		t.Errorf("visible link label count = %d, want 1: %q", got, ansi.Strip(output))
+	}
+}
+
+func TestNoColorAndPipedMarkdownSkipLinkStyling(t *testing.T) {
+	const markdown = "[Add to dashboard](#ai-add-to-dashboard:ref)"
+	model := NewTUIModel(t.Context(), &fakeStreamer{}, TUIOptions{
+		APIHost: "api.rootly.com",
+		NoColor: true,
+	})
+	tuiOutput := model.renderMarkdown(markdown, 80, false)
+	if strings.Contains(tuiOutput, "\x1b") {
+		t.Errorf("no-color TUI output = %q, want no ANSI", tuiOutput)
+	}
+
+	for _, test := range []struct {
+		name        string
+		noColor     bool
+		stdoutIsTTY bool
+	}{
+		{name: "no-color terminal", noColor: true, stdoutIsTTY: true},
+		{name: "piped output", stdoutIsTTY: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			err := writeAnswer(PrintOptions{
+				Stdout:      &stdout,
+				APIHost:     "api.rootly.com",
+				NoColor:     test.noColor,
+				IsStdoutTTY: func() bool { return test.stdoutIsTTY },
+			}, markdown)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(stdout.String(), "\x1b") {
+				t.Errorf("print output = %q, want no ANSI", stdout.String())
+			}
+		})
 	}
 }

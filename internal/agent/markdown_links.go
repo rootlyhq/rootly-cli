@@ -186,6 +186,7 @@ func restoreMarkdownLinks(rendered string, links []markdownLink) string {
 		endMarker   = "\uE001"
 	)
 	var output strings.Builder
+	var segment strings.Builder
 	linkIndex := 0
 	currentLink := -1
 	for rendered != "" {
@@ -200,31 +201,62 @@ func restoreMarkdownLinks(rendered string, links []markdownLink) string {
 			markerIndex = endIndex
 			marker = endMarker
 		}
-		output.WriteString(rendered[:markerIndex])
+		if currentLink >= 0 {
+			segment.WriteString(rendered[:markerIndex])
+		} else {
+			output.WriteString(rendered[:markerIndex])
+		}
 		if marker == startMarker {
-			currentLink = linkIndex
-			if currentLink < len(links) && links[currentLink].hyperlink {
-				output.WriteString(ansi.SetHyperlink(links[currentLink].destination))
+			if currentLink >= 0 {
+				output.WriteString(segment.String())
+				segment.Reset()
 			}
+			currentLink = linkIndex
 			linkIndex++
 		} else {
 			if currentLink >= 0 && currentLink < len(links) {
 				link := links[currentLink]
 				if link.hyperlink {
+					output.WriteString(ansi.SetHyperlink(link.destination))
+					output.WriteString(styleMarkdownLinkText(segment.String()))
 					output.WriteString(ansi.ResetHyperlink())
 					if link.host != "" {
 						output.WriteString(lipgloss.NewStyle().Faint(true).Render(" (" + link.host + ")"))
 					}
 				} else {
+					output.WriteString(segment.String())
 					output.WriteString(" <" + link.destination + ">")
 				}
+			} else {
+				output.WriteString(segment.String())
 			}
 			currentLink = -1
+			segment.Reset()
 		}
 		rendered = rendered[markerIndex+len(marker):]
 	}
+	if currentLink >= 0 {
+		output.WriteString(segment.String())
+	}
 	output.WriteString(rendered)
 	return output.String()
+}
+
+func styleMarkdownLinkText(segment string) string {
+	style := lipgloss.NewStyle().
+		Underline(true).
+		Foreground(lipgloss.Color(metricChartColor))
+	lines := strings.Split(ansi.Strip(segment), "\n")
+	for index, line := range lines {
+		text := strings.TrimLeft(line, " ")
+		indent := line[:len(line)-len(text)]
+		if text == "" {
+			lines[index] = indent
+			continue
+		}
+		lines[index] = indent + style.Render(text)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func markdownLinkLabel(link ast.Node, source []byte) string {
