@@ -298,3 +298,22 @@ func TestFitLineSeriesBucketsLongSeriesByPeak(t *testing.T) {
 		t.Errorf("peak = %v, want 7", peak)
 	}
 }
+
+func TestFitLineSeriesKeepsExactEndpoints(t *testing.T) {
+	values := make([]float64, 61)
+	for index := range values {
+		values[index] = 7
+	}
+	values[0], values[60] = 2, 0
+	values[59] = 9
+	series, width := fitLineSeries(values, 60)
+	if width != 60 || len(series) != 60 {
+		t.Fatalf("got %d values at width %d, want 60", len(series), width)
+	}
+	if series[0] != 2 || series[59] != 0 {
+		t.Errorf("endpoints = %v/%v, want 2/0", series[0], series[59])
+	}
+	if peak := slices.Max(series); peak != 9 {
+		t.Errorf("peak = %v, want 9", peak)
+	}
+}

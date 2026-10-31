@@ -253,9 +253,10 @@ func metricValueCount(values []*float64) int {
 
 // fitLineSeries keeps every measurement on a plotted column: asciigraph's
 // interpolation only hits the original points when the plot width is
-// (n-1)*k+1, and longer series are bucketed by max so peaks survive.
+// (n-1)*k+1. Longer series keep their exact endpoints and bucket the
+// interior by max so peaks survive.
 func fitLineSeries(values []float64, width int) (series []float64, plotWidth int) {
-	width = max(2, width)
+	width = max(3, width)
 	if len(values) < 2 {
 		return values, max(1, len(values))
 	}
@@ -263,19 +264,23 @@ func fitLineSeries(values []float64, width int) (series []float64, plotWidth int
 		step := (width - 1) / (len(values) - 1)
 		return values, (len(values)-1)*step + 1
 	}
-	bucketed := make([]float64, width)
-	for index := range bucketed {
-		start := index * len(values) / width
-		end := max(start+1, (index+1)*len(values)/width)
+	interior := values[1 : len(values)-1]
+	columns := width - 2
+	series = make([]float64, 0, width)
+	series = append(series, values[0])
+	for index := range columns {
+		start := index * len(interior) / columns
+		end := max(start+1, (index+1)*len(interior)/columns)
 		peak := math.NaN()
-		for _, value := range values[start:end] {
+		for _, value := range interior[start:end] {
 			if !math.IsNaN(value) && (math.IsNaN(peak) || value > peak) {
 				peak = value
 			}
 		}
-		bucketed[index] = peak
+		series = append(series, peak)
 	}
-	return bucketed, width
+	series = append(series, values[len(values)-1])
+	return series, width
 }
 
 func expandStepSeries(values []float64, width int) []float64 {
