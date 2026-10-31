@@ -140,6 +140,36 @@ func TestBashIsApprovalGatedAndEnforcesTimeout(t *testing.T) {
 	}
 }
 
+func TestBashRedactsSensitiveEnvironmentValues(t *testing.T) {
+	const secret = "supersecretvalue123"
+	t.Setenv("ROOTLY_TEST_TOKEN", secret)
+	bash := mustLookup(t, testRegistry(t, t.TempDir(), nil), "local_bash")
+	result := bash.Run(context.Background(), map[string]any{"command": `echo "$ROOTLY_TEST_TOKEN"`})
+	if result.IsError {
+		t.Fatalf("bash command failed: %#v", result)
+	}
+	if strings.Contains(result.Output, secret) || !strings.Contains(result.Output, "[REDACTED]") {
+		t.Fatalf("sensitive environment value was not redacted: %q", result.Output)
+	}
+}
+
+func TestRunCommandRedactsBeforeOutputTruncation(t *testing.T) {
+	const secret = "supersecretvalue123"
+	t.Setenv("ROOTLY_TEST_TOKEN", secret)
+	result := runCommand(
+		context.Background(),
+		t.TempDir(),
+		"bash",
+		[]string{"-c", `printf '%19975s' ''; printf '%s' "$ROOTLY_TEST_TOKEN"`},
+		defaultTimeout,
+		maxShellOutput,
+		"bash",
+	)
+	if strings.Contains(result.Output, secret[:5]) {
+		t.Fatalf("output truncation exposed part of a sensitive value: %q", result.Output)
+	}
+}
+
 func TestCLIDiscoveryAllowListApprovalAndTimeout(t *testing.T) {
 	root := t.TempDir()
 	binDir := t.TempDir()
@@ -200,15 +230,33 @@ func TestCLIApprovalHeuristics(t *testing.T) {
 	}{
 		{bin: "aws", args: []string{"ec2", "describe-instances"}, want: false},
 		{bin: "aws", args: []string{"ec2", "delete-vpc"}, want: true},
+		{bin: "aws", args: []string{"secretsmanager", "get-secret-value"}, want: true},
+		{bin: "aws", args: []string{"ssm", "get-parameter"}, want: true},
+		{bin: "aws", args: []string{"ecr", "get-login-password"}, want: true},
+		{bin: "aws", args: []string{"s3api", "get-object"}, want: true},
+		{bin: "aws", args: []string{"kms", "decrypt"}, want: true},
+		{bin: "aws", args: []string{"ec2", "describe-instances", "--with-decryption"}, want: true},
 		{bin: "kubectl", args: []string{"get", "pods"}, want: false},
 		{bin: "kubectl", args: []string{"delete", "pod", "api"}, want: true},
+		{bin: "kubectl", args: []string{"get", "secrets"}, want: true},
+		{bin: "kubectl", args: []string{"get", "pods,secrets"}, want: true},
+		{bin: "kubectl", args: []string{"describe", "secret/x"}, want: true},
+		{bin: "kubectl", args: []string{"get", "-f", "x.yaml"}, want: true},
+		{bin: "kubectl", args: []string{"get", "--filename=x.yaml"}, want: true},
+		{bin: "kubectl", args: []string{"get", "-k", "overlays/prod"}, want: true},
+		{bin: "kubectl", args: []string{"get", "--kustomize=overlays/prod"}, want: true},
+		{bin: "kubectl", args: []string{"get", "--raw=/api"}, want: true},
 		{bin: "gh", args: []string{"pr", "view", "42"}, want: false},
 		{bin: "gh", args: []string{"pr", "merge", "42"}, want: true},
-		{bin: "terraform", args: []string{"plan"}, want: false},
+		{bin: "terraform", args: []string{"plan"}, want: true},
 		{bin: "terraform", args: []string{"apply"}, want: true},
+		{bin: "terraform", args: []string{"show"}, want: false},
+		{bin: "terraform", args: []string{"show", "-json"}, want: false},
 		{bin: "redis-cli", args: []string{"get", "app:key"}, want: false},
 		{bin: "redis-cli", args: []string{"del", "app:key"}, want: true},
 		{bin: "gcloud", args: []string{"compute", "instances", "list"}, want: true},
+		{bin: "jq", args: []string{"."}, want: true},
+		{bin: "pup", args: []string{"a"}, want: true},
 	}
 	for _, test := range cases {
 		t.Run(test.bin+"/"+strings.Join(test.args, "_"), func(t *testing.T) {

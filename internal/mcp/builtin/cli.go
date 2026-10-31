@@ -9,8 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -47,6 +50,8 @@ var cliRegistry = []cliSpec{
 	{bin: "terraform", label: "Terraform", description: "Inspect Terraform plans and state; mutating actions require approval."},
 	{bin: "sentry-cli", label: "Sentry CLI", description: "Query and manage Sentry releases and issues."},
 }
+
+var sensitiveEnvironmentName = regexp.MustCompile(`(?i)(TOKEN|SECRET|PASSWORD|PASSWD|KEY|CREDENTIAL|AUTH|SESSION|COOKIE)`)
 
 func newCLITool(root string, spec cliSpec, lookPath LookPathFunc) Tool {
 	name := "local_" + strings.ReplaceAll(spec.bin, "-", "_")
@@ -114,9 +119,15 @@ func runCommand(ctx context.Context, root, command string, args []string, timeou
 	defer cancel()
 	cmd := exec.CommandContext(commandContext, command, args...)
 	cmd.Dir = root
-	cmd.Env = os.Environ()
-	stdout := &boundedBuffer{limit: outputLimit * 4}
-	stderr := &boundedBuffer{limit: outputLimit * 4}
+	environment := os.Environ()
+	cmd.Env = environment
+	secrets := sensitiveEnvironmentValues(environment)
+	bufferLimit := outputLimit * 4
+	for _, secret := range secrets {
+		bufferLimit = max(bufferLimit, outputLimit*4+len(secret))
+	}
+	stdout := &boundedBuffer{limit: bufferLimit}
+	stderr := &boundedBuffer{limit: bufferLimit}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err := cmd.Run()
@@ -145,7 +156,26 @@ func runCommand(ctx context.Context, root, command string, args []string, timeou
 	if body != "" {
 		header += "\n\n" + body
 	}
-	return Result{Output: capOutput(header, outputLimit), IsError: err != nil}
+	return Result{Output: capOutput(redactEnvironmentValues(header, secrets), outputLimit), IsError: err != nil}
+}
+
+func sensitiveEnvironmentValues(environment []string) []string {
+	secrets := make([]string, 0)
+	for _, entry := range environment {
+		name, value, ok := strings.Cut(entry, "=")
+		if ok && sensitiveEnvironmentName.MatchString(name) && utf8.RuneCountInString(value) >= 8 {
+			secrets = append(secrets, value)
+		}
+	}
+	return secrets
+}
+
+func redactEnvironmentValues(output string, secrets []string) string {
+	sort.Slice(secrets, func(i, j int) bool { return len(secrets[i]) > len(secrets[j]) })
+	for _, secret := range secrets {
+		output = strings.ReplaceAll(output, secret, "[REDACTED]")
+	}
+	return output
 }
 
 func (b *boundedBuffer) Write(data []byte) (int, error) {
@@ -181,19 +211,15 @@ func cliNeedsApproval(bin string, args []string) bool {
 	case "gh":
 		return len(lower) < 2 || !containsCommand(lower[0], "pr", "issue") || !containsCommand(lower[1], "view", "list")
 	case "kubectl":
-		return len(lower) == 0 || !containsCommand(lower[0], "get", "describe", "logs")
+		return kubectlNeedsApproval(lower)
 	case "aws":
-		if len(lower) < 2 {
-			return true
-		}
-		action := lower[1]
-		return !strings.HasPrefix(action, "describe-") && !strings.HasPrefix(action, "list-") && !strings.HasPrefix(action, "get-")
+		return awsNeedsApproval(lower)
 	case "terraform":
-		return len(lower) == 0 || !containsCommand(lower[0], "plan", "show") || hasPlanOutputFlag(lower)
+		return len(lower) == 0 || lower[0] != "show"
 	case "kubectx":
 		return len(lower) > 0
 	case "jq", "pup":
-		return false
+		return true
 	case "redis-cli":
 		return len(lower) == 0 || !containsCommand(lower[0], "get", "mget", "scan", "type", "exists", "ttl", "pttl", "info", "dbsize")
 	case "sentry-cli":
@@ -204,18 +230,49 @@ func cliNeedsApproval(bin string, args []string) bool {
 	}
 }
 
-func containsCommand(value string, allowed ...string) bool {
-	for _, candidate := range allowed {
-		if value == candidate {
+func awsNeedsApproval(args []string) bool {
+	if len(args) < 2 {
+		return true
+	}
+	action := args[1]
+	for _, sensitive := range []string{"secret", "password", "token", "credential", "login", "key", "decrypt"} {
+		if strings.Contains(action, sensitive) {
+			return true
+		}
+	}
+	if containsCommand(action, "get-object", "get-parameter", "get-parameters", "get-parameters-by-path") {
+		return true
+	}
+	for _, arg := range args {
+		if arg == "--with-decryption" {
+			return true
+		}
+	}
+	return !strings.HasPrefix(action, "describe-") &&
+		!strings.HasPrefix(action, "list-") &&
+		!strings.HasPrefix(action, "get-")
+}
+
+func kubectlNeedsApproval(args []string) bool {
+	if len(args) == 0 || !containsCommand(args[0], "get", "describe", "logs") {
+		return true
+	}
+	for _, arg := range args {
+		if strings.Contains(arg, "secret") ||
+			strings.HasPrefix(arg, "-f") ||
+			strings.HasPrefix(arg, "--filename") ||
+			strings.HasPrefix(arg, "-k") ||
+			strings.HasPrefix(arg, "--kustomize") ||
+			strings.HasPrefix(arg, "--raw") {
 			return true
 		}
 	}
 	return false
 }
 
-func hasPlanOutputFlag(args []string) bool {
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "-out") {
+func containsCommand(value string, allowed ...string) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
 			return true
 		}
 	}
