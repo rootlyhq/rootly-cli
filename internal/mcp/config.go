@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/rootlyhq/rootly-cli/internal/config"
 )
@@ -39,6 +40,18 @@ type ServerConfig struct {
 	URL               string            `json:"url,omitempty"`
 	Headers           map[string]string `json:"headers,omitempty"`
 	BearerTokenEnvVar string            `json:"bearer_token_env_var,omitempty"`
+	Timeout           int               `json:"timeout,omitempty"`
+}
+
+// MaxTimeoutSeconds bounds the optional per-server timeout.
+const MaxTimeoutSeconds = 600
+
+// CallTimeout returns the per-server timeout, or fallback when unset.
+func (c ServerConfig) CallTimeout(fallback time.Duration) time.Duration {
+	if c.Timeout <= 0 {
+		return fallback
+	}
+	return time.Duration(c.Timeout) * time.Second
 }
 
 func (c ServerConfig) Transport() string {
@@ -58,6 +71,9 @@ func (c ServerConfig) Transport() string {
 }
 
 func (c ServerConfig) Validate() error {
+	if c.Timeout < 0 || c.Timeout > MaxTimeoutSeconds {
+		return fmt.Errorf("timeout must be between 1 and %d seconds", MaxTimeoutSeconds)
+	}
 	switch c.Transport() {
 	case TransportStdio:
 		if strings.TrimSpace(c.Command) == "" {

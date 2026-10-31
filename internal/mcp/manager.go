@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -271,7 +272,7 @@ func (r *runtimeServer) close() {
 
 func (m *Manager) connect(ctx context.Context, server Server) (*sdk.ClientSession, []*sdk.Tool, Status, string) {
 	config := server.Config.Expanded(m.options.Lookup)
-	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
+	connectCtx, cancel := context.WithTimeout(ctx, config.CallTimeout(connectTimeout))
 	defer cancel()
 	transport, stderr, unauthorized, err := m.transport(ctx, server, config)
 	if err != nil {
@@ -344,7 +345,8 @@ func (m *Manager) transport(ctx context.Context, server Server, config ServerCon
 		return &sdk.CommandTransport{Command: command, TerminateDuration: 2 * time.Second}, stderr, nil, nil
 	case TransportHTTP, TransportSSE:
 		probe := &authProbe{}
-		client := newServerHTTPClient(config, m.bearer(config), probe)
+		bearer, refresh := m.bearerFuncs(config)
+		client := newServerHTTPClientWithRefresh(config, bearer, refresh, probe)
 		if config.Transport() == TransportSSE {
 			return &sdk.SSEClientTransport{Endpoint: config.URL, HTTPClient: client}, nil, probe, nil
 		}
@@ -354,18 +356,18 @@ func (m *Manager) transport(ctx context.Context, server Server, config ServerCon
 	}
 }
 
-func (m *Manager) bearer(config ServerConfig) func() string {
+func (m *Manager) bearerFuncs(config ServerConfig) (bearer, refresh func() string) {
 	if config.BearerTokenEnvVar != "" {
 		return func() string {
 			value, _ := m.options.Lookup(config.BearerTokenEnvVar)
 			return value
-		}
+		}, nil
 	}
 	tokens := m.options.Tokens
 	serverURL := config.URL
 	var source *persistingTokenSource
 	var mu sync.Mutex
-	return func() string {
+	bearer = func() string {
 		mu.Lock()
 		defer mu.Unlock()
 		if source == nil {
@@ -381,6 +383,23 @@ func (m *Manager) bearer(config ServerConfig) func() string {
 		}
 		return token.AccessToken
 	}
+	refresh = func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		credential, ok := tokens.Get(serverURL)
+		if !ok || credential.RefreshToken == "" {
+			return ""
+		}
+		expired := credential.token()
+		expired.Expiry = time.Now().Add(-time.Minute)
+		source = tokens.tokenSource(serverURL, credential, credential.oauthConfig(), expired, nil).(*persistingTokenSource)
+		token, err := source.Token()
+		if err != nil || token.AccessToken == "" || token.AccessToken == credential.AccessToken {
+			return ""
+		}
+		return token.AccessToken
+	}
+	return bearer, refresh
 }
 
 type authProbe struct {
@@ -406,12 +425,17 @@ func (p *authProbe) seen() bool {
 // newServerHTTPClient sends the configured headers and bearer token only to
 // the server's own origin and refuses redirects to any other origin.
 func newServerHTTPClient(config ServerConfig, bearer func() string, probe *authProbe) *http.Client {
+	return newServerHTTPClientWithRefresh(config, bearer, nil, probe)
+}
+
+func newServerHTTPClientWithRefresh(config ServerConfig, bearer, refresh func() string, probe *authProbe) *http.Client {
 	return &http.Client{
 		Transport: &headerTransport{
 			base:    http.DefaultTransport,
 			origin:  originOf(config.URL),
 			headers: config.Headers,
 			bearer:  bearer,
+			refresh: refresh,
 			probe:   probe,
 		},
 		CheckRedirect: rejectCrossOriginRedirect,
@@ -445,6 +469,7 @@ type headerTransport struct {
 	origin  string
 	headers map[string]string
 	bearer  func() string
+	refresh func() string
 	probe   *authProbe
 }
 
@@ -456,12 +481,17 @@ func (t *headerTransport) RoundTrip(request *http.Request) (*http.Response, erro
 	for key, value := range t.headers {
 		request.Header.Set(key, value)
 	}
+	usedBearer := false
 	if request.Header.Get("Authorization") == "" && t.bearer != nil {
 		if token := t.bearer(); token != "" {
 			request.Header.Set("Authorization", "Bearer "+token)
+			usedBearer = true
 		}
 	}
 	response, err := t.base.RoundTrip(request)
+	if err == nil && response.StatusCode == http.StatusUnauthorized && usedBearer {
+		response, err = t.retryWithRefreshedToken(request, response)
+	}
 	if err == nil && response.StatusCode == http.StatusUnauthorized && t.probe != nil {
 		t.probe.mark()
 	}
@@ -707,9 +737,11 @@ func (m *Manager) Call(ctx context.Context, name string, arguments map[string]an
 	m.mu.Lock()
 	ref, ok := m.toolRefs[name]
 	var session *sdk.ClientSession
+	timeout := time.Duration(0)
 	if ok {
 		if runtime := m.byID[ref.ServerID]; runtime != nil && !runtime.sessionOff {
 			session = runtime.session
+			timeout = runtime.server.Config.CallTimeout(0)
 		}
 	}
 	m.mu.Unlock()
@@ -722,7 +754,15 @@ func (m *Manager) Call(ctx context.Context, name string, arguments map[string]an
 	if arguments == nil {
 		arguments = map[string]any{}
 	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	result, err := session.CallTool(ctx, &sdk.CallToolParams{Name: ref.Tool, Arguments: arguments})
+	if err != nil && timeout > 0 && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return CallResult{Output: fmt.Sprintf("Local tool timed out after %s", timeout), IsError: true}
+	}
 	if err != nil {
 		return CallResult{Output: TruncateOutput("Local tool failed: " + err.Error()), IsError: true}
 	}
@@ -793,4 +833,26 @@ func (m *Manager) Close() {
 	case <-time.After(3 * time.Second):
 	}
 	m.cancel()
+}
+
+func (t *headerTransport) retryWithRefreshedToken(request *http.Request, response *http.Response) (*http.Response, error) {
+	if t.refresh == nil || (request.Body != nil && request.Body != http.NoBody && request.GetBody == nil) {
+		return response, nil
+	}
+	token := t.refresh()
+	if token == "" {
+		return response, nil
+	}
+	retry := request.Clone(request.Context())
+	if request.GetBody != nil {
+		body, err := request.GetBody()
+		if err != nil {
+			return response, nil
+		}
+		retry.Body = body
+	}
+	retry.Header.Set("Authorization", "Bearer "+token)
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	return t.base.RoundTrip(retry)
 }
