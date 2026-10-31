@@ -45,7 +45,7 @@ func (f *fakeMCPManager) GetPrompt(_ context.Context, server, name string, argum
 	return fmt.Sprintf("prompt %s %v", name, arguments), nil
 }
 
-func (f *fakeMCPManager) ReadResource(_ context.Context, server, uri string, limit int) (string, bool, error) {
+func (f *fakeMCPManager) ReadResource(_ context.Context, server, uri string, limit int) (text string, truncated bool, err error) {
 	f.mu.Lock()
 	f.readLimits = append(f.readLimits, limit)
 	f.mu.Unlock()

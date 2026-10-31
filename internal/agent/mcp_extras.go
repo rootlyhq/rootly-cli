@@ -81,7 +81,8 @@ func (m *TUIModel) appendPromptItems(items []list.Item, value string) []list.Ite
 			}
 			taken[key] = true
 			items = append(items, slashCommandItem{command: command, description: description, insert: len(prompt.Arguments) > 0})
-			if added++; added == maxPromptSuggestions {
+			added++
+			if added == maxPromptSuggestions {
 				return items
 			}
 		}
@@ -248,7 +249,9 @@ func (m *TUIModel) refreshMentionMenu(value string) bool {
 			}
 		}
 	}
-	items := append(prefixed, contains...)
+	items := make([]list.Item, 0, len(prefixed)+len(contains))
+	items = append(items, prefixed...)
+	items = append(items, contains...)
 	if len(items) == 0 {
 		return false
 	}

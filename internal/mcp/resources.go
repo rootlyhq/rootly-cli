@@ -129,7 +129,7 @@ func (m *Manager) ReadResource(ctx context.Context, serverName, uri string, limi
 	return capBytes(strings.Join(parts, "\n"), limit)
 }
 
-func capBytes(text string, limit int) (string, bool, error) {
+func capBytes(text string, limit int) (capped string, truncated bool, err error) {
 	if limit <= 0 || len(text) <= limit {
 		return text, false, nil
 	}
