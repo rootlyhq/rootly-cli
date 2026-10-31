@@ -326,13 +326,11 @@ func deniedPath(candidate string) bool {
 			}
 		}
 	}
-	base := strings.ToLower(filepath.Base(clean))
-	if strings.HasPrefix(base, ".env") || strings.HasSuffix(base, ".pem") ||
-		strings.HasSuffix(base, ".key") || strings.HasPrefix(base, "id_") {
-		return true
-	}
 	for parent := clean; ; parent = filepath.Dir(parent) {
-		if filepath.Base(parent) == ".git" {
+		name := filepath.Base(parent)
+		base := strings.ToLower(name)
+		if name == ".git" || strings.HasPrefix(base, ".env") || strings.HasSuffix(base, ".pem") ||
+			strings.HasSuffix(base, ".key") || strings.HasPrefix(base, "id_") {
 			return true
 		}
 		if parent == filepath.Dir(parent) {

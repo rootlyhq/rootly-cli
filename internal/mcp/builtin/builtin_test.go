@@ -76,6 +76,38 @@ func TestFilesystemToolsConfinePathsAndDenySensitiveFiles(t *testing.T) {
 	}
 }
 
+func TestSensitivePathComponentsAreDeniedForReadAndGlob(t *testing.T) {
+	root := t.TempDir()
+	for _, path := range []string{".env.private/creds.json", "keys.pem/x"} {
+		fullPath := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fullPath, []byte("sensitive"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	registry := testRegistry(t, root, nil)
+	readFile := mustLookup(t, registry, "local_read_file")
+	for _, path := range []string{".env.private/creds.json", "keys.pem/x"} {
+		result := readFile.Run(context.Background(), map[string]any{"path": path})
+		if !result.IsError || !strings.Contains(result.Output, "path is denied") {
+			t.Errorf("read_file did not deny %q: %#v", path, result)
+		}
+	}
+	glob := mustLookup(t, registry, "local_glob")
+	result := glob.Run(context.Background(), map[string]any{"pattern": "**/*"})
+	if strings.Contains(result.Output, ".env.private") || strings.Contains(result.Output, "keys.pem") {
+		t.Fatalf("glob returned children of denied directories: %q", result.Output)
+	}
+	for _, path := range []string{".env.private", "keys.pem"} {
+		result := glob.Run(context.Background(), map[string]any{"pattern": "**/*", "path": path})
+		if !result.IsError || !strings.Contains(result.Output, "path is denied") {
+			t.Errorf("glob did not deny directory %q: %#v", path, result)
+		}
+	}
+}
+
 func TestFilesystemTraversalSkipsGitAndSensitivePaths(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", root)
