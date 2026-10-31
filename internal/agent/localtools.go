@@ -69,12 +69,12 @@ func localToolConfirmation(ref mcp.ToolRef, call *ClientToolCall) *rootly.AiChat
 	if ref.ServerID == "builtin" && call.Name == "local_bash" {
 		if command, ok := call.Arguments["command"].(string); ok {
 			confirmation.Question = "Run local bash command? It can change things on this machine."
-			confirmation.Preview = []byte(mcp.MaskCommand(command))
+			confirmation.Preview = []byte(mcp.MaskApprovalCommand(command))
 			return confirmation
 		}
 	}
 	if ref.ServerID == "builtin" && strings.HasPrefix(call.Name, "local_") {
-		if rawArgs, ok := mcp.MaskToolArguments(call.Arguments)["args"]; ok {
+		if rawArgs, ok := mcp.MaskApprovalArguments(call.Arguments)["args"]; ok {
 			if args := previewArgs(rawArgs); args != nil {
 				command := strings.ReplaceAll(ref.Tool, "_", "-")
 				confirmation.Question = "Run local CLI " + command + "? It can change things on this machine."
@@ -83,7 +83,7 @@ func localToolConfirmation(ref mcp.ToolRef, call *ClientToolCall) *rootly.AiChat
 			}
 		}
 	}
-	if preview, err := json.MarshalIndent(mcp.MaskToolArguments(call.Arguments), "", "  "); err == nil {
+	if preview, err := json.MarshalIndent(mcp.MaskApprovalArguments(call.Arguments), "", "  "); err == nil {
 		confirmation.Preview = preview
 	}
 	return confirmation

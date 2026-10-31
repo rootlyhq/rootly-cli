@@ -51,6 +51,54 @@ func (f *fakeLocalTools) Call(_ context.Context, name string, arguments map[stri
 	return mcp.CallResult{Output: fmt.Sprintf("ran %s with %v", name, arguments["path"])}
 }
 
+func TestLocalToolConfirmationPreservesExecutableCode(t *testing.T) {
+	ref := mcp.ToolRef{ServerID: "srv", ServerName: "third-party", Tool: "run"}
+	command := `TOKEN="$(rm -rf ./data)"`
+	confirmation := localToolConfirmation(ref, &ClientToolCall{
+		Name: "third_party_run",
+		Arguments: map[string]any{
+			"command":  command,
+			"password": "x${y}",
+		},
+	})
+	var preview map[string]any
+	if err := json.Unmarshal(confirmation.Preview, &preview); err != nil {
+		t.Fatalf("decode MCP approval preview: %v", err)
+	}
+	if preview["command"] != command || preview["password"] != "x${y}" {
+		t.Fatalf("MCP approval preview masked executable code: %#v", preview)
+	}
+
+	confirmation = localToolConfirmation(ref, &ClientToolCall{
+		Name:      "third_party_run",
+		Arguments: map[string]any{"password": "hunter22"},
+	})
+	if err := json.Unmarshal(confirmation.Preview, &preview); err != nil {
+		t.Fatalf("decode plain-secret preview: %v", err)
+	}
+	if preview["password"] != mcp.Mask {
+		t.Fatalf("MCP approval preview did not mask plain secret: %#v", preview)
+	}
+
+	confirmation = localToolConfirmation(mcp.ToolRef{ServerID: "builtin", Tool: "kubectl"}, &ClientToolCall{
+		Name:      "local_kubectl",
+		Arguments: map[string]any{"args": []any{"--token", "a$(b)"}},
+	})
+	if !strings.Contains(string(confirmation.Preview), "a$(b)") {
+		t.Fatalf("CLI approval preview masked executable code: %q", confirmation.Preview)
+	}
+
+	for _, command := range []string{`export TOKEN="<(rm x)"`, `export TOKEN=">(rm x)"`} {
+		confirmation = localToolConfirmation(mcp.ToolRef{ServerID: "builtin"}, &ClientToolCall{
+			Name:      "local_bash",
+			Arguments: map[string]any{"command": command},
+		})
+		if !strings.Contains(string(confirmation.Preview), command) {
+			t.Errorf("bash approval preview masked executable code: %q", confirmation.Preview)
+		}
+	}
+}
+
 type toolRoundTrip struct {
 	server      *httptest.Server
 	streamBody  map[string]any

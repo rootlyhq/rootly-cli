@@ -32,35 +32,69 @@ func TestMaskToolArgumentsRedactsCommandAndCLISecrets(t *testing.T) {
 	}
 }
 
-func TestMaskCommandKeepsShellCodeVisible(t *testing.T) {
-	for _, command := range []string{
-		`export TOKEN="$(rm -rf ./data)"`,
-		`export TOKEN="<(rm x)"`,
-		`export TOKEN=">(rm x)"`,
+func TestMaskCommandMasksShellCodeInSecretValues(t *testing.T) {
+	for _, test := range []struct {
+		command string
+		code    string
+	}{
+		{command: `export TOKEN="$(rm x)"`, code: "rm x"},
+		{command: "export TOKEN=\"`rm x`\"", code: "rm x"},
+		{command: `export TOKEN="${rm x}"`, code: "rm x"},
+		{command: `export TOKEN="<(rm x)"`, code: "rm x"},
+		{command: `export TOKEN=">(rm x)"`, code: "rm x"},
 	} {
-		masked := MaskCommand(command)
-		if !strings.Contains(masked, "rm ") {
-			t.Errorf("masked command hid executable code: %q", masked)
+		masked := MaskCommand(test.command)
+		if strings.Contains(masked, test.code) || !strings.Contains(masked, Mask) {
+			t.Errorf("config command did not mask executable code: %q", masked)
 		}
-	}
-	toolArguments := MaskToolArguments(map[string]any{"command": `export TOKEN="$(rm -rf ./data)"`})
-	if got := toolArguments["command"].(string); strings.Contains(got, "rm -rf ./data") {
-		t.Fatalf("tool arguments bypassed command masking: %q", got)
-	}
-	secret := MaskCommand("export TOKEN=abc123secret")
-	if strings.Contains(secret, "abc123secret") || !strings.Contains(secret, Mask) {
-		t.Fatalf("ordinary secret was not masked: %q", secret)
 	}
 }
 
-func TestMaskingKeepsArgvSecretsMaskedRegardlessOfShellSyntax(t *testing.T) {
+func TestMaskApprovalCommandKeepsExecutableCodeVisible(t *testing.T) {
+	for _, command := range []string{
+		`export TOKEN="$(rm -rf ./data)"`,
+		"export TOKEN=\"`rm x`\"",
+		`export TOKEN="${rm x}"`,
+		`export TOKEN="<(rm x)"`,
+		`export TOKEN=">(rm x)"`,
+	} {
+		if got := MaskApprovalCommand(command); !strings.Contains(got, "rm ") {
+			t.Errorf("approval command hid executable code: %q", got)
+		}
+	}
+}
+
+func TestMaskingConfigArgumentsMasksShellSyntax(t *testing.T) {
 	args := MaskCommandArgs([]string{"--password", "a$(b"})
 	if strings.Contains(strings.Join(args, " "), "a$(b") || args[1] != Mask {
 		t.Fatalf("argv secret was not masked: %#v", args)
 	}
-	toolArguments := MaskToolArguments(map[string]any{"password": "x${y}"})
+	toolArguments := MaskToolArguments(map[string]any{"password": "x$(y)"})
 	if toolArguments["password"] != Mask {
 		t.Fatalf("tool argument secret was not masked: %#v", toolArguments)
+	}
+	command := MaskCommand(`export TOKEN="$(rm -rf ./data)"`)
+	if strings.Contains(command, "rm -rf ./data") || !strings.Contains(command, Mask) {
+		t.Fatalf("command description did not mask executable code: %q", command)
+	}
+}
+
+func TestMaskApprovalArgumentsPreservesShellCodeAtAnyDepth(t *testing.T) {
+	arguments := MaskApprovalArguments(map[string]any{
+		"password": "x${y}",
+		"args":     []any{"--password", "a$(b)", "TOKEN=$(rm x)"},
+		"nested":   map[string]any{"token": ">(rm x)"},
+	})
+	if arguments["password"] != "x${y}" {
+		t.Fatalf("approval arguments masked executable code in secret-named value: %#v", arguments)
+	}
+	args := arguments["args"].([]string)
+	if args[1] != "a$(b)" || args[2] != "TOKEN=$(rm x)" {
+		t.Fatalf("approval arguments masked executable code in argv: %#v", args)
+	}
+	nested := arguments["nested"].(map[string]any)
+	if nested["token"] != ">(rm x)" {
+		t.Fatalf("approval arguments masked executable code in nested value: %#v", nested)
 	}
 }
 
