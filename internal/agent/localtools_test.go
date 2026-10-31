@@ -21,7 +21,7 @@ import (
 const localTestSessionID = "39fd7596-152c-43d3-afce-48b792ae386d"
 
 type fakeLocalTools struct {
-	mu    sync.Mutex
+	mu     sync.Mutex
 	tools  map[string]mcp.ToolRef
 	calls  []string
 	output string

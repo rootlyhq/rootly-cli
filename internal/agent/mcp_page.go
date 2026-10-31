@@ -25,6 +25,8 @@ type MCPManager interface {
 	Changes() <-chan struct{}
 	Connecting() int
 	ToggleSession(string) error
+	GetPrompt(context.Context, string, string, map[string]string) (string, error)
+	ReadResource(context.Context, string, string, int) (string, bool, error)
 	Approve(string) error
 	Enable(string) error
 	Reconnect(string) error
@@ -545,7 +547,7 @@ func mcpStatusLabel(view mcp.ServerView) string {
 	}
 	switch view.Status {
 	case mcp.StatusConnected:
-		return "✔ " + pluralTools(len(view.Tools))
+		return "✔ " + mcpCounts(view)
 	case mcp.StatusError:
 		return "✘ error"
 	case mcp.StatusNeedsAuth:
@@ -814,6 +816,10 @@ func (m *TUIModel) updateLocalMCP(message tea.Msg) (cmd tea.Cmd, handled bool) {
 		return nil, true
 	case mcpLoginMsg:
 		return m.handleMCPLogin(msg), true
+	case mcpPromptMsg:
+		return m.handleMCPPrompt(msg), true
+	case mentionsReadyMsg:
+		return m.handleMentionsReady(msg), true
 	case localToolDoneMsg:
 		var cmds []tea.Cmd
 		if msg.credHint && !m.credHintShown {
@@ -836,4 +842,22 @@ func (m *TUIModel) updateOtherMessage(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m.updatePickerMessage(message)
+}
+
+func mcpCounts(view mcp.ServerView) string {
+	parts := []string{pluralTools(len(view.Tools))}
+	if count := len(view.Resources); count > 0 {
+		parts = append(parts, pluralCount(count, "resource"))
+	}
+	if count := len(view.Prompts); count > 0 {
+		parts = append(parts, pluralCount(count, "prompt"))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func pluralCount(count int, noun string) string {
+	if count == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(count) + " " + noun + "s"
 }

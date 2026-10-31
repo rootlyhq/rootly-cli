@@ -77,6 +77,8 @@ type slashCommandItem struct {
 	command     string
 	description string
 	skill       bool
+	insert      bool
+	mention     bool
 }
 
 func (i slashCommandItem) FilterValue() string { return i.command }
@@ -188,7 +190,7 @@ var builtinSkillSlugs = map[string]struct{}{
 	"exit": {}, "quit": {}, "new": {}, "clear": {}, "resume": {}, "sessions": {},
 	"rename": {}, "pin": {}, "unpin": {}, "archive": {}, "delete": {}, "copy": {},
 	"export": {}, "incident": {}, "alert": {}, "status": {}, "help": {}, "skills": {},
-	"mcp": {}, "connectors": {},
+	"mcp": {}, "connectors": {}, "prompts": {}, "resources": {},
 }
 
 func isSkillInvocationToken(token string) bool {
@@ -458,6 +460,7 @@ func (m *TUIModel) helpView() string {
 		"/resume, /sessions: choose a session\n" +
 		"/skills [query]: browse skills\n" +
 		"/mcp, /connectors: manage MCP servers\n" +
+		"/prompts, /resources: list MCP prompts and resources (@server:uri attaches one)\n" +
 		"/rename [title]: rename or reset title\n" +
 		"/pin, /unpin: change pinned state\n" +
 		"/archive: archive this session\n" +
@@ -971,6 +974,9 @@ func (m *TUIModel) refreshCommandMenu() tea.Cmd {
 	request := m.skillSuggestionReq
 	rawValue := m.composer.Value()
 	value := strings.TrimSpace(rawValue)
+	if m.refreshMentionMenu(rawValue) {
+		return nil
+	}
 	if rawValue != value || value == "" || !strings.HasPrefix(value, "/") || strings.ContainsAny(value, " \t\r\n") {
 		m.commandMenuOpen = false
 		return nil
@@ -980,7 +986,8 @@ func (m *TUIModel) refreshCommandMenu() tea.Cmd {
 		{command: "/new", description: "new session"}, {command: "/clear", description: "new session"},
 		{command: "/resume", description: "choose a session"}, {command: "/sessions", description: "browse sessions"},
 		{command: "/skills", description: "browse skills"}, {command: "/mcp", description: "manage MCP servers"},
-		{command: "/connectors", description: "manage MCP servers"}, {command: "/rename", description: "rename session"},
+		{command: "/connectors", description: "manage MCP servers"}, {command: "/prompts", description: "list MCP prompts"},
+		{command: "/resources", description: "list MCP resources"}, {command: "/rename", description: "rename session"},
 		{command: "/pin", description: "pin session"}, {command: "/unpin", description: "unpin session"},
 		{command: "/archive", description: "archive session"}, {command: "/delete", description: "delete session"},
 		{command: "/copy", description: "copy last answer"}, {command: "/export", description: "export transcript"},
@@ -1009,17 +1016,11 @@ func (m *TUIModel) refreshCommandMenu() tea.Cmd {
 			})
 		}
 	}
+	items = m.appendPromptItems(items, value)
 	if len(items) == 0 {
 		m.commandMenuOpen = false
 	} else {
-		m.commandMenu = list.New(items, slashCommandDelegate{}, max(20, m.width), min(6, len(items)))
-		m.commandMenu.SetShowTitle(false)
-		m.commandMenu.SetShowFilter(false)
-		m.commandMenu.SetShowStatusBar(false)
-		m.commandMenu.SetShowPagination(false)
-		m.commandMenu.SetShowHelp(false)
-		m.commandMenu.SetFilteringEnabled(false)
-		m.commandMenuOpen = true
+		m.showCommandMenu(items)
 	}
 	if m.api == nil || m.skillsUnavailable {
 		return nil
@@ -1261,4 +1262,15 @@ func historyPageCount(meta map[string]interface{}) int {
 
 func StatusResponseError(status int, body []byte) error {
 	return sanitizeTerminalError(describeError(&rootly.AiChatStreamStatusError{StatusCode: status, Body: body}))
+}
+
+func (m *TUIModel) showCommandMenu(items []list.Item) {
+	m.commandMenu = list.New(items, slashCommandDelegate{}, max(20, m.width), min(8, len(items)))
+	m.commandMenu.SetShowTitle(false)
+	m.commandMenu.SetShowFilter(false)
+	m.commandMenu.SetShowStatusBar(false)
+	m.commandMenu.SetShowPagination(false)
+	m.commandMenu.SetShowHelp(false)
+	m.commandMenu.SetFilteringEnabled(false)
+	m.commandMenuOpen = true
 }

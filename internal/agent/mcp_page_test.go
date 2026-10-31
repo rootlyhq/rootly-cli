@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -18,6 +20,9 @@ type fakeMCPManager struct {
 	approved []string
 	problems []string
 	changes  chan struct{}
+
+	resources  map[string]string
+	readLimits []int
 }
 
 func (f *fakeMCPManager) Views() []mcp.ServerView  { return f.views }
@@ -32,6 +37,27 @@ func (f *fakeMCPManager) ToggleSession(id string) error {
 }
 func (f *fakeMCPManager) Approve(id string) error                               { f.approved = append(f.approved, id); return nil }
 func (f *fakeMCPManager) Login(context.Context, string, mcp.LoginOptions) error { return nil }
+
+func (f *fakeMCPManager) GetPrompt(_ context.Context, server, name string, arguments map[string]string) (string, error) {
+	if server != "docs" {
+		return "", errors.New("not connected")
+	}
+	return fmt.Sprintf("prompt %s %v", name, arguments), nil
+}
+
+func (f *fakeMCPManager) ReadResource(_ context.Context, server, uri string, limit int) (string, bool, error) {
+	f.mu.Lock()
+	f.readLimits = append(f.readLimits, limit)
+	f.mu.Unlock()
+	text, ok := f.resources[server+":"+uri]
+	if !ok {
+		return "", false, errors.New("no text content")
+	}
+	if len(text) > limit {
+		return text[:limit], true, nil
+	}
+	return text, false, nil
+}
 
 type fakeConnectorAPI struct {
 	fakeTUIAPI

@@ -213,6 +213,7 @@ type TUIModel struct {
 	workingDir           string
 	terminalBlurred      bool
 	toolsOnShown         bool
+	mentionRequest       int
 	credHintShown        bool
 	mcpStartupReported   bool
 }
@@ -918,7 +919,9 @@ func (m *TUIModel) handleCommandMenuKey(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		m.commandMenu, cmd = m.commandMenu.Update(msg)
 		return true, cmd
 	case "tab":
-		if item, ok := m.commandMenu.SelectedItem().(slashCommandItem); ok {
+		if item, ok := m.commandMenu.SelectedItem().(slashCommandItem); ok && item.mention {
+			m.insertMention(item.command)
+		} else if ok {
 			m.composer.SetValue(item.command + " ")
 			m.composer.CursorEnd()
 		}
@@ -927,9 +930,9 @@ func (m *TUIModel) handleCommandMenuKey(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		return true, nil
 	case "enter":
 		typed := strings.TrimSpace(m.composer.Value())
-		if item, ok := m.commandMenu.SelectedItem().(slashCommandItem); ok &&
+		if item, ok := m.commandMenu.SelectedItem().(slashCommandItem); ok && !item.mention &&
 			strings.HasPrefix(strings.ToLower(item.command), strings.ToLower(typed)) {
-			if item.skill {
+			if item.skill || item.insert {
 				m.composer.SetValue(item.command + " ")
 				m.composer.CursorEnd()
 				m.commandMenuOpen = false
@@ -982,12 +985,19 @@ func (m *TUIModel) submit() tea.Cmd {
 		return m.runSlashCommand(message)
 	}
 
+	if cmd := m.sendWithResources(message); cmd != nil {
+		return cmd
+	}
 	return m.submitPrompt(message)
 }
 
 func (m *TUIModel) submitPrompt(message string) tea.Cmd {
-	m.currentPrompt = message
-	m.promptHistory = append(m.promptHistory, message)
+	return m.sendPrompt(message, message, "")
+}
+
+func (m *TUIModel) sendPrompt(echo, message, note string) tea.Cmd {
+	m.currentPrompt = echo
+	m.promptHistory = append(m.promptHistory, echo)
 	m.historyIndex = -1
 	m.actionRequest++
 	m.startNewTurn()
@@ -1005,8 +1015,11 @@ func (m *TUIModel) submitPrompt(message string) tea.Cmd {
 		}
 		m.alertUsed = true
 	}
-	cmd := m.startStream(params)
-	return sequenceTUICommands(m.println(renderPromptEcho(message, m.noColor)), cmd)
+	commands := []tea.Cmd{m.println(renderPromptEcho(echo, m.noColor))}
+	if note != "" {
+		commands = append(commands, m.println(faint(m.noColor, note)))
+	}
+	return sequenceTUICommands(append(commands, m.startStream(params))...)
 }
 
 func (m *TUIModel) scrollViewportKey(msg tea.KeyPressMsg) bool {
@@ -1056,6 +1069,10 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 		return m.openSessionPicker()
 	case "/mcp", "/connectors":
 		return m.openMCPPage()
+	case "/prompts":
+		return m.listMCPPrompts()
+	case "/resources":
+		return m.listMCPResources()
 	case "/skills":
 		query := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(command), "/skills"))
 		return m.openSkillPicker(query)
@@ -1109,6 +1126,9 @@ func (m *TUIModel) runSlashCommand(command string) tea.Cmd {
 		}
 		return m.resolveBinding(strings.TrimPrefix(parts[0], "/"), parts[1])
 	default:
+		if cmd, ok := m.runMCPPrompt(command); ok {
+			return cmd
+		}
 		if isSkillInvocationToken(parts[0]) && !isBuiltinSlashCommand(parts[0]) {
 			return m.lookupSkillForPrompt(parts[0], strings.TrimSpace(command))
 		}
