@@ -12,7 +12,7 @@ const Mask = "*****"
 // MaskedConfig hides env/header values and URL credentials for display.
 func (c ServerConfig) Masked() ServerConfig {
 	masked := c
-	masked.Args = maskArgs(c.Args)
+	masked.Args = maskArgs(c.Args, false)
 	masked.URL = maskURL(c.URL)
 	if len(c.Env) > 0 {
 		masked.Env = make(map[string]string, len(c.Env))
@@ -50,7 +50,7 @@ func maskURL(raw string) string {
 // Origin is a one-line, secret-free description of where a server runs.
 func (c ServerConfig) Origin() string {
 	if c.Transport() == TransportStdio {
-		return strings.TrimSpace(c.Command + " " + strings.Join(maskArgs(c.Args), " "))
+		return strings.TrimSpace(c.Command + " " + strings.Join(maskArgs(c.Args, false), " "))
 	}
 	return maskURL(c.URL)
 }
@@ -73,11 +73,14 @@ func MaskedPairs(values map[string]string, separator string) []string {
 	return pairs
 }
 
-var secretArgName = regexp.MustCompile(`(?i)(token|secret|password|passwd|api[-_]?key|apikey|auth|credential|bearer)`)
+var secretArgName = regexp.MustCompile(`(?i)(token|secret|password|passwd|api[-_]?key|apikey|auth|credential|bearer|access[-_]?key|private[-_]?key)`)
+var secretCommandArgument = regexp.MustCompile(`(?i)(--?[\w-]*(?:token|secret|password|passwd|api[-_]?key|apikey|auth|credential|access[-_]?key|private[-_]?key)[\w-]*(?:=|\s+)|\b[A-Z_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|ACCESS_KEY|PRIVATE_KEY)[A-Z_]*=)("[^"]*"|'[^']*'|[^\s;&|]+)`)
+var secretEnvironmentArgument = regexp.MustCompile(`(?i)^[A-Z_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|ACCESS_KEY|PRIVATE_KEY)[A-Z_]*=`)
+var bearerCommandValue = regexp.MustCompile(`(?i)\bBearer\s+[^\s"';&|]+`)
 
 // maskArgs hides values of secret-looking flags (--token=x, --api-key x)
 // and inline Bearer tokens.
-func maskArgs(args []string) []string {
+func maskArgs(args []string, allowShellCode bool) []string {
 	if len(args) == 0 {
 		return args
 	}
@@ -86,8 +89,17 @@ func maskArgs(args []string) []string {
 	for index, arg := range args {
 		switch {
 		case hideNext:
-			masked[index] = Mask
+			if allowShellCode && containsShellCode(arg) {
+				masked[index] = arg
+			} else {
+				masked[index] = Mask
+			}
 			hideNext = false
+		case allowShellCode && containsShellCode(arg):
+			masked[index] = arg
+		case secretEnvironmentArgument.MatchString(arg):
+			name, _, _ := strings.Cut(arg, "=")
+			masked[index] = name + "=" + Mask
 		case strings.HasPrefix(arg, "-") && strings.Contains(arg, "="):
 			name, _, _ := strings.Cut(arg, "=")
 			if secretArgName.MatchString(name) {
@@ -105,4 +117,104 @@ func maskArgs(args []string) []string {
 		}
 	}
 	return masked
+}
+
+func MaskCommandArgs(args []string) []string {
+	return maskArgs(args, false)
+}
+
+func MaskCommand(command string) string {
+	return maskCommand(command, false)
+}
+
+// MaskApprovalCommand keeps executable code visible because approval cards must show it.
+func MaskApprovalCommand(command string) string {
+	return maskCommand(command, true)
+}
+
+func maskCommand(command string, allowShellCode bool) string {
+	command = secretCommandArgument.ReplaceAllStringFunc(command, func(argument string) string {
+		parts := secretCommandArgument.FindStringSubmatch(argument)
+		if allowShellCode && containsShellCode(parts[2]) {
+			return argument
+		}
+		return parts[1] + Mask
+	})
+	return bearerCommandValue.ReplaceAllStringFunc(command, func(argument string) string {
+		if allowShellCode && containsShellCode(argument) {
+			return argument
+		}
+		return "Bearer " + Mask
+	})
+}
+
+func MaskToolArguments(args map[string]any) map[string]any {
+	return maskToolArguments(args, false)
+}
+
+// MaskApprovalArguments keeps executable code visible because approval cards must show it.
+func MaskApprovalArguments(args map[string]any) map[string]any {
+	return maskToolArguments(args, true)
+}
+
+func maskToolArguments(args map[string]any, allowShellCode bool) map[string]any {
+	if args == nil {
+		return nil
+	}
+	masked := make(map[string]any, len(args))
+	for key, value := range args {
+		masked[key] = maskToolArgument(key, value, allowShellCode)
+	}
+	return masked
+}
+
+func maskToolArgument(key string, value any, allowShellCode bool) any {
+	if text, ok := value.(string); ok && allowShellCode && containsShellCode(text) {
+		return text
+	}
+	if secretArgName.MatchString(key) {
+		return Mask
+	}
+	switch item := value.(type) {
+	case map[string]any:
+		return maskToolArguments(item, allowShellCode)
+	case []string:
+		if key == "args" {
+			return maskArgs(item, allowShellCode)
+		}
+		masked := make([]string, len(item))
+		for index, text := range item {
+			masked[index] = maskCommand(text, allowShellCode)
+		}
+		return masked
+	case []any:
+		if key == "args" {
+			args := make([]string, len(item))
+			for index, argument := range item {
+				if text, ok := argument.(string); ok {
+					args[index] = text
+					continue
+				}
+				args[index] = Mask
+			}
+			return maskArgs(args, allowShellCode)
+		}
+		masked := make([]any, len(item))
+		for index, nested := range item {
+			masked[index] = maskToolArgument("", nested, allowShellCode)
+		}
+		return masked
+	case string:
+		return maskCommand(item, allowShellCode)
+	default:
+		return value
+	}
+}
+
+func containsShellCode(value string) bool {
+	return strings.Contains(value, "$(") ||
+		strings.Contains(value, "<(") ||
+		strings.Contains(value, ">(") ||
+		strings.ContainsRune(value, '`') ||
+		strings.Contains(value, "${")
 }

@@ -230,7 +230,7 @@ func (r *printRun) handleClientToolCall(call *ClientToolCall) {
 	result := mcp.CallResult{Output: "Unknown local tool " + call.Name, IsError: true}
 	if known {
 		writeProgress(r.options, faint(r.options.NoColor, localToolActivity(ref)))
-		if ref.ReadOnly || r.approveLocalTool(ref, call) {
+		if !r.options.LocalTools.NeedsApproval(call.Name, call.Arguments) || r.approveLocalTool(ref, call) {
 			result = runLocalCall(ctx, r.options.LocalTools, call)
 		} else {
 			result = mcp.CallResult{Output: userDeclinedOutput, IsError: true}

@@ -38,6 +38,13 @@ func NewClientToolNamer() *ClientToolNamer {
 	return &ClientToolNamer{used: map[string]bool{}}
 }
 
+func (n *ClientToolNamer) Reserve(name string) {
+	name = strings.TrimPrefix(name, ClientToolPrefix)
+	if name != "" {
+		n.used[name] = true
+	}
+}
+
 func (n *ClientToolNamer) Name(server, tool string) string {
 	serverPart := sanitizeNamePart(server)
 	if len(serverPart) > maxServerNamePart {
