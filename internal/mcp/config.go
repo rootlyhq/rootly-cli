@@ -91,6 +91,22 @@ type Server struct {
 	Scope       string
 	Path        string
 	SourceLabel string
+	// Project is the project directory when an imported server comes from a
+	// project-controlled file, so it needs approval like a .mcp.json server.
+	Project string
+}
+
+// NeedsProjectTrust reports whether the server's config is controlled by the
+// project checkout and must be approved (per config hash) before it starts.
+func (s Server) NeedsProjectTrust() bool {
+	return s.Scope == ScopeProject || s.Project != ""
+}
+
+func (s Server) approvalPath() string {
+	if s.Scope == ScopeImported && s.Project != "" {
+		return s.Project + "#" + s.Path
+	}
+	return s.Path
 }
 
 func (s Server) ID() string {

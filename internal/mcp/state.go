@@ -77,7 +77,7 @@ func (s *StateStore) Update(change func(*State)) error {
 
 func (state State) IsApproved(server Server) bool {
 	for _, approval := range state.Approvals {
-		if approval.Project == server.Path && approval.Server == server.Name && approval.Hash == server.Config.Hash() {
+		if approval.Project == server.approvalPath() && approval.Server == server.Name && approval.Hash == server.Config.Hash() {
 			return true
 		}
 	}
@@ -87,11 +87,11 @@ func (state State) IsApproved(server Server) bool {
 func (state *State) Approve(server Server) {
 	kept := state.Approvals[:0]
 	for _, approval := range state.Approvals {
-		if approval.Project != server.Path || approval.Server != server.Name {
+		if approval.Project != server.approvalPath() || approval.Server != server.Name {
 			kept = append(kept, approval)
 		}
 	}
-	kept = append(kept, Approval{Project: server.Path, Server: server.Name, Hash: server.Config.Hash()})
+	kept = append(kept, Approval{Project: server.approvalPath(), Server: server.Name, Hash: server.Config.Hash()})
 	state.Approvals = kept
 }
 
@@ -132,8 +132,8 @@ func setString(values []string, value string, present bool) []string {
 	return kept
 }
 
-// NeedsApproval reports whether a project .mcp.json server still needs the
-// user's approval before it may start.
+// NeedsApproval reports whether a project-controlled server still needs the
+// user's approval of its current config before it may start.
 func (state State) NeedsApproval(server Server) bool {
-	return server.Scope == ScopeProject && !state.IsApproved(server)
+	return server.NeedsProjectTrust() && !state.IsApproved(server)
 }

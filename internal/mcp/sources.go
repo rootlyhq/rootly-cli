@@ -15,6 +15,10 @@ type ImportSource struct {
 	Label string
 	Path  string
 	parse func([]byte, string) (map[string]ServerConfig, error)
+	// project marks a file inside the checkout; projectNames picks the
+	// project-scoped entries of a file that mixes both.
+	project      bool
+	projectNames func([]byte, string) map[string]bool
 }
 
 type Discovery struct {
@@ -30,11 +34,11 @@ func NewDiscovery(cwd string) Discovery {
 
 func (d Discovery) Sources() []ImportSource {
 	sources := []ImportSource{
-		{Label: "Claude Code", Path: filepath.Join(d.Home, ".claude.json"), parse: parseClaudeCode},
+		{Label: "Claude Code", Path: filepath.Join(d.Home, ".claude.json"), parse: parseClaudeCode, projectNames: claudeProjectNames},
 		{Label: "Codex", Path: filepath.Join(d.Home, ".codex", "config.toml"), parse: parseCodexTOML},
 		{Label: "Cursor", Path: filepath.Join(d.Home, ".cursor", "mcp.json"), parse: parseMCPServersKey},
-		{Label: "Cursor (project)", Path: filepath.Join(d.CWD, ".cursor", "mcp.json"), parse: parseMCPServersKey},
-		{Label: "VS Code (project)", Path: filepath.Join(d.CWD, ".vscode", "mcp.json"), parse: parseVSCode},
+		{Label: "Cursor (project)", Path: filepath.Join(d.CWD, ".cursor", "mcp.json"), parse: parseMCPServersKey, project: true},
+		{Label: "VS Code (project)", Path: filepath.Join(d.CWD, ".vscode", "mcp.json"), parse: parseVSCode, project: true},
 	}
 	switch d.GOOS {
 	case "darwin":
@@ -68,7 +72,17 @@ func (d Discovery) Imported() ([]Server, []ImportError) {
 			problems = append(problems, ImportError{Source: source, Err: err})
 			continue
 		}
-		servers = append(servers, sortedServers(parsed, ScopeImported, source.Path, source.Label)...)
+		listed := sortedServers(parsed, ScopeImported, source.Path, source.Label)
+		var fromProject map[string]bool
+		if source.projectNames != nil {
+			fromProject = source.projectNames(data, d.CWD)
+		}
+		for index := range listed {
+			if source.project || fromProject[listed[index].Name] {
+				listed[index].Project = d.CWD
+			}
+		}
+		servers = append(servers, listed...)
 	}
 	return servers, problems
 }
@@ -94,6 +108,20 @@ func parseClaudeCode(data []byte, cwd string) (map[string]ServerConfig, error) {
 		servers[name] = server
 	}
 	return servers, nil
+}
+
+func claudeProjectNames(data []byte, cwd string) map[string]bool {
+	var document struct {
+		Projects map[string]map[string]json.RawMessage `json:"projects"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		return nil
+	}
+	names := map[string]bool{}
+	for name := range decodeServersLenient(document.Projects[cwd]["mcpServers"]) {
+		names[name] = true
+	}
+	return names
 }
 
 func parseVSCode(data []byte, _ string) (map[string]ServerConfig, error) {
