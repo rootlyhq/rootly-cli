@@ -370,19 +370,40 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.println(faint(m.noColor, m.bindingHeader()))
 		cmd := m.restartWelcomeAnimation()
 		return m, cmd
+	case tea.PasteMsg:
+		if m.pickerOpen || m.skillPickerOpen {
+			return m.updatePickerMessage(message)
+		}
+		if m.deleteConfirming || m.state == tuiConfirming {
+			return m, nil
+		}
+		if m.idleInterrupt {
+			m.idleInterrupt = false
+			m.status = ""
+		}
+		m.historyIndex = -1
+		var cmd tea.Cmd
+		m.composer, cmd = m.composer.Update(msg)
+		menuCmd := m.refreshCommandMenu()
+		return m, tea.Batch(cmd, menuCmd)
 	case tea.KeyPressMsg:
 		return m.updateKey(msg)
 	default:
-		if m.pickerOpen {
-			var cmd tea.Cmd
-			m.sessionPicker, cmd = m.sessionPicker.Update(message)
-			return m, cmd
-		}
-		if m.skillPickerOpen {
-			var cmd tea.Cmd
-			m.skillPicker, cmd = m.skillPicker.Update(message)
-			return m, cmd
-		}
+		return m.updatePickerMessage(message)
+	}
+	return m, nil
+}
+
+func (m *TUIModel) updatePickerMessage(message tea.Msg) (tea.Model, tea.Cmd) {
+	if m.pickerOpen {
+		var cmd tea.Cmd
+		m.sessionPicker, cmd = m.sessionPicker.Update(message)
+		return m, cmd
+	}
+	if m.skillPickerOpen {
+		var cmd tea.Cmd
+		m.skillPicker, cmd = m.skillPicker.Update(message)
+		return m, cmd
 	}
 	return m, nil
 }

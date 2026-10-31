@@ -221,6 +221,77 @@ func TestTUIModelAccumulatesTextChunks(t *testing.T) {
 	}
 }
 
+func TestTUIModelHandlesPastedText(t *testing.T) {
+	t.Run("idle", func(t *testing.T) {
+		model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+		model.idleInterrupt = true
+		model.status = "press Ctrl+C again to exit"
+
+		_, _ = model.Update(tea.PasteMsg{Content: "hello\nworld"})
+
+		if got := model.composer.Value(); got != "hello\nworld" {
+			t.Errorf("composer = %q, want pasted multiline text", got)
+		}
+		if model.idleInterrupt || model.status != "" {
+			t.Errorf("paste left idle interrupt state: idleInterrupt=%t status=%q", model.idleInterrupt, model.status)
+		}
+	})
+
+	t.Run("streaming", func(t *testing.T) {
+		model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+		model.state = tuiStreaming
+
+		_, _ = model.Update(tea.PasteMsg{Content: "hello\nworld"})
+
+		if got := model.composer.Value(); got != "hello\nworld" {
+			t.Errorf("composer = %q while streaming, want pasted multiline text", got)
+		}
+	})
+
+	t.Run("confirmation", func(t *testing.T) {
+		model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+		model.state = tuiConfirming
+		model.composer.SetValue("existing draft")
+
+		_, _ = model.Update(tea.PasteMsg{Content: "yes"})
+
+		if got := model.composer.Value(); got != "existing draft" {
+			t.Errorf("composer = %q, want existing draft unchanged", got)
+		}
+		if model.state != tuiConfirming {
+			t.Errorf("state = %v, want tuiConfirming", model.state)
+		}
+	})
+
+	t.Run("delete confirmation", func(t *testing.T) {
+		model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+		model.deleteConfirming = true
+		model.composer.SetValue("existing draft")
+
+		_, _ = model.Update(tea.PasteMsg{Content: "yes"})
+
+		if got := model.composer.Value(); got != "existing draft" {
+			t.Errorf("composer = %q, want existing draft unchanged", got)
+		}
+		if !model.deleteConfirming {
+			t.Error("paste changed delete confirmation state")
+		}
+	})
+
+	t.Run("session picker", func(t *testing.T) {
+		model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{})
+		model.pickerOpen = true
+		model.sessionPicker = list.New(nil, list.NewDefaultDelegate(), 80, 10)
+		model.composer.SetValue("existing draft")
+
+		_, _ = model.Update(tea.PasteMsg{Content: "pasted text"})
+
+		if got := model.composer.Value(); got != "existing draft" {
+			t.Errorf("composer = %q, want existing draft unchanged", got)
+		}
+	})
+}
+
 func TestTUIModelCommitsStreamedBlocksIntoTranscript(t *testing.T) {
 	model := newSizedTUITestModel(80, 24)
 	model.state = tuiStreaming
