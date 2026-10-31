@@ -63,9 +63,15 @@ func (c ServerConfig) Validate() error {
 		if strings.TrimSpace(c.Command) == "" {
 			return errors.New("stdio server needs a command")
 		}
+		if c.URL != "" {
+			return errors.New("stdio server can't have a url; set type to http or sse")
+		}
 	case TransportHTTP, TransportSSE:
 		if strings.TrimSpace(c.URL) == "" {
 			return fmt.Errorf("%s server needs a url", c.Transport())
+		}
+		if c.Command != "" {
+			return fmt.Errorf("%s server can't have a command", c.Transport())
 		}
 	default:
 		return fmt.Errorf("unsupported transport %q (expected stdio, http or sse)", c.Type)

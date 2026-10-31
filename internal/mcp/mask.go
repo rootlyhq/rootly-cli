@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -11,7 +12,7 @@ const Mask = "*****"
 // MaskedConfig hides env/header values and URL credentials for display.
 func (c ServerConfig) Masked() ServerConfig {
 	masked := c
-	masked.Args = append([]string(nil), c.Args...)
+	masked.Args = maskArgs(c.Args)
 	masked.URL = maskURL(c.URL)
 	if len(c.Env) > 0 {
 		masked.Env = make(map[string]string, len(c.Env))
@@ -70,4 +71,38 @@ func MaskedPairs(values map[string]string, separator string) []string {
 		pairs = append(pairs, key+separator+Mask)
 	}
 	return pairs
+}
+
+var secretArgName = regexp.MustCompile(`(?i)(token|secret|password|passwd|api[-_]?key|apikey|auth|credential|bearer)`)
+
+// maskArgs hides values of secret-looking flags (--token=x, --api-key x)
+// and inline Bearer tokens.
+func maskArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	masked := make([]string, len(args))
+	hideNext := false
+	for index, arg := range args {
+		switch {
+		case hideNext:
+			masked[index] = Mask
+			hideNext = false
+		case strings.HasPrefix(arg, "-") && strings.Contains(arg, "="):
+			name, _, _ := strings.Cut(arg, "=")
+			if secretArgName.MatchString(name) {
+				masked[index] = name + "=" + Mask
+			} else {
+				masked[index] = arg
+			}
+		case strings.HasPrefix(arg, "-") && secretArgName.MatchString(arg):
+			masked[index] = arg
+			hideNext = true
+		case strings.HasPrefix(strings.ToLower(arg), "bearer "):
+			masked[index] = arg[:len("bearer ")] + Mask
+		default:
+			masked[index] = arg
+		}
+	}
+	return masked
 }
