@@ -301,7 +301,7 @@ func awsNeedsApproval(args []string) bool {
 		!strings.HasPrefix(action, "get-")
 }
 
-func awsServiceOperation(args []string) (string, string, bool) {
+func awsServiceOperation(args []string) (service, operation string, ok bool) {
 	positionals := make([]string, 0, 2)
 	for index := 0; index < len(args) && len(positionals) < 2; index++ {
 		arg := args[index]

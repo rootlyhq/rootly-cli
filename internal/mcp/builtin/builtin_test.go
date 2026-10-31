@@ -435,7 +435,7 @@ func TestKubectlKubeconfigInsideRootNeedsApproval(t *testing.T) {
 	if err := os.WriteFile(outsidePath, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KUBECONFIG", strings.Join([]string{outsidePath, configPath}, string(os.PathListSeparator)))
+	t.Setenv("KUBECONFIG", outsidePath+string(os.PathListSeparator)+configPath)
 	kubectl := newCLITool(root, cliSpec{bin: "kubectl"}, func(string) (string, error) { return "", errors.New("unused") })
 	args := map[string]any{"args": []any{"get", "pods"}}
 	if !kubectl.NeedsApproval(args) {
