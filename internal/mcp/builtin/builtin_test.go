@@ -140,6 +140,24 @@ func TestBashIsApprovalGatedAndEnforcesTimeout(t *testing.T) {
 	}
 }
 
+func TestShellTimeoutClampsSeconds(t *testing.T) {
+	cases := []struct {
+		name  string
+		value any
+		want  time.Duration
+	}{
+		{name: "too large", value: int64(1 << 62), want: maxShellTimeout},
+		{name: "below minimum", value: int64(0), want: time.Second},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shellTimeout(map[string]any{"timeout_seconds": test.value}); got != test.want {
+				t.Fatalf("shellTimeout() = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
 func TestBashRedactsSensitiveEnvironmentValues(t *testing.T) {
 	const secret = "supersecretvalue123"
 	t.Setenv("ROOTLY_TEST_TOKEN", secret)

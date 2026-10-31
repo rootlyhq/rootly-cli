@@ -86,14 +86,31 @@ func newBashTool(root string) Tool {
 			if !ok || strings.TrimSpace(command) == "" {
 				return errorResult("command is required")
 			}
-			timeoutSeconds := intArg(args, "timeout_seconds", int(defaultTimeout/time.Second))
-			if timeoutSeconds < 1 {
-				timeoutSeconds = int(defaultTimeout / time.Second)
-			}
-			timeout := min(time.Duration(timeoutSeconds)*time.Second, maxShellTimeout)
-			return runCommand(ctx, root, "bash", []string{"-c", command}, timeout, maxShellOutput, "bash")
+			return runCommand(ctx, root, "bash", []string{"-c", command}, shellTimeout(args), maxShellOutput, "bash")
 		},
 	}
+}
+
+func shellTimeout(args map[string]any) time.Duration {
+	maxSeconds := int64(maxShellTimeout / time.Second)
+	seconds := int64(defaultTimeout / time.Second)
+	switch value := args["timeout_seconds"].(type) {
+	case int:
+		seconds = int64(value)
+	case int64:
+		seconds = value
+	case float64:
+		switch {
+		case value < 1:
+			seconds = 1
+		case value > float64(maxSeconds):
+			seconds = maxSeconds
+		default:
+			seconds = int64(value)
+		}
+	}
+	seconds = min(max(seconds, int64(1)), maxSeconds)
+	return time.Duration(seconds) * time.Second
 }
 
 func runCLI(ctx context.Context, root, bin string, args []string, lookPath LookPathFunc) Result {
