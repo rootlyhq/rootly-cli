@@ -15,6 +15,7 @@ import (
 	rootly "github.com/rootlyhq/rootly-go"
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
+	"github.com/rootlyhq/rootly-cli/internal/mcp"
 	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
 
@@ -35,6 +36,8 @@ type PrintOptions struct {
 	IsStdinTTY   func() bool
 	IsStdoutTTY  func() bool
 	IsStderrTTY  func() bool
+	LocalTools   LocalTools
+	ToolResults  ToolResultPoster
 }
 
 func RunPrint(ctx context.Context, streamer Streamer, options PrintOptions) error {
@@ -97,6 +100,10 @@ type printRun struct {
 	doneStatus   string
 	doneReceived bool
 	streamError  error
+	ctx          context.Context
+	sentTools    int
+	toolsOffSeen bool
+	stdinReader  *bufio.Reader
 }
 
 func (r *printRun) run(ctx context.Context) error {
@@ -114,7 +121,15 @@ func (r *printRun) runTurn(ctx context.Context) (bool, error) {
 	r.doneReceived = false
 	r.streamError = nil
 	resumeTextSeparator := r.params.CheckpointID != nil
-	err := StreamTurn(ctx, r.streamer, r.params, func(event Event) bool {
+	r.ctx = ctx
+	r.sentTools = 0
+	streamCtx := ctx
+	if r.options.LocalTools != nil {
+		tools, _ := r.options.LocalTools.ClientTools()
+		r.sentTools = len(tools)
+		streamCtx = api.WithClientTools(ctx, tools)
+	}
+	err := StreamTurn(streamCtx, r.streamer, r.params, func(event Event) bool {
 		return r.handleEvent(event, &resumeTextSeparator)
 	})
 	if err != nil {
@@ -152,6 +167,14 @@ func (r *printRun) handleEvent(event Event, resumeTextSeparator *bool) bool {
 				r.options.SessionID = &id
 			}
 		}
+		if event.ClientToolsAccepted != nil && *event.ClientToolsAccepted == 0 && r.sentTools > 0 && !r.toolsOffSeen {
+			r.toolsOffSeen = true
+			if !r.options.Quiet {
+				_, _ = fmt.Fprintln(r.options.Stderr, faint(r.options.NoColor, localToolsOffMessage))
+			}
+		}
+	case EventClientToolCall:
+		r.handleClientToolCall(event.ClientToolCall)
 	case rootly.AiChatStreamEventText:
 		if event.Text != nil {
 			if *resumeTextSeparator {
@@ -193,6 +216,50 @@ func (r *printRun) handleEvent(event Event, resumeTextSeparator *bool) bool {
 		}
 	}
 	return true
+}
+
+func (r *printRun) handleClientToolCall(call *ClientToolCall) {
+	if call == nil {
+		return
+	}
+	ctx := r.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ref, known := resolveLocalCall(r.options.LocalTools, call)
+	result := mcp.CallResult{Output: "Unknown local tool " + call.Name, IsError: true}
+	if known {
+		writeProgress(r.options, faint(r.options.NoColor, localToolActivity(ref)))
+		if ref.ReadOnly || r.approveLocalTool(ref, call) {
+			result = runLocalCall(ctx, r.options.LocalTools, call)
+		} else {
+			result = mcp.CallResult{Output: userDeclinedOutput, IsError: true}
+		}
+	}
+	sessionID := ""
+	if r.sessionID != nil {
+		sessionID = r.sessionID.String()
+	}
+	if err := postLocalResult(ctx, r.options.ToolResults, sessionID, call, result); err != nil && !r.options.Quiet {
+		_, _ = fmt.Fprintln(r.options.Stderr, sanitizeTerminalText(err.Error()))
+	}
+}
+
+// approveLocalTool asks y/n for a non-read-only tool; without a terminal it declines.
+func (r *printRun) approveLocalTool(ref mcp.ToolRef, call *ClientToolCall) bool {
+	if !terminal(r.options.IsStdinTTY) || !terminal(r.options.IsStderrTTY) || r.options.Stdin == nil {
+		if !r.options.Quiet {
+			_, _ = fmt.Fprintf(r.options.Stderr, "Declined local tool %s · %s (approval needs a terminal)\n", sanitizeTerminalText(ref.ServerName), sanitizeTerminalText(ref.Tool))
+		}
+		return false
+	}
+	_, _ = fmt.Fprintf(r.options.Stderr, "%s\n", renderLocalToolCard(ref, call, 80, r.options.NoColor))
+	_, _ = fmt.Fprint(r.options.Stderr, "Run this local tool? [y/N] ")
+	if r.stdinReader == nil {
+		r.stdinReader = bufio.NewReader(r.options.Stdin)
+	}
+	line, _ := r.stdinReader.ReadString('\n')
+	return strings.EqualFold(strings.TrimSpace(line), "y")
 }
 
 func (r *printRun) writeActivityLines(lines []string) {
@@ -334,6 +401,8 @@ func writeStreamEvent(writer io.Writer, event Event) {
 	switch event.Type {
 	case rootly.AiChatStreamEventSessionID:
 		payload = event.SessionID
+	case EventClientToolCall:
+		payload = event.ClientToolCall
 	case rootly.AiChatStreamEventText:
 		payload = event.Text
 	case rootly.AiChatStreamEventStatus:

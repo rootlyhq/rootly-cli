@@ -27,6 +27,17 @@ type Event struct {
 	CheckpointResolved   *rootly.AiChatStreamCheckpointResolved
 	Error                *rootly.AiChatStreamError
 	Done                 *rootly.AiChatStreamDone
+	ClientToolCall       *ClientToolCall
+	ClientToolsAccepted  *int
+}
+
+const EventClientToolCall = "client_tool_call"
+
+// ClientToolCall asks the CLI to run one of the local tools it advertised.
+type ClientToolCall struct {
+	CallID    string         `json:"call_id"`
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
 }
 
 const aiChatDisabledMessage = "Rootly AI chat isn't enabled for your organization. Contact your Rootly account team or Rootly support to turn it on."
@@ -90,6 +101,8 @@ func decodeEvent(event rootly.AiChatStreamEvent) (Event, bool, error) {
 		payload = &rootly.AiChatStreamError{}
 	case rootly.AiChatStreamEventDone:
 		payload = &rootly.AiChatStreamDone{}
+	case EventClientToolCall:
+		payload = &ClientToolCall{}
 	default:
 		return Event{}, false, nil
 	}
@@ -101,6 +114,12 @@ func decodeEvent(event rootly.AiChatStreamEvent) (Event, bool, error) {
 	switch value := payload.(type) {
 	case *rootly.AiChatStreamSessionID:
 		decoded.SessionID = value
+		var accepted struct {
+			ClientToolsAccepted *int `json:"client_tools_accepted"`
+		}
+		if json.Unmarshal(event.Data, &accepted) == nil {
+			decoded.ClientToolsAccepted = accepted.ClientToolsAccepted
+		}
 	case *rootly.AiChatStreamText:
 		decoded.Text = value
 	case *rootly.AiChatStreamStatus:
@@ -117,6 +136,11 @@ func decodeEvent(event rootly.AiChatStreamEvent) (Event, bool, error) {
 		decoded.Error = value
 	case *rootly.AiChatStreamDone:
 		decoded.Done = value
+	case *ClientToolCall:
+		if value.CallID == "" || value.Name == "" {
+			return Event{}, false, fmt.Errorf("decode %s event: missing call_id or name", event.Type)
+		}
+		decoded.ClientToolCall = value
 	}
 
 	return decoded, true, nil
