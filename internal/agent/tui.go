@@ -304,6 +304,16 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleWindowSize(msg)
 		return m, nil
 	case tea.MouseWheelMsg:
+		if m.pickerOpen {
+			var cmd tea.Cmd
+			m.sessionPicker, cmd = m.sessionPicker.Update(msg)
+			return m, cmd
+		}
+		if m.skillPickerOpen {
+			var cmd tea.Cmd
+			m.skillPicker, cmd = m.skillPicker.Update(msg)
+			return m, cmd
+		}
 		m.handleMouseWheel(msg)
 		return m, nil
 	case spinner.TickMsg:
@@ -392,10 +402,10 @@ func (m *TUIModel) handleWindowSize(msg tea.WindowSizeMsg) {
 	m.composer.SetWidth(max(1, msg.Width-2))
 	m.composer.MaxHeight = max(3, msg.Height/3)
 	if m.pickerOpen {
-		m.sessionPicker.SetSize(msg.Width, min(12, max(1, msg.Height/2)))
+		m.sessionPicker.SetSize(max(1, msg.Width), max(1, msg.Height))
 	}
 	if m.skillPickerOpen {
-		m.skillPicker.SetSize(msg.Width, min(12, max(1, msg.Height/2)))
+		m.skillPicker.SetSize(max(1, msg.Width), max(1, msg.Height))
 	}
 	if m.commandMenuOpen {
 		m.commandMenu.SetSize(max(20, msg.Width), min(6, len(m.commandMenu.Items())))
@@ -687,12 +697,12 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 		m.lastAnswer = rawAnswer
 		m.conversation = append(m.conversation, transcriptTurn{user: m.currentPrompt, assistant: rawAnswer})
 		remainder := m.uncommittedAnswer()
-		footer := "\n" + m.turnFooter()
+		footer := "\n\n" + m.turnFooter()
 		if strings.TrimSpace(remainder) != "" {
 			rendered := m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
 			commands = append(commands, m.printlnWithGap(rendered+footer, m.committedOffset > 0))
 		} else {
-			commands = append(commands, m.println(footer))
+			commands = append(commands, m.printlnWithGap(m.turnFooter(), true))
 		}
 		m.committedOffset = len(rawAnswer)
 	}
@@ -738,7 +748,7 @@ func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
 		lines = append(lines, style.Render(message))
 	}
 	if !m.turnStartedAt.IsZero() && m.sessionID != nil {
-		lines = append(lines, m.turnFooter())
+		lines = append(lines, "\n"+m.turnFooter())
 	}
 	m.resetAnswer()
 	m.turnStartedAt = time.Time{}
@@ -940,7 +950,7 @@ func (m *TUIModel) submitPrompt(message string) tea.Cmd {
 		m.alertUsed = true
 	}
 	cmd := m.startStream(params)
-	return sequenceTUICommands(m.println(renderPromptEcho(message, m.width, m.noColor)), cmd)
+	return sequenceTUICommands(m.println(renderPromptEcho(message, m.noColor)), cmd)
 }
 
 func (m *TUIModel) scrollViewportKey(msg tea.KeyPressMsg) bool {
@@ -1136,6 +1146,12 @@ func (m *TUIModel) viewContent() string {
 	if m.quitting {
 		return ""
 	}
+	if m.pickerOpen {
+		return m.sessionPicker.View()
+	}
+	if m.skillPickerOpen {
+		return m.skillPicker.View()
+	}
 	if !m.windowSizeReceived || m.height <= 0 || m.width <= 0 {
 		return m.footerContent()
 	}
@@ -1218,7 +1234,8 @@ func joinTranscriptBlocks(blocks []transcriptBlock) string {
 			continue
 		}
 		if hasBlock {
-			if block.gapBefore || strings.HasPrefix(strings.TrimSpace(ansi.Strip(text)), "❯ ") {
+			plain := strings.TrimSpace(ansi.Strip(text))
+			if block.gapBefore || strings.HasPrefix(plain, "❯ ") || strings.HasPrefix(plain, "● ") {
 				joined.WriteString("\n\n")
 			} else {
 				joined.WriteByte('\n')
@@ -1247,7 +1264,8 @@ func joinHeaderAndConversation(header, committed, live string, liveGapBefore boo
 		if committed == "" && header != "" {
 			joined.WriteString("\n\n")
 		} else if committed != "" || header != "" {
-			if committed != "" && liveGapBefore {
+			plainLive := strings.TrimSpace(ansi.Strip(live))
+			if committed != "" && (liveGapBefore || strings.HasPrefix(plainLive, "● ")) {
 				joined.WriteString("\n\n")
 			} else {
 				joined.WriteByte('\n')

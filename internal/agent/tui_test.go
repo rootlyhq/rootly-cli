@@ -867,15 +867,16 @@ func TestTUIModelCtrlCCancelsStreaming(t *testing.T) {
 }
 
 func TestTUITranscriptUsesClaudeCodeStyle(t *testing.T) {
-	plain := renderPromptEcho("hello\nworld", 40, true)
+	plain := renderPromptEcho("hello\nworld", true)
 	if plain != "❯ hello\n  world" {
 		t.Errorf("plain prompt echo = %q, want prompt with indented continuation", plain)
 	}
-	colored := renderPromptEcho("hello\nworld", 40, false)
-	for _, line := range strings.Split(colored, "\n") {
-		if width := ansi.StringWidth(line); width != 39 {
-			t.Errorf("prompt echo width = %d, want 39: %q", width, line)
-		}
+	colored := renderPromptEcho("hello\nworld", false)
+	if got := ansi.Strip(colored); got != "❯ hello\n  world" {
+		t.Errorf("colored prompt echo text = %q, want prompt with indented continuation", got)
+	}
+	if strings.Contains(colored, "\x1b[48") {
+		t.Errorf("colored prompt echo has a background color: %q", colored)
 	}
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
 	answer := model.renderAssistantAnswer("Hello\nworld")
@@ -903,7 +904,7 @@ func TestTUITranscriptSpacingAcrossTurns(t *testing.T) {
 	model := newSizedTUITestModel(80, 24)
 	model.println("❯ first question")
 	model.println("● first answer")
-	model.println("✻ Triaged for 2s · done")
+	model.printlnWithGap("✻ Triaged for 2s · done", true)
 	model.println("❯ second question")
 	model.View()
 
@@ -926,7 +927,9 @@ func TestTUITranscriptSpacingAcrossTurns(t *testing.T) {
 			"New session",
 			"",
 			"❯ first question",
+			"",
 			"● first answer",
+			"",
 			"✻ Triaged for 2s · done",
 			"",
 			"❯ second question",
@@ -1305,7 +1308,7 @@ func TestTUITypedSkillInvocationErrorsAndBuiltinPrecedence(t *testing.T) {
 		{name: "model only", response: testSkillPage([]rootly.AiSkill{testSkill("nope", "Nope", "", true, "model")}, nil), want: "/nope can only be loaded by the model, not by name."},
 		{name: "skills disabled", response: &rootly.ListAISkillsResponse{HTTPResponse: &http.Response{StatusCode: http.StatusForbidden}}, want: "Unknown command /nope. Type /help."},
 		{name: "team key missing endpoint", response: &rootly.ListAISkillsResponse{HTTPResponse: &http.Response{StatusCode: http.StatusNotFound}}, want: "Unknown command /nope. Type /help."},
-		{name: "network error", apiError: errors.New("offline"), want: "Unknown command /nope. Type /help."},
+		{name: "network error", apiError: errors.New("offline\x1b[31m"), want: "Couldn't check skill /nope: offline"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			apiClient := &fakeTUIAPI{skillPages: []*rootly.ListAISkillsResponse{test.response}}
@@ -1321,6 +1324,9 @@ func TestTUITypedSkillInvocationErrorsAndBuiltinPrecedence(t *testing.T) {
 			if !strings.Contains(model.Transcript(), test.want) {
 				t.Errorf("transcript = %q, want %q", model.Transcript(), test.want)
 			}
+			if got := model.composer.Value(); got != "/nope" {
+				t.Errorf("composer = %q, want the original prompt /nope", got)
+			}
 		})
 	}
 
@@ -1329,6 +1335,18 @@ func TestTUITypedSkillInvocationErrorsAndBuiltinPrecedence(t *testing.T) {
 	_ = model.runSlashCommand("/status")
 	if len(apiClient.skillParams) != 0 {
 		t.Errorf("/status made %d skill API calls, want none", len(apiClient.skillParams))
+	}
+}
+
+func TestTUITypedSkillInvocationFailurePreservesNewDraft(t *testing.T) {
+	apiClient := &fakeTUIAPI{skillErrors: []error{errors.New("offline")}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{API: apiClient, NoColor: true})
+	model.composer.SetValue("/nope")
+	lookupCmd := model.submit()
+	model.composer.SetValue("a newer draft")
+	_, _ = model.Update(lookupCmd())
+	if got := model.composer.Value(); got != "a newer draft" {
+		t.Errorf("composer = %q, want newer draft preserved", got)
 	}
 }
 
@@ -1547,8 +1565,11 @@ func TestTUIHistoryRecallAndFooter(t *testing.T) {
 	sessionID := uuid.MustParse(testSessionID)
 	model.sessionID = &sessionID
 	model.turnStartedAt = time.Now().Add(-1200 * time.Millisecond)
-	if footer := model.turnFooter(); !strings.Contains(footer, "✻ Triaged for ") || !strings.Contains(footer, " · done ") || !strings.Contains(footer, "session "+testSessionID[:8]) {
-		t.Errorf("turn footer = %q, want elapsed and short session id", footer)
+	if footer := model.turnFooter(); !strings.Contains(footer, "✻ Triaged for ") || !strings.Contains(footer, " · done ") || strings.Contains(footer, "session ") {
+		t.Errorf("turn footer = %q, want elapsed without a session id", footer)
+	}
+	if status := model.statusLines(); !strings.Contains(status, "session "+testSessionID[:8]) {
+		t.Errorf("status = %q, want the session id to remain available", status)
 	}
 }
 
@@ -1817,7 +1838,7 @@ func TestTUIConfirmationFlushesStatusFinalization(t *testing.T) {
 
 func TestTUIFinishTurnAppendsAnswerToTranscript(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
-	model.println(renderPromptEcho("Question", model.width, model.noColor))
+	model.println(renderPromptEcho("Question", model.noColor))
 	model.answer.WriteString("Answer")
 	model.currentPrompt = "Question"
 	model.doneStatus = "complete"
@@ -2074,6 +2095,133 @@ func TestTUIModelSeparatesResumedText(t *testing.T) {
 	}
 	if model.cancel != nil {
 		model.cancel()
+	}
+}
+
+func TestTUITranscriptSeparatesPromptAnswerAndFooter(t *testing.T) {
+	now := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model.now = func() time.Time { return now }
+	model.currentPrompt = "hi"
+	model.println(renderPromptEcho("hi", true))
+	model.state = tuiStreaming
+	model.startedAt = now
+	model.turn = 1
+	model.turnStartedAt = now.Add(-8 * time.Second)
+	model.turnVerbIndex = 0
+	model.answer.WriteString("hello")
+
+	const promptAndAnswer = "❯ hi\n\n● hello"
+	if transcript := ansi.Strip(model.Transcript()); !strings.Contains(transcript, promptAndAnswer) {
+		t.Errorf("live transcript = %q, want one blank line between prompt and answer", transcript)
+	}
+	viewLines := strings.Split(ansi.Strip(model.View().Content), "\n")
+	for index := range viewLines {
+		viewLines[index] = strings.TrimRight(viewLines[index], " ")
+	}
+	if view := strings.Join(viewLines, "\n"); !strings.Contains(view, promptAndAnswer) {
+		t.Errorf("live view = %q, want one blank line between prompt and answer", view)
+	}
+
+	model.doneReceived = true
+	model.doneStatus = "complete"
+	_, _ = model.finishTurn(nil)
+	const completeTurn = "❯ hi\n\n● hello\n\n✻ Triaged for 8s · done 12:00 PM"
+	if transcript := ansi.Strip(model.Transcript()); !strings.Contains(transcript, completeTurn) {
+		t.Errorf("completed transcript = %q, want one blank line before the footer", transcript)
+	}
+
+	history := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	history.printHistory([]rootly.AiChatSessionMessage{
+		{Role: rootly.AiChatSessionMessageRole("user"), Content: "hi"},
+		{Role: rootly.AiChatSessionMessageRole("assistant"), Content: "hello"},
+		{Role: rootly.AiChatSessionMessageRole("user"), Content: "next"},
+	})
+	if transcript := ansi.Strip(history.Transcript()); !strings.Contains(transcript, "❯ hi\n\n● hello\n\n❯ next") {
+		t.Errorf("resumed history = %q, want one blank line between turns", transcript)
+	}
+}
+
+func TestTUIPickersRenderFullScreenAndRestoreChat(t *testing.T) {
+	tests := []struct {
+		name   string
+		title  string
+		open   func(*TUIModel) tea.Cmd
+		isOpen func(*TUIModel) bool
+	}{
+		{
+			name:  "sessions",
+			title: "Sessions",
+			open: func(model *TUIModel) tea.Cmd {
+				return model.openSessionPicker()
+			},
+			isOpen: func(model *TUIModel) bool { return model.pickerOpen },
+		},
+		{
+			name:  "skills",
+			title: "AI Skills",
+			open: func(model *TUIModel) tea.Cmd {
+				return model.openSkillPicker("")
+			},
+			isOpen: func(model *TUIModel) bool { return model.skillPickerOpen },
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{
+				API: &fakeTUIAPI{}, NoColor: true,
+			})
+			model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+			model.println("chat transcript marker")
+			for index := 0; index < 30; index++ {
+				model.println(fmt.Sprintf("history %d", index))
+			}
+			model.composer.SetValue("composer draft")
+			model.state = tuiStreaming
+			model.status = "stream status marker"
+			model.View()
+			model.viewport.GotoTop()
+			offset := model.viewport.YOffset()
+
+			if cmd := test.open(model); cmd == nil {
+				t.Fatal("opening picker returned no load command")
+			}
+			pickerView := model.View().Content
+			plainPickerView := ansi.Strip(pickerView)
+			if strings.Contains(plainPickerView, "chat transcript marker") ||
+				strings.Contains(plainPickerView, "composer draft") ||
+				strings.Contains(plainPickerView, "stream status marker") {
+				t.Errorf("picker view contains chat content: %q", plainPickerView)
+			}
+			if !strings.Contains(plainPickerView, test.title) {
+				t.Errorf("picker view = %q, want title %q", plainPickerView, test.title)
+			}
+			if lines := len(strings.Split(strings.TrimRight(pickerView, "\n"), "\n")); lines != 24 {
+				t.Errorf("picker view has %d rows, want 24", lines)
+			}
+
+			_, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+			if lines := len(strings.Split(strings.TrimRight(model.View().Content, "\n"), "\n")); lines != 30 {
+				t.Errorf("resized picker view has %d rows, want 30", lines)
+			}
+			_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+			if test.isOpen(model) {
+				t.Fatal("Escape did not close the picker")
+			}
+			chatView := ansi.Strip(model.View().Content)
+			if !strings.Contains(chatView, "chat transcript marker") ||
+				!strings.Contains(chatView, "composer draft") ||
+				!strings.Contains(chatView, "stream status marker") {
+				t.Errorf("chat view was not restored: %q", chatView)
+			}
+			if got := model.composer.Value(); got != "composer draft" {
+				t.Errorf("composer value = %q, want draft preserved", got)
+			}
+			if got := model.viewport.YOffset(); got != offset {
+				t.Errorf("viewport offset = %d, want unchanged %d", got, offset)
+			}
+		})
 	}
 }
 

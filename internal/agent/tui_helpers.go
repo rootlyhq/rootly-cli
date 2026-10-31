@@ -302,7 +302,7 @@ func isExitAlias(message string) bool {
 	return !strings.ContainsAny(message, "\r\n") && (strings.EqualFold(message, "exit") || strings.EqualFold(message, "quit"))
 }
 
-func renderPromptEcho(prompt string, width int, noColor bool) string {
+func renderPromptEcho(prompt string, noColor bool) string {
 	lines := strings.Split(prompt, "\n")
 	for index, line := range lines {
 		prefix := "  "
@@ -313,9 +313,6 @@ func renderPromptEcho(prompt string, width int, noColor bool) string {
 			}
 		}
 		lines[index] = prefix + line
-		if !noColor {
-			lines[index] = lipgloss.NewStyle().Background(lipgloss.Color("236")).Width(max(1, width-1)).Render(lines[index])
-		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -386,14 +383,10 @@ func trimLeadingANSIWhitespace(line string) string {
 }
 
 func (m *TUIModel) turnFooter() string {
-	session := "new"
-	if m.sessionID != nil {
-		session = shortSessionID(m.sessionID.String())
-	}
 	now := m.now()
 	duration := now.Sub(m.turnStartedAt).Round(time.Second)
 	verb := statusVerbs[m.turnVerbIndex].Done
-	return faint(m.noColor, fmt.Sprintf("✻ %s for %s · done %s · session %s", verb, formatTurnDuration(duration), now.Format("3:04 PM"), session))
+	return faint(m.noColor, fmt.Sprintf("✻ %s for %s · done %s", verb, formatTurnDuration(duration), now.Format("3:04 PM")))
 }
 
 func (m *TUIModel) startNewTurn() {
@@ -530,7 +523,7 @@ func (m *TUIModel) printHistory(messages []rootly.AiChatSessionMessage) {
 		content := sanitizeTerminalText(message.Content)
 		switch message.Role {
 		case rootly.AiChatSessionMessageRole("user"):
-			m.println(renderPromptEcho(content, m.width, m.noColor))
+			m.println(renderPromptEcho(content, m.noColor))
 			m.conversation = append(m.conversation, transcriptTurn{user: content})
 		case rootly.AiChatSessionMessageRole("assistant"):
 			m.println(m.renderAssistantAnswer(content))
@@ -550,13 +543,14 @@ func (m *TUIModel) openSessionPicker() tea.Cmd {
 	m.pickerBefore = ""
 	m.pickerHasMore = false
 	delegate := list.NewDefaultDelegate()
-	m.sessionPicker = list.New(nil, delegate, max(20, m.width), min(12, max(1, m.height/2)))
-	m.sessionPicker.SetShowTitle(false)
-	m.sessionPicker.SetShowHelp(false)
+	m.sessionPicker = list.New(nil, delegate, max(1, m.width), max(1, m.height))
+	m.sessionPicker.Title = "Sessions"
+	m.sessionPicker.SetShowTitle(true)
+	m.sessionPicker.SetShowHelp(true)
 	m.sessionPicker.SetShowStatusBar(true)
 	m.sessionPicker.SetShowPagination(true)
 	m.sessionPicker.SetFilteringEnabled(true)
-	m.sessionPicker.SetSize(max(20, m.width), min(12, max(1, m.height/2)))
+	m.sessionPicker.SetSize(max(1, m.width), max(1, m.height))
 	return m.loadSessionPage("")
 }
 
@@ -653,6 +647,11 @@ func (m *TUIModel) selectPickerItem(item sessionPickerItem) tea.Cmd {
 
 func (m *TUIModel) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
+		if m.sessionPicker.FilterState() != list.Unfiltered {
+			var cmd tea.Cmd
+			m.sessionPicker, cmd = m.sessionPicker.Update(msg)
+			return m, cmd
+		}
 		m.pickerOpen = false
 		m.pickerLoading = false
 		m.pickerRequest++
@@ -679,13 +678,14 @@ func (m *TUIModel) openSkillPicker(query string) tea.Cmd {
 	m.skillPickerNextPage = 0
 	m.skillPickerQuery = query
 	delegate := list.NewDefaultDelegate()
-	m.skillPicker = list.New(nil, delegate, max(20, m.width), min(12, max(1, m.height/2)))
-	m.skillPicker.SetShowTitle(false)
-	m.skillPicker.SetShowHelp(false)
+	m.skillPicker = list.New(nil, delegate, max(1, m.width), max(1, m.height))
+	m.skillPicker.Title = "AI Skills"
+	m.skillPicker.SetShowTitle(true)
+	m.skillPicker.SetShowHelp(true)
 	m.skillPicker.SetShowStatusBar(true)
 	m.skillPicker.SetShowPagination(true)
 	m.skillPicker.SetFilteringEnabled(true)
-	m.skillPicker.SetSize(max(20, m.width), min(12, max(1, m.height/2)))
+	m.skillPicker.SetSize(max(1, m.width), max(1, m.height))
 	return m.loadSkillPickerPage(1)
 }
 
@@ -799,6 +799,11 @@ func (m *TUIModel) selectSkillPickerItem(item skillPickerItem) tea.Cmd {
 
 func (m *TUIModel) handleSkillPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
+		if m.skillPicker.FilterState() != list.Unfiltered {
+			var cmd tea.Cmd
+			m.skillPicker, cmd = m.skillPicker.Update(msg)
+			return m, cmd
+		}
 		m.skillPickerOpen = false
 		m.skillPickerLoading = false
 		m.skillPickerRequest++
@@ -852,16 +857,31 @@ func (m *TUIModel) lookupSkillForPrompt(token, prompt string) tea.Cmd {
 }
 
 func (m *TUIModel) handleSkillInvocation(message skillInvocationResolvedMsg) tea.Cmd {
+	restorePrompt := func() {
+		if m.composer.Value() == "" {
+			m.composer.SetValue(message.prompt)
+			m.composer.CursorEnd()
+		}
+	}
 	if message.statusCode == http.StatusForbidden || message.statusCode == http.StatusNotFound {
 		m.skillsUnavailable = true
+		restorePrompt()
+		return m.println(fmt.Sprintf("Unknown command %s. Type /help.", message.token))
 	}
-	if message.err != nil || !message.found {
+	if message.err != nil {
+		restorePrompt()
+		return m.println(fmt.Sprintf("Couldn't check skill %s: %s", message.token, sanitizeTerminalText(message.err.Error())))
+	}
+	if !message.found {
+		restorePrompt()
 		return m.println(fmt.Sprintf("Unknown command %s. Type /help.", message.token))
 	}
 	if !skillEnabled(message.skill) {
+		restorePrompt()
 		return m.println(message.token + " is disabled.")
 	}
 	if !skillInvocableByUser(message.skill) {
+		restorePrompt()
 		return m.println(message.token + " can only be loaded by the model, not by name.")
 	}
 	return m.submitPrompt(message.prompt)

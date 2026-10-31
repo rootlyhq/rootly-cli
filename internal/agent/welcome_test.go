@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -401,7 +400,7 @@ func TestTUIStatusVerbFooterAndSpinner(t *testing.T) {
 	model.startNewTurn()
 	now = now.Add(2 * time.Second)
 
-	if got, want := model.turnFooter(), fmt.Sprintf("✻ Untangled for 2s · done 3:04 PM · session %s", shortSessionID(testSessionID)); got != want {
+	if got, want := model.turnFooter(), "✻ Untangled for 2s · done 3:04 PM"; got != want {
 		t.Errorf("turn footer = %q, want %q", got, want)
 	}
 
@@ -417,7 +416,7 @@ func TestTUIStatusVerbFooterAndSpinner(t *testing.T) {
 	}
 
 	now = model.turnStartedAt.Add(65 * time.Second)
-	if got, want := model.turnFooter(), fmt.Sprintf("✻ Untangled for 1m 5s · done 3:05 PM · session %s", shortSessionID(testSessionID)); got != want {
+	if got, want := model.turnFooter(), "✻ Untangled for 1m 5s · done 3:05 PM"; got != want {
 		t.Errorf("long turn footer = %q, want %q", got, want)
 	}
 }
