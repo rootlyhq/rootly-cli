@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/http/httputil"
 	neturl "net/url"
@@ -24,6 +25,7 @@ var Version = "dev"
 
 type Client struct {
 	client     *rootly.ClientWithResponses
+	raw        *rootly.Client
 	endpoint   string
 	apiKey     string
 	httpClient *http.Client
@@ -39,6 +41,16 @@ func (dt *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if auth := safeReq.Header.Get("Authorization"); auth != "" {
 		safeReq.Header.Set("Authorization", "Bearer [REDACTED]")
 	}
+	if safeReq.URL != nil {
+		query := safeReq.URL.Query()
+		if values, ok := query["message"]; ok {
+			for index := range values {
+				values[index] = "[REDACTED]"
+			}
+			query["message"] = values
+			safeReq.URL.RawQuery = query.Encode()
+		}
+	}
 	safeReq.Body = http.NoBody
 	dump, _ := httputil.DumpRequestOut(safeReq, false)
 	fmt.Fprintf(os.Stderr, "\n--- DEBUG REQUEST ---\n%s\n", dump)
@@ -49,7 +61,8 @@ func (dt *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return resp, err
 	}
 
-	dump, _ = httputil.DumpResponse(resp, true)
+	includeBody := !strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream")
+	dump, _ = httputil.DumpResponse(resp, includeBody)
 	fmt.Fprintf(os.Stderr, "--- DEBUG RESPONSE ---\n%s\n", dump)
 
 	return resp, err
@@ -925,20 +938,26 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		}
 	}
 
-	client, err := rootly.NewClientWithResponses(endpoint,
+	raw, err := rootly.NewClient(endpoint,
 		rootly.WithHTTPClient(httpClient),
 		rootly.WithRequestEditorFn(reqEditorFn),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rootly client: %w", err)
 	}
+	client := &rootly.ClientWithResponses{ClientInterface: raw}
 
 	return &Client{
 		client:     client,
+		raw:        raw,
 		endpoint:   endpoint,
 		apiKey:     cfg.APIKey,
 		httpClient: httpClient,
 	}, nil
+}
+
+func (c *Client) StreamAiChatEvents(ctx context.Context, params *rootly.StreamAiChatParams) (iter.Seq2[rootly.AiChatStreamEvent, error], error) {
+	return c.raw.StreamAiChatEvents(ctx, params)
 }
 
 // ensureScheme adds a scheme if missing, using http for localhost/127.0.0.1.

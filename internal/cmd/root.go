@@ -133,6 +133,7 @@ func SetVersionInfo(v, c, d string) {
 	version = v
 	commit = c
 	date = d
+	rootCmd.Version = v
 }
 
 // Execute runs the root command

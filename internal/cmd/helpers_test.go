@@ -173,8 +173,10 @@ func TestErrAborted(t *testing.T) {
 func TestSetVersionInfo(t *testing.T) {
 	// Save originals
 	origV, origC, origD := version, commit, date
+	origRootVersion := rootCmd.Version
 	defer func() {
 		version, commit, date = origV, origC, origD
+		rootCmd.Version = origRootVersion
 	}()
 
 	SetVersionInfo("1.2.3", "abc123", "2025-06-15")
@@ -188,14 +190,19 @@ func TestSetVersionInfo(t *testing.T) {
 	if date != "2025-06-15" {
 		t.Errorf("date = %q, want %q", date, "2025-06-15")
 	}
+	if rootCmd.Version != "1.2.3" {
+		t.Errorf("root command version = %q, want %q", rootCmd.Version, "1.2.3")
+	}
 }
 
 // --- version command tests ---
 
 func TestVersionCommandText(t *testing.T) {
 	origV, origC, origD := version, commit, date
+	origRootVersion := rootCmd.Version
 	defer func() {
 		version, commit, date = origV, origC, origD
+		rootCmd.Version = origRootVersion
 	}()
 
 	SetVersionInfo("2.0.0", "def456", "2025-07-01")
@@ -224,8 +231,10 @@ func TestVersionCommandText(t *testing.T) {
 
 func TestVersionCommandJSON(t *testing.T) {
 	origV, origC, origD := version, commit, date
+	origRootVersion := rootCmd.Version
 	defer func() {
 		version, commit, date = origV, origC, origD
+		rootCmd.Version = origRootVersion
 	}()
 
 	SetVersionInfo("3.0.0", "abc789", "2025-08-01")
