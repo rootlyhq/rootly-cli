@@ -362,7 +362,7 @@ func walkFiles(ctx context.Context, root, start string, visit func(string) error
 		if err != nil || !info.Mode().IsRegular() {
 			return nil
 		}
-		return visit(resolved)
+		return visit(filePath)
 	})
 }
 

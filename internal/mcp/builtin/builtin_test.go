@@ -107,6 +107,29 @@ func TestFilesystemTraversalSkipsGitAndSensitivePaths(t *testing.T) {
 	}
 }
 
+func TestFilesystemSearchUsesSymlinkPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "real.txt"), []byte("needle\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real.txt", filepath.Join(root, "alias.txt")); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+	registry := testRegistry(t, root, nil)
+	glob := mustLookup(t, registry, "local_glob").Run(context.Background(), map[string]any{"pattern": "alias*"})
+	if glob.Output != "alias.txt" {
+		t.Fatalf("glob output = %q, want alias.txt", glob.Output)
+	}
+	grep := mustLookup(t, registry, "local_grep").Run(context.Background(), map[string]any{
+		"pattern":     "needle",
+		"output_mode": "content",
+		"glob":        "alias.txt",
+	})
+	if grep.Output != "alias.txt:1:needle" {
+		t.Fatalf("grep output = %q, want alias.txt:1:needle", grep.Output)
+	}
+}
+
 func TestFilesystemOutputIsCapped(t *testing.T) {
 	root := t.TempDir()
 	content := strings.Repeat("x", maxFSOutput+100)
