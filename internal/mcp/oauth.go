@@ -301,7 +301,9 @@ func probe(ctx context.Context, client *http.Client, server ServerConfig) (*http
 	for key, value := range server.Headers {
 		request.Header.Set(key, value)
 	}
-	response, err := client.Do(request)
+	guarded := *client
+	guarded.CheckRedirect = rejectCrossOriginRedirect
+	response, err := guarded.Do(request)
 	if err != nil {
 		return nil, nil, err
 	}

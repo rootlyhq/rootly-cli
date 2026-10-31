@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -343,12 +344,7 @@ func (m *Manager) transport(ctx context.Context, server Server, config ServerCon
 		return &sdk.CommandTransport{Command: command, TerminateDuration: 2 * time.Second}, stderr, nil, nil
 	case TransportHTTP, TransportSSE:
 		probe := &authProbe{}
-		client := &http.Client{Transport: &headerTransport{
-			base:    http.DefaultTransport,
-			headers: config.Headers,
-			bearer:  m.bearer(config),
-			probe:   probe,
-		}}
+		client := newServerHTTPClient(config, m.bearer(config), probe)
 		if config.Transport() == TransportSSE {
 			return &sdk.SSEClientTransport{Endpoint: config.URL, HTTPClient: client}, nil, probe, nil
 		}
@@ -366,18 +362,18 @@ func (m *Manager) bearer(config ServerConfig) func() string {
 		}
 	}
 	tokens := m.options.Tokens
-	url := config.URL
+	serverURL := config.URL
 	var source *persistingTokenSource
 	var mu sync.Mutex
 	return func() string {
 		mu.Lock()
 		defer mu.Unlock()
 		if source == nil {
-			credential, ok := tokens.Get(url)
+			credential, ok := tokens.Get(serverURL)
 			if !ok {
 				return ""
 			}
-			source = tokens.tokenSource(url, credential, credential.oauthConfig(), credential.token(), nil).(*persistingTokenSource)
+			source = tokens.tokenSource(serverURL, credential, credential.oauthConfig(), credential.token(), nil).(*persistingTokenSource)
 		}
 		token, err := source.Token()
 		if err != nil {
@@ -407,14 +403,51 @@ func (p *authProbe) seen() bool {
 	return p.unauthorized
 }
 
+// newServerHTTPClient sends the configured headers and bearer token only to
+// the server's own origin and refuses redirects to any other origin.
+func newServerHTTPClient(config ServerConfig, bearer func() string, probe *authProbe) *http.Client {
+	return &http.Client{
+		Transport: &headerTransport{
+			base:    http.DefaultTransport,
+			origin:  originOf(config.URL),
+			headers: config.Headers,
+			bearer:  bearer,
+			probe:   probe,
+		},
+		CheckRedirect: rejectCrossOriginRedirect,
+	}
+}
+
+func originOf(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	return strings.ToLower(parsed.Scheme + "://" + parsed.Host)
+}
+
+func rejectCrossOriginRedirect(request *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if len(via) > 0 && originOf(request.URL.String()) != originOf(via[0].URL.String()) {
+		return fmt.Errorf("refusing cross-origin redirect to %s", request.URL.Host)
+	}
+	return nil
+}
+
 type headerTransport struct {
 	base    http.RoundTripper
+	origin  string
 	headers map[string]string
 	bearer  func() string
 	probe   *authProbe
 }
 
 func (t *headerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if t.origin == "" || originOf(request.URL.String()) != t.origin {
+		return t.base.RoundTrip(request)
+	}
 	request = request.Clone(request.Context())
 	for key, value := range t.headers {
 		request.Header.Set(key, value)
@@ -510,8 +543,8 @@ func (m *Manager) ToggleSession(id string) error {
 // Approve records approval of a project server and starts it.
 func (m *Manager) Approve(id string) error {
 	return m.withServer(id, func(runtime *runtimeServer) error {
-		if runtime.server.Scope != ScopeProject {
-			return errors.New("only project (.mcp.json) servers need approval")
+		if !runtime.server.NeedsProjectTrust() {
+			return errors.New("only project-controlled servers need approval")
 		}
 		if err := m.options.State.Update(func(state *State) { state.Approve(runtime.server) }); err != nil {
 			return err
