@@ -70,7 +70,8 @@ func overlayBlurredCursor(view string, x, y int) string {
 
 func (m *TUIModel) continueLine() bool {
 	value := m.composer.Value()
-	if !strings.HasSuffix(value, `\`) || strings.HasSuffix(value, `\\`) {
+	trailing := len(value) - len(strings.TrimRight(value, `\`))
+	if trailing%2 == 0 {
 		return false
 	}
 	m.composer.SetValue(strings.TrimSuffix(value, `\`) + "\n")
