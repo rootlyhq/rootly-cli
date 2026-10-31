@@ -1,0 +1,176 @@
+package agent
+
+import (
+	"bytes"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/x/ansi"
+	"github.com/google/uuid"
+)
+
+const metricPieSource = "```metric-chart\n" +
+	`{"type":"pie","label":"Incident count","unit":"count","dimension":"Severity","labels":["SEV2","SEV3","SEV1"],"values":[13,11,1],"displays":["13","11","1"],"options":[{"color":"#7C5CE6"}]}` +
+	"\n```"
+
+func TestPrepareAssistantMarkdownRendersPieChart(t *testing.T) {
+	for _, noColor := range []bool{false, true} {
+		prepared, charts := prepareAssistantMarkdown(metricPieSource, markdownOpts{width: 100, noColor: noColor})
+		got := expandAssistantMarkdownCharts(prepared, charts)
+		for _, text := range []string{"SEV2", "13 · 52%", "SEV3", "11 · 44%", "SEV1", "1 · 4%"} {
+			if !strings.Contains(ansi.Strip(got), text) {
+				t.Errorf("pie output is missing %q: %q", text, got)
+			}
+		}
+		if strings.Contains(got, `{"type"`) {
+			t.Errorf("pie output contains raw JSON: %q", got)
+		}
+		for _, line := range strings.Split(got, "\n") {
+			if width := ansi.StringWidth(line); width > 100 {
+				t.Errorf("pie line width = %d, want at most 100: %q", width, line)
+			}
+		}
+		if noColor && strings.Contains(got, "\x1b") {
+			t.Errorf("no-color pie output contains ANSI: %q", got)
+		}
+	}
+}
+
+func TestPrepareAssistantMarkdownRendersLineChart(t *testing.T) {
+	source := "```metric-chart\n" +
+		`{"type":"line","label":"Incidents","unit":"count","labels":["2026-01-01","2026-01-02","2026-01-03","2026-01-04","2026-01-05"],"values":[2,5,3,7,4],"displays":["2","5","3","7","4"]}` +
+		"\n```"
+	prepared, charts := prepareAssistantMarkdown(source, markdownOpts{width: 100, noColor: true})
+	got := expandAssistantMarkdownCharts(prepared, charts)
+	if !strings.Contains(got, "╭") {
+		t.Errorf("line output does not contain asciigraph axes: %q", got)
+	}
+	if !strings.Contains(got, "2026-01-01 … 2026-01-05") {
+		t.Errorf("line output is missing its date caption: %q", got)
+	}
+}
+
+func TestPrepareAssistantMarkdownLeavesInvalidMetricFence(t *testing.T) {
+	source := "```metric-chart\n{not json}\n```"
+	prepared, charts := prepareAssistantMarkdown(source, markdownOpts{width: 100})
+	if prepared != source || len(charts) != 0 {
+		t.Errorf("invalid metric fence = %q, %d charts; want original code fence", prepared, len(charts))
+	}
+}
+
+func TestRewriteDashboardLinks(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		href      string
+		sessionID string
+		want      string
+	}{
+		{
+			name:      "with session",
+			href:      "#AI-add-to-dashboard%3aref",
+			sessionID: testSessionID,
+			want:      "https://rootly.com/account?chat=" + testSessionID,
+		},
+		{
+			name: "without session",
+			href: "#ai-add-to-dashboard:ref",
+			want: "https://rootly.com/account",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			source := "[Add to dashboard](<" + test.href + ">)"
+			prepared, charts := prepareAssistantMarkdown(source, markdownOpts{
+				width: 100, noColor: true, webBase: "https://rootly.com", sessionID: test.sessionID,
+			})
+			got := expandAssistantMarkdownCharts(prepared, charts)
+			if !strings.Contains(got, "[Add to dashboard: open in web]("+test.want+")") {
+				t.Errorf("rewritten link = %q, want destination %q", got, test.want)
+			}
+			if strings.Contains(strings.ToLower(got), "ai-add-to-dashboard") {
+				t.Errorf("dashboard marker remains in output: %q", got)
+			}
+		})
+	}
+}
+
+func TestLiveMetricFenceShowsDrawingPlaceholder(t *testing.T) {
+	model := NewTUIModel(t.Context(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.state = tuiStreaming
+	model.answer.WriteString("```metric-chart\n{\"type\":\"pie\",\"values\":[")
+
+	got := ansi.Strip(model.renderLiveAssistantAnswerPart(model.answer.String(), true))
+	if !strings.Contains(got, "◌ drawing chart…") {
+		t.Errorf("live output = %q, want drawing placeholder", got)
+	}
+	if strings.Contains(got, `"type"`) || strings.Contains(got, `"values"`) {
+		t.Errorf("live output exposed partial metric JSON: %q", got)
+	}
+}
+
+func TestMetricChartsReflowOnTranscriptResize(t *testing.T) {
+	for _, width := range []int{60, 120} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			model := NewTUIModel(t.Context(), &fakeStreamer{}, TUIOptions{NoColor: true})
+			model.width = width
+			model.appendAssistantTranscriptBlock(metricPieSource, true, false)
+			model.rebuildTranscriptCache()
+			if !strings.Contains(model.transcriptCache, "13 · 52%") {
+				t.Fatalf("width %d transcript does not contain rendered chart: %q", width, model.transcriptCache)
+			}
+			for _, line := range strings.Split(ansi.Strip(model.transcriptCache), "\n") {
+				if lineWidth := ansi.StringWidth(line); lineWidth > width-1 {
+					t.Errorf("width %d transcript line width = %d: %q", width, lineWidth, line)
+				}
+			}
+		})
+	}
+}
+
+func TestWriteAnswerPlainRendersChartsAndDashboardLinks(t *testing.T) {
+	sessionID, err := uuid.Parse(testSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markdown := metricPieSource + "\n\n[Add to dashboard](#ai-add-to-dashboard:ref)"
+	var stdout bytes.Buffer
+	err = writeAnswer(PrintOptions{
+		Stdout:      &stdout,
+		APIHost:     "api.rootly.com",
+		SessionID:   &sessionID,
+		IsStdoutTTY: func() bool { return false },
+	}, markdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := stdout.String()
+	if strings.Contains(got, `{"type"`) || strings.Contains(got, "```metric-chart") {
+		t.Errorf("plain output contains the raw chart fence: %q", got)
+	}
+	if !strings.Contains(got, "[Add to dashboard: open in web](https://rootly.com/account?chat="+testSessionID+")") {
+		t.Errorf("plain output did not rewrite dashboard link: %q", got)
+	}
+	if strings.Contains(got, "\x1b") {
+		t.Errorf("plain output contains ANSI: %q", got)
+	}
+
+	var terminalOutput bytes.Buffer
+	err = writeAnswer(PrintOptions{
+		Stdout:      &terminalOutput,
+		APIHost:     "api.rootly.com",
+		SessionID:   &sessionID,
+		IsStdoutTTY: func() bool { return true },
+	}, markdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminalText := ansi.Strip(terminalOutput.String())
+	if strings.Contains(terminalText, `{"type"`) || strings.Contains(terminalText, "```metric-chart") ||
+		strings.Contains(strings.ToLower(terminalText), "ai-add-to-dashboard") {
+		t.Errorf("terminal output contains an unrendered chart or dashboard marker: %q", terminalText)
+	}
+	if !strings.Contains(terminalText, "Add to dashboard: open in web") ||
+		!strings.Contains(terminalOutput.String(), "https://rootly.com/account?chat="+testSessionID) {
+		t.Errorf("terminal output did not render dashboard link: %q", terminalText)
+	}
+}

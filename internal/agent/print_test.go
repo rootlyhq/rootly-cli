@@ -56,10 +56,15 @@ func TestRunPrintTextSanitizesAnswerAndStatus(t *testing.T) {
 }
 
 func TestRunPrintJSONAndStreamJSON(t *testing.T) {
+	rawAnswer := metricPieSource + "\n\n[Add to dashboard](#ai-add-to-dashboard:ref)"
+	textPayload, err := json.Marshal(map[string]string{"content": rawAnswer})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, outputFormat := range []string{"json", "stream-json"} {
 		t.Run(outputFormat, func(t *testing.T) {
 			streamer := &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{
-				eventOf(rootly.AiChatStreamEventText, `{"content":"answer"}`),
+				eventOf(rootly.AiChatStreamEventText, string(textPayload)),
 				eventOf(rootly.AiChatStreamEventDone, `{"status":"complete"}`),
 			}}}
 			var stdout, stderr bytes.Buffer
@@ -90,8 +95,8 @@ func TestRunPrintJSONAndStreamJSON(t *testing.T) {
 			if outputFormat == "stream-json" && result["type"] != "result" {
 				t.Errorf("final type = %v, want result", result["type"])
 			}
-			if result["result"] != "answer" || result["status"] != "complete" {
-				t.Errorf("result = %#v, want answer and complete status", result)
+			if result["result"] != rawAnswer || result["status"] != "complete" {
+				t.Errorf("result = %#v, want raw markdown and complete status", result)
 			}
 			if stderr.Len() != 0 {
 				t.Errorf("stderr = %q, want no progress output", stderr.String())

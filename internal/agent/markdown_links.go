@@ -94,6 +94,53 @@ func preprocessMarkdownLinksWithURLs(markdown, apiHost string) (processed string
 	return string(source), links
 }
 
+func rewriteDashboardLinks(markdown, webBase, sessionID string) string {
+	if !strings.Contains(strings.ToLower(markdown), "#ai-add-to-dashboard") {
+		return markdown
+	}
+	destination := strings.TrimRight(webBase, "/") + "/account"
+	if sessionID != "" {
+		destination += "?chat=" + url.QueryEscape(sessionID)
+	}
+
+	source := []byte(markdown)
+	document := goldmark.New().Parser().Parse(goldmarktext.NewReader(source))
+	replacements := make([]markdownLinkReplacement, 0)
+	_ = ast.Walk(document, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		link, ok := node.(*ast.Link)
+		if !ok {
+			return ast.WalkContinue, nil
+		}
+		href := strings.ToLower(string(link.Destination))
+		if !strings.HasPrefix(href, "#ai-add-to-dashboard:") &&
+			!strings.HasPrefix(href, "#ai-add-to-dashboard%3a") {
+			return ast.WalkContinue, nil
+		}
+		labelStart, labelEnd, ok := markdownLinkTextRange(link, source)
+		if !ok {
+			return ast.WalkContinue, nil
+		}
+		start, _, end, ok := findInlineLinkRange(source, labelStart, labelEnd, string(link.Destination))
+		if !ok {
+			return ast.WalkContinue, nil
+		}
+		replacements = append(replacements, markdownLinkReplacement{
+			start: start,
+			end:   end,
+			text:  "[Add to dashboard: open in web](" + destination + ")",
+		})
+		return ast.WalkContinue, nil
+	})
+	for index := len(replacements) - 1; index >= 0; index-- {
+		replacement := replacements[index]
+		source = append(source[:replacement.start], append([]byte(replacement.text), source[replacement.end:]...)...)
+	}
+	return string(source)
+}
+
 func newMarkdownLink(destination, apiHost string) markdownLink {
 	link := markdownLink{destination: sanitizeTerminalText(destination)}
 	parsed, err := url.Parse(link.destination)

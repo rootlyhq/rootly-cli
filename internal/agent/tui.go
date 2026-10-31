@@ -25,6 +25,7 @@ import (
 	rootly "github.com/rootlyhq/rootly-go"
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
+	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
 
 type tuiState int
@@ -1266,7 +1267,7 @@ func (m *TUIModel) liveSection() string {
 	case tuiStreaming:
 		markdown := m.liveAnswerRemainder()
 		if strings.TrimSpace(markdown) != "" {
-			sections = append(sections, m.renderAssistantAnswerPart(markdown, m.committedOffset == 0))
+			sections = append(sections, m.renderLiveAssistantAnswerPart(markdown, m.committedOffset == 0))
 		}
 	case tuiConfirming:
 		if m.pending != nil {
@@ -1397,40 +1398,62 @@ func (m *TUIModel) Transcript() string {
 	live := ""
 	liveGapBefore := false
 	if remainder := m.uncommittedAnswer(); strings.TrimSpace(remainder) != "" {
-		live = m.renderAssistantAnswerPart(remainder, m.committedOffset == 0)
+		live = m.renderLiveAssistantAnswerPart(remainder, m.committedOffset == 0)
 		liveGapBefore = m.committedOffset > 0
 	}
 	return joinHeaderAndConversation(header, m.transcriptCache, live, liveGapBefore) + "\n"
 }
 
-func (m *TUIModel) renderMarkdown(markdown string, width int) string {
+func (m *TUIModel) renderMarkdown(markdown string, width int, streaming bool) string {
 	markdown = sanitizeTerminalText(markdown)
-	if m.noColor {
-		return markdown
-	}
 	if strings.TrimSpace(markdown) == "" {
 		return ""
 	}
 	if width < 20 {
 		width = 20
 	}
+	apiHost := m.apiHost
+	if apiHost == "" && m.api != nil {
+		apiHost = m.api.APIHost()
+	}
+	sessionID := ""
+	if m.sessionID != nil {
+		sessionID = m.sessionID.String()
+	}
+	webBase := ""
+	if apiHost != "" {
+		webBase = oauth.DeriveAuthBaseURL(apiHost)
+	}
+	opts := markdownOpts{
+		width:     width + 2,
+		indent:    2,
+		noColor:   m.noColor,
+		streaming: streaming,
+		webBase:   webBase,
+		sessionID: sessionID,
+	}
+	prepared, charts := prepareAssistantMarkdown(markdown, opts)
+	if m.noColor {
+		return expandAssistantMarkdownCharts(prepared, charts)
+	}
 	if m.renderer == nil || m.rendererWidth != width {
 		renderer, err := glamour.NewTermRenderer(glamour.WithEnvironmentConfig(), glamour.WithWordWrap(width))
 		if err != nil {
-			return markdown
+			return expandAssistantMarkdownCharts(prepared, charts)
 		}
 		m.renderer = renderer
 		m.rendererWidth = width
 		m.renderedSource = ""
 	}
-	if m.renderedSource != markdown {
-		source, links := preprocessMarkdownLinksWithURLs(markdown, m.apiHost)
+	renderKey := strings.Join([]string{markdown, fmt.Sprint(width), sessionID, apiHost, fmt.Sprint(streaming)}, "\x00")
+	if m.renderedSource != renderKey {
+		source, links := preprocessMarkdownLinksWithURLs(prepared, apiHost)
 		rendered, err := m.renderer.Render(source)
 		if err != nil {
-			return markdown
+			return expandAssistantMarkdownCharts(prepared, charts)
 		}
-		m.rendered = strings.TrimSpace(restoreMarkdownLinks(rendered, links))
-		m.renderedSource = markdown
+		m.rendered = expandAssistantMarkdownCharts(strings.TrimSpace(restoreMarkdownLinks(rendered, links)), charts)
+		m.renderedSource = renderKey
 		m.renderCount++
 	}
 	return m.rendered

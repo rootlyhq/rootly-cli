@@ -10,6 +10,7 @@ require (
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/google/uuid v1.6.0
+	github.com/guptarohit/asciigraph v0.10.0
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/mattn/go-isatty v0.0.24
 	github.com/oapi-codegen/nullable v1.2.0

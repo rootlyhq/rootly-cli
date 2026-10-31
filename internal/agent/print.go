@@ -15,6 +15,7 @@ import (
 	rootly "github.com/rootlyhq/rootly-go"
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
+	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
 
 type PrintOptions struct {
@@ -376,20 +377,43 @@ func askForApproval(options PrintOptions, confirmation *rootly.AiChatStreamConfi
 
 func writeAnswer(options PrintOptions, answer string) error {
 	answer = sanitizeTerminalText(answer)
-	if terminal(options.IsStdoutTTY) && !options.NoColor {
+	sessionID := ""
+	if options.SessionID != nil {
+		sessionID = options.SessionID.String()
+	}
+	useGlamour := terminal(options.IsStdoutTTY) && !options.NoColor
+	webBase := ""
+	if options.APIHost != "" {
+		webBase = oauth.DeriveAuthBaseURL(options.APIHost)
+	}
+	markdownOptions := markdownOpts{
+		width:     80,
+		noColor:   !useGlamour,
+		webBase:   webBase,
+		sessionID: sessionID,
+	}
+	if useGlamour {
+		source, charts := prepareAssistantMarkdown(answer, markdownOptions)
 		renderer, err := glamour.NewTermRenderer(glamour.WithEnvironmentConfig(), glamour.WithWordWrap(80))
 		if err != nil {
 			return err
 		}
-		source, links := preprocessMarkdownLinksWithURLs(answer, options.APIHost)
+		source, links := preprocessMarkdownLinksWithURLs(source, options.APIHost)
 		rendered, err := renderer.Render(source)
 		if err != nil {
 			return err
 		}
-		answer = strings.TrimSpace(restoreMarkdownLinks(rendered, links))
+		answer = expandAssistantMarkdownCharts(strings.TrimSpace(restoreMarkdownLinks(rendered, links)), charts)
+	} else {
+		answer = renderAssistantMarkdownPlain(answer, markdownOptions)
 	}
 	_, err := fmt.Fprintln(options.Stdout, answer)
 	return err
+}
+
+func renderAssistantMarkdownPlain(markdown string, opts markdownOpts) string {
+	prepared, charts := prepareAssistantMarkdown(markdown, opts)
+	return expandAssistantMarkdownCharts(prepared, charts)
 }
 
 func terminal(check func() bool) bool {

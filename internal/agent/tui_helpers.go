@@ -322,7 +322,15 @@ func (m *TUIModel) renderAssistantAnswer(markdown string) string {
 }
 
 func (m *TUIModel) renderAssistantAnswerPart(markdown string, first bool) string {
-	lines := strings.Split(m.renderMarkdown(markdown, max(20, m.width-3)), "\n")
+	return m.renderAssistantAnswerPartWithStreaming(markdown, first, false)
+}
+
+func (m *TUIModel) renderLiveAssistantAnswerPart(markdown string, first bool) string {
+	return m.renderAssistantAnswerPartWithStreaming(markdown, first, m.state == tuiStreaming)
+}
+
+func (m *TUIModel) renderAssistantAnswerPartWithStreaming(markdown string, first, streaming bool) string {
+	lines := strings.Split(m.renderMarkdown(markdown, max(20, m.width-3), streaming), "\n")
 	start, end := 0, len(lines)
 	for start < end && strings.TrimSpace(ansi.Strip(lines[start])) == "" {
 		start++
