@@ -17,12 +17,12 @@ func bulletizeWideTables(markdown string, width int) string {
 		line := lines[index]
 		if fence != "" {
 			output = append(output, line)
-			if closesFence(line, fence) {
+			if isClosingMarkdownFence(line, fence) {
 				fence = ""
 			}
 			continue
 		}
-		if marker := markdownFenceMarker(line); marker != "" {
+		if marker, ok := openingMarkdownFence(line); ok {
 			fence = marker
 			output = append(output, line)
 			continue
@@ -44,22 +44,6 @@ func bulletizeWideTables(markdown string, width int) string {
 		output = append(output, line)
 	}
 	return strings.Join(output, "\n")
-}
-
-func markdownFenceMarker(line string) string {
-	trimmed := strings.TrimSpace(line)
-	for _, char := range []string{"`", "~"} {
-		run := len(trimmed) - len(strings.TrimLeft(trimmed, char))
-		if run >= 3 {
-			return trimmed[:run]
-		}
-	}
-	return ""
-}
-
-func closesFence(line, fence string) bool {
-	trimmed := strings.TrimSpace(line)
-	return strings.HasPrefix(trimmed, fence) && strings.Trim(trimmed, fence[:1]) == ""
 }
 
 func isTableRow(line string) bool {

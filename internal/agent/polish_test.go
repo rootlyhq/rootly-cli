@@ -298,3 +298,44 @@ func TestPrintExitErrorCodes(t *testing.T) {
 		t.Error("401 stream error is not classified as not authenticated")
 	}
 }
+
+func TestStaleMissingSessionReplyKeepsNewChat(t *testing.T) {
+	sessionID := uuid.New()
+	fake := &fakeTUIAPI{messagePages: []*rootly.ListAiChatSessionMessagesResponse{{
+		Body:         []byte(`{"errors":[{"title":"Not found"}]}`),
+		HTTPResponse: &http.Response{StatusCode: http.StatusNotFound},
+	}}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true, API: fake, SessionID: &sessionID, SessionTitle: "Old"})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	pending := model.loadHistory(sessionID)
+	model.startNewSession()
+	newSession := uuid.New()
+	model.sessionID = &newSession
+	model.Update(pending())
+	if model.sessionID == nil || *model.sessionID != newSession {
+		t.Fatalf("sessionID = %v, want the new chat %v kept", model.sessionID, newSession)
+	}
+	if strings.Contains(model.Transcript(), sessionNotFoundMessage) {
+		t.Errorf("stale 404 printed %q", sessionNotFoundMessage)
+	}
+}
+
+func TestStartupWaitsForConnectingViews(t *testing.T) {
+	manager := &fakeMCPManager{views: []mcp.ServerView{
+		{Server: mcp.Server{Name: "slow"}, Status: mcp.StatusConnecting},
+		{Server: mcp.Server{Name: "broken"}, Status: mcp.StatusError, Detail: "boom"},
+	}, changes: make(chan struct{})}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true, MCP: manager})
+	model.Update(mcpStartupCheckMsg{})
+	if strings.Contains(model.Transcript(), "unreachable") {
+		t.Fatalf("reported before every server settled:\n%s", model.Transcript())
+	}
+	manager.views[0] = mcp.ServerView{Server: mcp.Server{Name: "slow"}, Status: mcp.StatusError, Detail: "timeout"}
+	model.Update(mcpChangedMsg{})
+	transcript := model.Transcript()
+	for _, want := range []string{"MCP 'slow' unreachable: timeout", "MCP 'broken' unreachable: boom"} {
+		if strings.Count(transcript, want) != 1 {
+			t.Errorf("transcript missing %q once:\n%s", want, transcript)
+		}
+	}
+}
