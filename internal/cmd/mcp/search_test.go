@@ -67,3 +67,10 @@ func TestSearchStripsTerminalControls(t *testing.T) {
 		t.Fatalf("oneLine = %q", got)
 	}
 }
+
+func TestSearchKeepsLongAddCommandsWhole(t *testing.T) {
+	args := strings.Repeat("--flag-value ", 20)
+	if got := plainText("rootly mcp add -s user x -- npx " + args); !strings.HasSuffix(got, args) {
+		t.Fatalf("add line truncated: %q", got)
+	}
+}
