@@ -339,3 +339,11 @@ func TestStartupWaitsForConnectingViews(t *testing.T) {
 		}
 	}
 }
+
+func TestBulletizeWideTablesAfterLongerFenceCloser(t *testing.T) {
+	table := "| Service | Owner | Status |\n|---|---|---|\n| api | Platform team | degraded |"
+	got := bulletizeWideTables("```\ncode\n````\n"+table, 10)
+	if !strings.Contains(got, "- **api** · Owner: Platform team · Status: degraded") {
+		t.Errorf("table after a longer fence closer was not converted:\n%s", got)
+	}
+}
