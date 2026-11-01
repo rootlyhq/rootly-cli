@@ -815,7 +815,13 @@ func (m *TUIModel) updateLocalMCP(message tea.Msg) (cmd tea.Cmd, handled bool) {
 	case mcpLoginMsg:
 		return m.handleMCPLogin(msg), true
 	case localToolDoneMsg:
-		if msg.err != nil && msg.turn == m.turn {
+		if msg.turn != m.turn {
+			return nil, true
+		}
+		if msg.failure != "" {
+			m.println(m.activityLine(msg.failure))
+		}
+		if msg.err != nil {
 			return m.println(faint(m.noColor, sanitizeTerminalText(msg.err.Error()))), true
 		}
 		return nil, true
