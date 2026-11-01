@@ -132,7 +132,7 @@ func (m *TUIModel) handleHistoryLoaded(msg historyLoadedMsg) {
 }
 
 func (m *TUIModel) reportUnreachableMCP() {
-	if m.mcp == nil || m.mcpStartupReported || m.mcp.Connecting() > 0 {
+	if m.mcp == nil || m.mcpStartupReported || mcpStillConnecting(m.mcpPage.views) {
 		return
 	}
 	m.mcpStartupReported = true
@@ -142,6 +142,15 @@ func (m *TUIModel) reportUnreachableMCP() {
 		}
 		m.println(faint(m.noColor, unreachableMCPLine(view)))
 	}
+}
+
+func mcpStillConnecting(views []mcp.ServerView) bool {
+	for _, view := range views {
+		if view.Status == mcp.StatusConnecting && !view.SessionOff {
+			return true
+		}
+	}
+	return false
 }
 
 func unreachableMCPLine(view mcp.ServerView) string {

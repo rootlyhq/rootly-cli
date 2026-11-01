@@ -1109,6 +1109,7 @@ func (m *TUIModel) handleSessionAction(message sessionActionMsg) tea.Cmd {
 func (m *TUIModel) startNewSession() {
 	m.actionRequest++
 	m.pickerRequest++
+	m.historyRequest++
 	m.sessionID = nil
 	m.sessionTitle = ""
 	m.resetAnswer()
