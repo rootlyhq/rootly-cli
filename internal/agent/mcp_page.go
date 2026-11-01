@@ -320,7 +320,8 @@ func (m *TUIModel) handleMCPPageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleMCPDetailKey(msg)
 	}
 	if page.market != nil {
-		return m, m.handleMarketKey(msg)
+		cmd := m.handleMarketKey(msg)
+		return m, cmd
 	}
 	if page.filtering {
 		switch key {
@@ -368,7 +369,8 @@ func (m *TUIModel) handleMCPPageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		page.filtering = true
 	case "m":
-		return m, m.openMarket()
+		cmd := m.openMarket()
+		return m, cmd
 	case "enter":
 		row, ok := m.selectedMCPRow()
 		if !ok {
