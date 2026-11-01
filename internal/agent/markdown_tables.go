@@ -84,15 +84,20 @@ func isTableSeparator(line string) bool {
 func tableCells(line string) []string {
 	trimmed := strings.TrimSpace(line)
 	trimmed = strings.TrimPrefix(trimmed, "|")
-	if !strings.HasSuffix(trimmed, `\|`) {
-		trimmed = strings.TrimSuffix(trimmed, "|")
+	if withoutPipe, ok := strings.CutSuffix(trimmed, "|"); ok {
+		if backslashes := len(withoutPipe) - len(strings.TrimRight(withoutPipe, `\`)); backslashes%2 == 0 {
+			trimmed = withoutPipe
+		}
 	}
 	var cells []string
 	var cell strings.Builder
 	for index := 0; index < len(trimmed); index++ {
 		switch {
-		case trimmed[index] == '\\' && index+1 < len(trimmed) && trimmed[index+1] == '|':
-			cell.WriteByte('|')
+		case trimmed[index] == '\\' && index+1 < len(trimmed):
+			if trimmed[index+1] != '|' {
+				cell.WriteByte('\\')
+			}
+			cell.WriteByte(trimmed[index+1])
 			index++
 		case trimmed[index] == '|':
 			cells = append(cells, strings.TrimSpace(cell.String()))

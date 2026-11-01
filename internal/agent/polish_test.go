@@ -149,6 +149,15 @@ func TestBulletizeWideTablesEdgeCases(t *testing.T) {
 		t.Errorf("escaped pipe table =\n%s\nwant\n%s", got, want)
 	}
 
+	doubled := "| Path | Owner |\n|---|---|\n| C:\\\\ | Platform team |"
+	wantDoubled := "- **C:\\\\** · Owner: Platform team"
+	if got := bulletizeWideTables(doubled, 10); got != wantDoubled {
+		t.Errorf("doubled backslash table =\n%s\nwant\n%s", got, wantDoubled)
+	}
+	if got := tableCells(`| a \\| b |`); len(got) != 2 || got[0] != `a \\` || got[1] != "b" {
+		t.Errorf("tableCells with escaped backslash = %q", got)
+	}
+
 	table := "| Service | Owner | Status |\n|---|---|---|\n| api | Platform team | degraded |"
 	longFence := "````md\n```\n" + table + "\n````"
 	if got := bulletizeWideTables(longFence, 10); got != longFence {
