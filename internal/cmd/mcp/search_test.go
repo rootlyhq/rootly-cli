@@ -61,3 +61,9 @@ func TestSearchFallsBackToCuratedWhenRegistryFails(t *testing.T) {
 		t.Fatalf("out:\n%s", out)
 	}
 }
+
+func TestSearchStripsTerminalControls(t *testing.T) {
+	if got := oneLine("evil\x1b]0;pwned\x07 \x1b[2Jtext\u202e\r\nmore"); got != "evil text more" {
+		t.Fatalf("oneLine = %q", got)
+	}
+}

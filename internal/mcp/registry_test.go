@@ -174,3 +174,36 @@ func TestManagerAddFromMarketRejectsImportedNames(t *testing.T) {
 		t.Fatalf("user servers = %+v", users)
 	}
 }
+
+func TestAddCommandIsShellQuoted(t *testing.T) {
+	remote := MarketEntry{Name: "acme", Config: ServerConfig{Type: "http", URL: "https://example.com/mcp?a=1&b=2"}}
+	if got := AddCommand(remote); got != "rootly mcp add -s user -t http acme 'https://example.com/mcp?a=1&b=2'" {
+		t.Fatalf("remote = %s", got)
+	}
+	local := MarketEntry{Name: "fs", Config: ServerConfig{Command: "npx", Args: []string{"-y", "@acme/fs", "${PWD}", "it's"}}}
+	if got := AddCommand(local); got != `rootly mcp add -s user fs -- npx -y @acme/fs '${PWD}' 'it'\''s'` {
+		t.Fatalf("local = %s", got)
+	}
+}
+
+func TestCatalogKeepsRegistryEntriesWithTheSameShortName(t *testing.T) {
+	catalog := Catalog([]MarketEntry{
+		{Name: "docs", RegistryName: "io.github.alpha/docs", Config: npxConfig("@alpha/docs")},
+		{Name: "docs", RegistryName: "io.github.beta/docs", Config: npxConfig("@beta/docs")},
+		{Name: "docs", Config: npxConfig("@gamma/docs")},
+	})
+	var names []string
+	for _, entry := range catalog {
+		if strings.HasPrefix(entry.Name, "docs") {
+			names = append(names, entry.Name)
+		}
+	}
+	if strings.Join(names, ",") != "docs,docs-beta,docs-2" {
+		t.Fatalf("names = %v", names)
+	}
+	for _, name := range names {
+		if err := ValidateServerName(name); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}

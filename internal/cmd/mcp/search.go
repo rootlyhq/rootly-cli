@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
 
 	localmcp "github.com/rootlyhq/rootly-cli/internal/mcp"
@@ -48,9 +50,9 @@ Nothing is installed: each result shows the exact command or URL and the
 			if entry.Author != "" {
 				title += " (" + entry.Author + ")"
 			}
-			_, _ = fmt.Fprintf(out, "%s\n  %s\n  runs: %s\n  add:  %s\n", title, oneLine(entry.Description), localmcp.InstallLabel(entry), localmcp.AddCommand(entry))
+			_, _ = fmt.Fprintf(out, "%s\n  %s\n  runs: %s\n  add:  %s\n", oneLine(title), oneLine(entry.Description), oneLine(localmcp.InstallLabel(entry)), oneLine(localmcp.AddCommand(entry)))
 			if entry.EnvHint != "" {
-				_, _ = fmt.Fprintf(out, "  needs: %s\n", entry.EnvHint)
+				_, _ = fmt.Fprintf(out, "  needs: %s\n", oneLine(entry.EnvHint))
 			}
 		}
 		return nil
@@ -58,6 +60,12 @@ Nothing is installed: each result shows the exact command or URL and the
 }
 
 func oneLine(text string) string {
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return ' '
+		}
+		return r
+	}, ansi.Strip(text))
 	text = strings.Join(strings.Fields(text), " ")
 	if runes := []rune(text); len(runes) > 160 {
 		text = string(runes[:157]) + "..."

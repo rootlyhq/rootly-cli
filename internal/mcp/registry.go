@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,13 +30,14 @@ const (
 
 // MarketEntry is one installable server from the curated list or the official registry.
 type MarketEntry struct {
-	Name        string       `json:"name"`
-	Title       string       `json:"title,omitempty"`
-	Description string       `json:"description,omitempty"`
-	Author      string       `json:"author,omitempty"`
-	EnvHint     string       `json:"env_hint,omitempty"`
-	Rootly      bool         `json:"rootly,omitempty"`
-	Config      ServerConfig `json:"config"`
+	Name         string       `json:"name"`
+	RegistryName string       `json:"registry_name,omitempty"`
+	Title        string       `json:"title,omitempty"`
+	Description  string       `json:"description,omitempty"`
+	Author       string       `json:"author,omitempty"`
+	EnvHint      string       `json:"env_hint,omitempty"`
+	Rootly       bool         `json:"rootly,omitempty"`
+	Config       ServerConfig `json:"config"`
 }
 
 type marketIndex struct {
@@ -190,7 +192,7 @@ func FetchRegistry(ctx context.Context, client *http.Client, baseURL string, pro
 				continue
 			}
 			seen[item.Server.Name] = true
-			entries = append(entries, MarketEntry{Name: name, Title: item.Server.Title, Description: item.Server.Description, Author: registryAuthor(item.Server), Config: install})
+			entries = append(entries, MarketEntry{Name: name, RegistryName: item.Server.Name, Title: item.Server.Title, Description: item.Server.Description, Author: registryAuthor(item.Server), Config: install})
 		}
 		if progress != nil {
 			progress(len(entries), page)
@@ -259,20 +261,44 @@ func LoadIndex(path string) (entries []MarketEntry, indexedAt time.Time, err err
 	return index.Entries, index.IndexedAt, nil
 }
 
-// Catalog merges curated entries (first) with the registry index; the first entry per name wins.
+// Catalog merges curated entries (first) with the registry index. A curated entry
+// replaces registry entries of the same name; registry entries that share a short
+// name get distinct install names so none of them disappear.
 func Catalog(indexed []MarketEntry) []MarketEntry {
+	curated := CuratedEntries()
 	seen := map[string]bool{}
-	var entries []MarketEntry
-	for _, group := range [][]MarketEntry{CuratedEntries(), indexed} {
-		for _, entry := range group {
-			if entry.Name == "" || seen[entry.Name] {
-				continue
-			}
-			seen[entry.Name] = true
-			entries = append(entries, entry)
+	entries := make([]MarketEntry, 0, len(curated)+len(indexed))
+	for _, entry := range curated {
+		seen[entry.Name] = true
+		entries = append(entries, entry)
+	}
+	curatedNames := maps.Clone(seen)
+	for _, entry := range indexed {
+		if entry.Name == "" || curatedNames[entry.Name] {
+			continue
 		}
+		if seen[entry.Name] {
+			entry.Name = distinctMarketName(entry, seen)
+		}
+		seen[entry.Name] = true
+		entries = append(entries, entry)
 	}
 	return entries
+}
+
+func distinctMarketName(entry MarketEntry, seen map[string]bool) string {
+	base := entry.Name
+	if publisher, _, ok := strings.Cut(entry.RegistryName, "/"); ok {
+		if owner := marketName(publisher[strings.LastIndex(publisher, ".")+1:]); owner != "" {
+			base = marketName(entry.Name + "-" + owner)
+		}
+	}
+	name := base
+	for suffix := 2; seen[name]; suffix++ {
+		tail := fmt.Sprintf("-%d", suffix)
+		name = strings.Trim(base[:min(len(base), maxMarketNameBytes-len(tail))], "-") + tail
+	}
+	return name
 }
 
 func fuzzyScore(query, text string) int {
@@ -371,10 +397,28 @@ func LoadCatalog(ctx context.Context, client *http.Client, registryURL, indexPat
 	return Catalog(fetched), nil
 }
 
-// AddCommand is the equivalent `rootly mcp add` invocation for an entry.
+// AddCommand is the equivalent `rootly mcp add` invocation for an entry, shell-quoted
+// so `${VAR}` placeholders and URL query strings survive a copy-paste.
 func AddCommand(entry MarketEntry) string {
+	parts := []string{"rootly", "mcp", "add", "-s", "user"}
 	if entry.Config.URL != "" {
-		return fmt.Sprintf("rootly mcp add -s user -t %s %s %s", entry.Config.Type, entry.Name, entry.Config.URL)
+		parts = append(parts, "-t", entry.Config.Type, entry.Name, entry.Config.URL)
+	} else {
+		parts = append(parts, entry.Name, "--", entry.Config.Command)
+		parts = append(parts, entry.Config.Args...)
 	}
-	return strings.TrimSpace(fmt.Sprintf("rootly mcp add -s user %s -- %s", entry.Name, InstallLabel(entry)))
+	quoted := make([]string, 0, len(parts))
+	for _, part := range parts {
+		quoted = append(quoted, shellQuote(part))
+	}
+	return strings.Join(quoted, " ")
+}
+
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+
+func shellQuote(value string) string {
+	if shellSafe.MatchString(value) {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
