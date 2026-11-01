@@ -145,12 +145,8 @@ func TestMentionPaletteShowsTopEightAndTabInserts(t *testing.T) {
 func TestMentionedResourcesAttachedWithCapAndNotes(t *testing.T) {
 	manager := extrasManager()
 	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
-	if model.sendWithResources("email ops@example.com and @nosuch:thing") != nil {
-		t.Fatal("mentions of unknown servers should send as plain text")
-	}
-	unknown, ok := model.sendWithResources("see @docs:file:///missing.md.")().(mentionsReadyMsg)
-	if !ok || len(unknown.attached) != 0 || len(unknown.notes) != 1 || !strings.HasPrefix(unknown.notes[0], "skipped @docs:file:///missing.md:") {
-		t.Fatalf("unlisted resource on a known server should be read and skipped with a note: %+v", unknown)
+	if model.sendWithResources("email ops@example.com and @docs:unknown") != nil {
+		t.Fatal("unknown mentions should send as plain text")
 	}
 	cmd := model.sendWithResources("why? @docs:file:///runbook.md, @docs:file:///big.log @docs:file:///gone.md @docs:file:///runbook.md")
 	msg, ok := cmd().(mentionsReadyMsg)

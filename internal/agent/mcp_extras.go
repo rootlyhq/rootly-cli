@@ -268,10 +268,8 @@ func (m *TUIModel) insertMention(mention string) {
 
 func (m *TUIModel) resourceMentions(message string) []resourceRef {
 	known := map[resourceRef]bool{}
-	servers := map[string]bool{}
 	for _, view := range m.liveMCPViews() {
 		for _, resource := range view.Resources {
-			servers[view.Server.Name] = true
 			known[resourceRef{server: view.Server.Name, uri: resource.URI}] = true
 		}
 	}
@@ -282,10 +280,10 @@ func (m *TUIModel) resourceMentions(message string) []resourceRef {
 	seen := map[resourceRef]bool{}
 	for _, match := range resourceMentionPattern.FindAllStringSubmatch(message, -1) {
 		ref := resourceRef{server: match[1], uri: strings.TrimRight(match[2], ".,;:!?)")}
-		if raw := (resourceRef{server: match[1], uri: match[2]}); !known[ref] && known[raw] {
-			ref = raw
+		if !known[ref] {
+			ref.uri = match[2]
 		}
-		if servers[ref.server] && !seen[ref] && len(refs) < maxAttachedResources {
+		if known[ref] && !seen[ref] && len(refs) < maxAttachedResources {
 			seen[ref] = true
 			refs = append(refs, ref)
 		}
