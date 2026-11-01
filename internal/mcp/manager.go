@@ -245,7 +245,7 @@ func (m *Manager) connectLocked(runtime *runtimeServer) {
 	runtime.cancel = cancel
 	server := runtime.server
 	go func() {
-		session, tools, status, detail := m.connect(ctx, server)
+		session, tools, status, detail, probe := m.connect(ctx, server)
 		var prompts []PromptInfo
 		var resources []ResourceInfo
 		if session != nil {
@@ -263,8 +263,22 @@ func (m *Manager) connectLocked(runtime *runtimeServer) {
 		}
 		runtime.session, runtime.tools, runtime.status, runtime.detail = session, tools, status, detail
 		runtime.prompts, runtime.resources = prompts, resources
+		if session != nil {
+			probe.watch(func() { m.loseAuth(runtime, generation) })
+		}
 		m.notify()
 	}()
+	m.notify()
+}
+
+func (m *Manager) loseAuth(runtime *runtimeServer, generation int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if runtime.generation != generation || runtime.session == nil {
+		return
+	}
+	runtime.close()
+	runtime.status, runtime.detail = StatusNeedsAuth, "needs authentication, Enter to log in"
 	m.notify()
 }
 
@@ -284,31 +298,29 @@ func (r *runtimeServer) close() {
 	r.resources = nil
 }
 
-func (m *Manager) connect(ctx context.Context, server Server) (*sdk.ClientSession, []*sdk.Tool, Status, string) {
+func (m *Manager) connect(ctx context.Context, server Server) (session *sdk.ClientSession, tools []*sdk.Tool, status Status, detail string, probe *authProbe) {
 	config := server.Config.Expanded(m.options.Lookup)
 	connectCtx, cancel := context.WithTimeout(ctx, config.CallTimeout(connectTimeout))
 	defer cancel()
-	transport, stderr, unauthorized, err := m.transport(ctx, server, config)
+	transport, stderr, probe, err := m.transport(ctx, server, config)
 	if err != nil {
-		return nil, nil, StatusError, err.Error()
+		return nil, nil, StatusError, err.Error(), nil
 	}
 	client := sdk.NewClient(&sdk.Implementation{Name: "rootly-cli", Version: m.options.Version}, nil)
-	session, err := client.Connect(connectCtx, transport, nil)
+	session, err = client.Connect(connectCtx, transport, nil)
 	if err != nil {
-		return nil, nil, failureStatus(err, unauthorized), failureDetail(err, stderr, unauthorized)
+		return nil, nil, failureStatus(err, probe), failureDetail(err, stderr, probe), nil
 	}
-	var tools []*sdk.Tool
 	for tool, err := range session.Tools(connectCtx, nil) {
 		if err != nil {
 			_ = session.Close()
-			return nil, nil, failureStatus(err, unauthorized), failureDetail(err, stderr, unauthorized)
+			return nil, nil, failureStatus(err, probe), failureDetail(err, stderr, probe), nil
 		}
 		tools = append(tools, tool)
 	}
 	sort.SliceStable(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
-	return session, tools, StatusConnected, ""
+	return session, tools, StatusConnected, "", probe
 }
-
 func failureStatus(err error, unauthorized *authProbe) Status {
 	if errors.Is(err, ErrNeedsAuth) || unauthorized.seen() {
 		return StatusNeedsAuth
@@ -420,11 +432,25 @@ func (m *Manager) bearerFuncs(config ServerConfig) (bearer func() string, refres
 type authProbe struct {
 	mu           sync.Mutex
 	unauthorized bool
+	onExpired    func()
 }
 
 func (p *authProbe) mark() {
 	p.mu.Lock()
 	p.unauthorized = true
+	onExpired := p.onExpired
+	p.mu.Unlock()
+	if onExpired != nil {
+		onExpired()
+	}
+}
+
+func (p *authProbe) watch(onExpired func()) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.onExpired = onExpired
 	p.mu.Unlock()
 }
 

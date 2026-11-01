@@ -95,3 +95,38 @@ func TestGetPromptAndReadResourceWithCap(t *testing.T) {
 		t.Fatal("unknown server should fail")
 	}
 }
+
+func TestSameNamedServersRouteToTheAdvertisingOne(t *testing.T) {
+	other := connectInMemory(t, sdk.NewServer(&sdk.Implementation{Name: "other"}, nil))
+	docs := connectInMemory(t, docsServer())
+	manager := &Manager{servers: []*runtimeServer{
+		{server: Server{Name: "docs", SourceLabel: "cursor"}, session: other, status: StatusConnected},
+		{server: Server{Name: "docs"}, session: docs, status: StatusConnected,
+			prompts:   []PromptInfo{{Name: "triage"}},
+			resources: []ResourceInfo{{URI: "file:///runbook.md"}}},
+	}}
+	ctx := context.Background()
+	if text, err := manager.GetPrompt(ctx, "docs", "triage", map[string]string{"service": "api"}); err != nil || text != "Triage api" {
+		t.Fatalf("GetPrompt = %q, %v", text, err)
+	}
+	if _, _, err := manager.ReadResource(ctx, "docs", "file:///runbook.md", ResourceByteCap); err != nil {
+		t.Fatalf("ReadResource routed to the wrong server: %v", err)
+	}
+}
+
+func TestLostAuthAfterConnectMarksNeedsAuth(t *testing.T) {
+	session := connectInMemory(t, docsServer())
+	runtime := &runtimeServer{server: Server{Name: "remote"}, session: session, status: StatusConnected, generation: 3, tools: []*sdk.Tool{{Name: "x"}}}
+	manager := &Manager{servers: []*runtimeServer{runtime}, changes: make(chan struct{}, 1)}
+	probe := &authProbe{}
+	probe.watch(func() { manager.loseAuth(runtime, 3) })
+	probe.mark()
+	if runtime.status != StatusNeedsAuth || runtime.session != nil || runtime.tools != nil {
+		t.Fatalf("runtime after 401 = status %s session %v tools %d", runtime.status, runtime.session, len(runtime.tools))
+	}
+	select {
+	case <-manager.changes:
+	default:
+		t.Fatal("TUI was not notified")
+	}
+}
