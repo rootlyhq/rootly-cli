@@ -214,6 +214,7 @@ type TUIModel struct {
 	terminalBlurred      bool
 	toolsOnShown         bool
 	mentionRequest       int
+	marketRequest        int
 	credHintShown        bool
 	mcpStartupReported   bool
 }

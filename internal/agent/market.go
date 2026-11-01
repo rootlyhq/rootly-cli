@@ -47,7 +47,8 @@ func (m *TUIModel) openMarket() tea.Cmd {
 
 func (m *TUIModel) loadMarket(refresh bool) tea.Cmd {
 	market := m.mcpPage.market
-	market.request++
+	m.marketRequest++
+	market.request = m.marketRequest
 	market.loading, market.err = true, ""
 	request, ctx := market.request, m.ctx
 	return func() tea.Msg {

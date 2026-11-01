@@ -91,3 +91,21 @@ func TestMarketplaceDeclineAndDuplicate(t *testing.T) {
 		t.Fatal("Esc should return to the /mcp list")
 	}
 }
+
+func TestMarketplaceIgnoresLoadsFromEarlierVisits(t *testing.T) {
+	stubMarket(t)
+	manager := &fakeMCPManager{views: testViews(), changes: make(chan struct{})}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.mcpPage.open = true
+	model.openMarket()
+	first := model.mcpPage.market.request
+	model.mcpPage.market = nil
+	model.openMarket()
+	if model.mcpPage.market.request == first {
+		t.Fatal("a new marketplace visit must not reuse the previous request id")
+	}
+	model.handleMarketLoaded(marketLoadedMsg{request: first, catalog: []mcp.MarketEntry{{Name: "stale"}}})
+	if model.mcpPage.market.catalog != nil || !model.mcpPage.market.loading {
+		t.Fatalf("stale load populated the new visit: %+v", model.mcpPage.market)
+	}
+}
