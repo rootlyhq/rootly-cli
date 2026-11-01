@@ -190,3 +190,19 @@ func TestMCPRowCounts(t *testing.T) {
 		t.Fatalf("label = %q", got)
 	}
 }
+
+func TestStalePromptAndMentionLoadsAreDropped(t *testing.T) {
+	model := newMCPTestModel(t, extrasManager(), &fakeConnectorAPI{})
+	pending := model.runSlashCommand("/docs:triage api")
+	model.startNewSession()
+	model.Update(pending())
+	if strings.Contains(model.Transcript(), "prompt triage") {
+		t.Fatalf("prompt loaded before /new was sent into the new chat:\n%s", model.Transcript())
+	}
+	pending = model.runSlashCommand("/docs:triage api")
+	model.sendPrompt("other question", "other question", "")
+	model.Update(pending())
+	if strings.Contains(model.Transcript(), "prompt triage") {
+		t.Fatalf("prompt loaded before another send replaced it:\n%s", model.Transcript())
+	}
+}

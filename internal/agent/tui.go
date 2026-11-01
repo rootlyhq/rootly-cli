@@ -998,6 +998,7 @@ func (m *TUIModel) submitPrompt(message string) tea.Cmd {
 }
 
 func (m *TUIModel) sendPrompt(echo, message, note string) tea.Cmd {
+	m.mentionRequest++
 	m.currentPrompt = echo
 	m.promptHistory = append(m.promptHistory, echo)
 	m.historyIndex = -1

@@ -1110,6 +1110,7 @@ func (m *TUIModel) startNewSession() {
 	m.actionRequest++
 	m.pickerRequest++
 	m.historyRequest++
+	m.mentionRequest++
 	m.sessionID = nil
 	m.sessionTitle = ""
 	m.resetAnswer()

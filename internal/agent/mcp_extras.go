@@ -21,9 +21,10 @@ const (
 var resourceMentionPattern = regexp.MustCompile(`@([A-Za-z0-9_.-]+):(\S+)`)
 
 type mcpPromptMsg struct {
-	label string
-	text  string
-	err   error
+	request int
+	label   string
+	text    string
+	err     error
 }
 
 type mentionsReadyMsg struct {
@@ -172,15 +173,19 @@ func (m *TUIModel) runMCPPrompt(command string) (tea.Cmd, bool) {
 	if len(missing) > 0 {
 		return m.println("Usage: " + promptUsage(parts[0], prompt)), true
 	}
-	manager, ctx, label := m.mcp, m.ctx, parts[0]
+	m.mentionRequest++
+	manager, ctx, label, request := m.mcp, m.ctx, parts[0], m.mentionRequest
 	m.status = "Loading prompt " + sanitizeTerminalText(label) + "…"
 	return func() tea.Msg {
 		text, err := manager.GetPrompt(ctx, server, name, arguments)
-		return mcpPromptMsg{label: label, text: text, err: err}
+		return mcpPromptMsg{request: request, label: label, text: text, err: err}
 	}, true
 }
 
 func (m *TUIModel) handleMCPPrompt(msg mcpPromptMsg) tea.Cmd {
+	if msg.request != m.mentionRequest {
+		return nil
+	}
 	m.status = ""
 	if msg.err != nil {
 		return m.println(faint(m.noColor, sanitizeTerminalText("Prompt "+msg.label+" failed: "+msg.err.Error())))
