@@ -27,6 +27,7 @@ func (c ServerConfig) Expanded(lookup func(string) (string, bool)) ServerConfig 
 		Command:           ExpandEnv(c.Command, lookup),
 		URL:               ExpandEnv(c.URL, lookup),
 		BearerTokenEnvVar: c.BearerTokenEnvVar,
+		Timeout:           c.Timeout,
 	}
 	for _, arg := range c.Args {
 		expanded.Args = append(expanded.Args, ExpandEnv(arg, lookup))

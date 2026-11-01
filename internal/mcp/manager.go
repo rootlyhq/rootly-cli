@@ -370,7 +370,7 @@ func (m *Manager) transport(ctx context.Context, server Server, config ServerCon
 	}
 }
 
-func (m *Manager) bearerFuncs(config ServerConfig) (bearer, refresh func() string) {
+func (m *Manager) bearerFuncs(config ServerConfig) (bearer func() string, refresh func(context.Context) string) {
 	if config.BearerTokenEnvVar != "" {
 		return func() string {
 			value, _ := m.options.Lookup(config.BearerTokenEnvVar)
@@ -397,7 +397,7 @@ func (m *Manager) bearerFuncs(config ServerConfig) (bearer, refresh func() strin
 		}
 		return token.AccessToken
 	}
-	refresh = func() string {
+	refresh = func(ctx context.Context) string {
 		mu.Lock()
 		defer mu.Unlock()
 		credential, ok := tokens.Get(serverURL)
@@ -406,8 +406,9 @@ func (m *Manager) bearerFuncs(config ServerConfig) (bearer, refresh func() strin
 		}
 		expired := credential.token()
 		expired.Expiry = time.Now().Add(-time.Minute)
-		source = tokens.tokenSource(serverURL, credential, credential.oauthConfig(), expired, nil).(*persistingTokenSource)
-		token, err := source.Token()
+		source = nil
+		refreshing := &persistingTokenSource{store: tokens, serverURL: serverURL, base: credential, source: credential.oauthConfig().TokenSource(ctx, expired), last: expired.AccessToken}
+		token, err := refreshing.Token()
 		if err != nil || token.AccessToken == "" || token.AccessToken == credential.AccessToken {
 			return ""
 		}
@@ -442,7 +443,7 @@ func newServerHTTPClient(config ServerConfig, bearer func() string, probe *authP
 	return newServerHTTPClientWithRefresh(config, bearer, nil, probe)
 }
 
-func newServerHTTPClientWithRefresh(config ServerConfig, bearer, refresh func() string, probe *authProbe) *http.Client {
+func newServerHTTPClientWithRefresh(config ServerConfig, bearer func() string, refresh func(context.Context) string, probe *authProbe) *http.Client {
 	return &http.Client{
 		Transport: &headerTransport{
 			base:    http.DefaultTransport,
@@ -483,7 +484,7 @@ type headerTransport struct {
 	origin  string
 	headers map[string]string
 	bearer  func() string
-	refresh func() string
+	refresh func(context.Context) string
 	probe   *authProbe
 }
 
@@ -853,7 +854,7 @@ func (t *headerTransport) retryWithRefreshedToken(request *http.Request, respons
 	if t.refresh == nil || (request.Body != nil && request.Body != http.NoBody && request.GetBody == nil) {
 		return response, nil
 	}
-	token := t.refresh()
+	token := t.refresh(request.Context())
 	if token == "" {
 		return response, nil
 	}
@@ -873,6 +874,12 @@ func (t *headerTransport) retryWithRefreshedToken(request *http.Request, respons
 
 // AddFromMarket installs a marketplace entry in USER scope, switched off until the user turns it on.
 func (m *Manager) AddFromMarket(entry MarketEntry) (Server, error) {
+	imported, _ := m.options.Discovery.Imported()
+	for _, server := range imported {
+		if server.Name == entry.Name {
+			return Server{}, fmt.Errorf("an MCP server named %s is already imported from %s", entry.Name, server.Path)
+		}
+	}
 	server, err := AddFromMarket(m.options.Store, m.options.State, entry)
 	if err != nil {
 		return Server{}, err

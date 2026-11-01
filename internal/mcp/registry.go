@@ -176,7 +176,7 @@ func FetchRegistry(ctx context.Context, client *http.Client, baseURL string, pro
 		next, err := fetchRegistryPage(ctx, client, baseURL, cursor)
 		if err != nil {
 			if len(entries) > 0 {
-				return entries, nil
+				return entries, fmt.Errorf("registry page %d: %w (index incomplete)", page, err)
 			}
 			return nil, err
 		}
@@ -360,6 +360,9 @@ func LoadCatalog(ctx context.Context, client *http.Client, registryURL, indexPat
 	}
 	fetched, err := FetchRegistry(ctx, client, registryURL, progress)
 	if err != nil {
+		if cacheErr != nil && len(fetched) > 0 {
+			cached = fetched
+		}
 		return Catalog(cached), fmt.Errorf("could not refresh the MCP registry index: %w", err)
 	}
 	if err := SaveIndex(indexPath, fetched, time.Now()); err != nil {

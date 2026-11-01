@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -130,5 +131,46 @@ func TestAddFromMarketWritesUserScopeSwitchedOff(t *testing.T) {
 	}
 	if _, err := AddFromMarket(store, states, entry); err == nil {
 		t.Fatal("duplicate name should fail")
+	}
+}
+
+func TestPartialRegistryFetchIsNotCached(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("cursor") == "c2" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(registryPage1))
+	}))
+	defer server.Close()
+	entries, err := FetchRegistry(context.Background(), server.Client(), server.URL+"/v0/servers", nil)
+	if err == nil || len(entries) == 0 {
+		t.Fatalf("partial fetch = %d entries, err %v; want entries and an error", len(entries), err)
+	}
+	indexPath := filepath.Join(t.TempDir(), "mcp-index.json")
+	catalog, err := LoadCatalog(context.Background(), server.Client(), server.URL+"/v0/servers", indexPath, true, nil)
+	if err == nil || len(catalog) == 0 {
+		t.Fatalf("LoadCatalog = %d entries, err %v; want partial results and an error", len(catalog), err)
+	}
+	if _, statErr := os.Stat(indexPath); !os.IsNotExist(statErr) {
+		t.Fatalf("partial index was cached: %v", statErr)
+	}
+}
+
+func TestManagerAddFromMarketRejectsImportedNames(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"mcpServers":{"pager-mcp":{"command":"pager"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := &Store{UserPath: filepath.Join(home, "mcp.json"), CWD: project}
+	states := &StateStore{Path: filepath.Join(home, "mcp-state.json")}
+	manager := NewManager(ManagerOptions{CWD: project, Store: store, State: states, Discovery: &Discovery{Home: home, CWD: project}})
+	defer manager.Close()
+	if _, err := manager.AddFromMarket(MarketEntry{Name: "pager-mcp", Config: npxConfig("@acme/pager-mcp")}); err == nil {
+		t.Fatal("a marketplace entry must not reuse an imported server's name")
+	}
+	if users, _ := store.Servers(ScopeUser); len(users) != 0 {
+		t.Fatalf("user servers = %+v", users)
 	}
 }

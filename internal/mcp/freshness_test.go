@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -105,5 +106,50 @@ func TestRemote401WithoutRefreshTokenNeedsLogin(t *testing.T) {
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusUnauthorized || !probe.seen() || refreshes.Load() != 0 {
 		t.Errorf("status %d, needs-login %v, refreshes %d; want 401 + needs-login without refresh", response.StatusCode, probe.seen(), refreshes.Load())
+	}
+}
+
+func TestExpandedKeepsTimeout(t *testing.T) {
+	config := ServerConfig{Command: "x", Timeout: 5}.Expanded(func(string) (string, bool) { return "", false })
+	if config.CallTimeout(time.Minute) != 5*time.Second {
+		t.Fatalf("expanded timeout = %v, want 5s", config.CallTimeout(time.Minute))
+	}
+}
+
+func TestRemote401RefreshStopsWithRequestContext(t *testing.T) {
+	release := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	})
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { close(release) })
+	store := &TokenStore{Path: filepath.Join(t.TempDir(), "mcp-oauth.json")}
+	if err := store.Put(server.URL+"/mcp", StoredCredential{ClientID: "c", TokenURL: server.URL + "/token", AccessToken: "stale", RefreshToken: "r1", TokenType: "Bearer", Expiry: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	manager := &Manager{options: ManagerOptions{Tokens: store}}
+	config := ServerConfig{Type: TransportHTTP, URL: server.URL + "/mcp"}
+	bearer, refresh := manager.bearerFuncs(config)
+	client := newServerHTTPClientWithRefresh(config, bearer, refresh, &authProbe{})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, config.URL, http.NoBody)
+	started := time.Now()
+	response, err := client.Do(request)
+	if err == nil {
+		_ = response.Body.Close()
+	}
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("refresh ignored request cancellation, took %v", elapsed)
 	}
 }

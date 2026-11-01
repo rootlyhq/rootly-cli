@@ -117,16 +117,24 @@ func (m *Manager) ReadResource(ctx context.Context, serverName, uri string, limi
 	if err != nil {
 		return "", false, err
 	}
-	var parts []string
+	var joined strings.Builder
 	for _, content := range result.Contents {
-		if content != nil && content.Text != "" {
-			parts = append(parts, content.Text)
+		if content == nil || content.Text == "" {
+			continue
 		}
+		if joined.Len() > 0 {
+			joined.WriteByte('\n')
+		}
+		if limit > 0 && joined.Len()+len(content.Text) > limit {
+			joined.WriteString(content.Text[:min(len(content.Text), limit+1-joined.Len())])
+			break
+		}
+		joined.WriteString(content.Text)
 	}
-	if len(parts) == 0 {
+	if joined.Len() == 0 {
 		return "", false, errors.New("no text content")
 	}
-	return capBytes(strings.Join(parts, "\n"), limit)
+	return capBytes(joined.String(), limit)
 }
 
 func capBytes(text string, limit int) (capped string, truncated bool, err error) {
