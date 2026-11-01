@@ -23,6 +23,7 @@ type fakeMCPManager struct {
 
 	resources  map[string]string
 	readLimits []int
+	added      []mcp.MarketEntry
 }
 
 func (f *fakeMCPManager) Views() []mcp.ServerView  { return f.views }
@@ -37,6 +38,18 @@ func (f *fakeMCPManager) ToggleSession(id string) error {
 }
 func (f *fakeMCPManager) Approve(id string) error                               { f.approved = append(f.approved, id); return nil }
 func (f *fakeMCPManager) Login(context.Context, string, mcp.LoginOptions) error { return nil }
+
+func (f *fakeMCPManager) AddFromMarket(entry mcp.MarketEntry) (mcp.Server, error) {
+	for _, view := range f.views {
+		if view.Server.Name == entry.Name {
+			return mcp.Server{}, errors.New("an MCP server named " + entry.Name + " already exists")
+		}
+	}
+	server := mcp.Server{Name: entry.Name, Scope: mcp.ScopeUser, Config: entry.Config}
+	f.added = append(f.added, entry)
+	f.views = append(f.views, mcp.ServerView{Server: server, Status: mcp.StatusOff})
+	return server, nil
+}
 
 func (f *fakeMCPManager) GetPrompt(_ context.Context, server, name string, arguments map[string]string) (string, error) {
 	if server != "docs" {

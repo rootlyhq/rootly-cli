@@ -333,13 +333,13 @@ func AddFromMarket(store *Store, states *StateStore, entry MarketEntry) (Server,
 	if err := entry.Config.Validate(); err != nil {
 		return Server{}, err
 	}
-	existing, err := store.Servers(ScopeUser)
+	existing, err := store.All()
 	if err != nil {
 		return Server{}, err
 	}
 	for _, server := range existing {
 		if server.Name == entry.Name {
-			return Server{}, fmt.Errorf("a user MCP server named %s already exists", entry.Name)
+			return Server{}, fmt.Errorf("an MCP server named %s already exists (%s scope)", entry.Name, server.Scope)
 		}
 	}
 	server := Server{Name: entry.Name, Scope: ScopeUser, Path: store.UserPath, Config: entry.Config}

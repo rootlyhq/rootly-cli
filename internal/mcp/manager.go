@@ -870,3 +870,13 @@ func (t *headerTransport) retryWithRefreshedToken(request *http.Request, respons
 	_ = response.Body.Close()
 	return t.base.RoundTrip(retry)
 }
+
+// AddFromMarket installs a marketplace entry in USER scope, switched off until the user turns it on.
+func (m *Manager) AddFromMarket(entry MarketEntry) (Server, error) {
+	server, err := AddFromMarket(m.options.Store, m.options.State, entry)
+	if err != nil {
+		return Server{}, err
+	}
+	_ = m.Load()
+	return server, nil
+}

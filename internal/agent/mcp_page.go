@@ -31,6 +31,7 @@ type MCPManager interface {
 	Enable(string) error
 	Reconnect(string) error
 	Login(context.Context, string, mcp.LoginOptions) error
+	AddFromMarket(mcp.MarketEntry) (mcp.Server, error)
 }
 
 type ConnectorLister interface {
@@ -90,6 +91,7 @@ type mcpPage struct {
 	message         string
 	loginURL        string
 	views           []mcp.ServerView
+	market          *marketState
 }
 
 func (m *TUIModel) watchMCP() tea.Cmd {
@@ -317,6 +319,9 @@ func (m *TUIModel) handleMCPPageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if page.detail != "" {
 		return m.handleMCPDetailKey(msg)
 	}
+	if page.market != nil {
+		return m, m.handleMarketKey(msg)
+	}
 	if page.filtering {
 		switch key {
 		case "esc":
@@ -362,6 +367,8 @@ func (m *TUIModel) handleMCPPageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.clampMCPCursor(rows)
 	case "/":
 		page.filtering = true
+	case "m":
+		return m, m.openMarket()
 	case "enter":
 		row, ok := m.selectedMCPRow()
 		if !ok {
@@ -612,6 +619,9 @@ func (m *TUIModel) mcpPageView() string {
 	if m.mcpPage.detail != "" {
 		return m.mcpDetailView()
 	}
+	if m.mcpPage.market != nil {
+		return m.marketView()
+	}
 	width := max(20, m.width-1)
 	bold := lipgloss.NewStyle().Bold(true)
 	lines := []string{m.mcpStyle(bold, "Manage MCP servers"), faint(m.noColor, m.mcpSummary()), ""}
@@ -641,7 +651,7 @@ func (m *TUIModel) mcpPageView() string {
 	for len(lines) < height+3 {
 		lines = append(lines, "")
 	}
-	footer := "↑/↓ move · Enter details · / filter · Esc back to chat · rootly mcp add … to add one"
+	footer := "↑/↓ move · Enter details · / filter · m marketplace · Esc back to chat"
 	if page.message != "" {
 		footer = sanitizeTerminalText(page.message)
 	}
@@ -820,6 +830,9 @@ func (m *TUIModel) updateLocalMCP(message tea.Msg) (cmd tea.Cmd, handled bool) {
 		return m.handleMCPPrompt(msg), true
 	case mentionsReadyMsg:
 		return m.handleMentionsReady(msg), true
+	case marketLoadedMsg:
+		m.handleMarketLoaded(msg)
+		return nil, true
 	case localToolDoneMsg:
 		var cmds []tea.Cmd
 		if msg.credHint && !m.credHintShown {
