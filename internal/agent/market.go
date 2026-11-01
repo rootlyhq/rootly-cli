@@ -80,7 +80,7 @@ func (m *TUIModel) handleMarketKey(msg tea.KeyPressMsg) tea.Cmd {
 	key := msg.String()
 	if market.preview != nil {
 		switch key {
-		case "y", "enter":
+		case "y":
 			m.addFromMarket(*market.preview)
 		case "n", "esc", "backspace":
 			market.preview = nil

@@ -109,3 +109,18 @@ func TestMarketplaceIgnoresLoadsFromEarlierVisits(t *testing.T) {
 		t.Fatalf("stale load populated the new visit: %+v", model.mcpPage.market)
 	}
 }
+
+func TestMarketplacePreviewIgnoresEnter(t *testing.T) {
+	stubMarket(t)
+	manager := &fakeMCPManager{views: testViews(), changes: make(chan struct{})}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.mcpPage.open = true
+	_, cmd := model.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	runCmd(model, cmd)
+	typeKeys(model, "pager")
+	model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if len(manager.added) != 0 || model.mcpPage.market == nil || model.mcpPage.market.preview == nil {
+		t.Fatalf("Enter in the preview must not add: added=%+v", manager.added)
+	}
+}
