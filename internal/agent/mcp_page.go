@@ -837,6 +837,9 @@ func (m *TUIModel) updateLocalMCP(message tea.Msg) (cmd tea.Cmd, handled bool) {
 		return nil, true
 	case localToolDoneMsg:
 		var cmds []tea.Cmd
+		if msg.failure != "" && msg.turn == m.turn {
+			cmds = append(cmds, m.println(m.activityLine(msg.failure)))
+		}
 		if msg.credHint && !m.credHintShown {
 			m.credHintShown = true
 			cmds = append(cmds, m.println(faint(m.noColor, localCredsHint)))

@@ -228,6 +228,7 @@ type localToolDoneMsg struct {
 	turn     int
 	err      error
 	credHint bool
+	failure  string
 }
 
 func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TUIModel {
@@ -1631,6 +1632,10 @@ func (m *TUIModel) runClientTool(call *ClientToolCall, declined bool) tea.Cmd {
 		if !declined {
 			result = runLocalCall(ctx, tools, call)
 		}
-		return localToolDoneMsg{turn: turn, err: postLocalResult(ctx, poster, sessionID, call, result), credHint: looksLikeExpiredCreds(result)}
+		done := localToolDoneMsg{turn: turn, err: postLocalResult(ctx, poster, sessionID, call, result), credHint: looksLikeExpiredCreds(result)}
+		if !declined && result.IsError {
+			done.failure = localToolFailure(tools, call, result.Output)
+		}
+		return done
 	}
 }

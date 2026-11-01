@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	rootly "github.com/rootlyhq/rootly-go"
@@ -25,6 +26,21 @@ type LocalTools interface {
 
 type ToolResultPoster interface {
 	PostAiChatToolResult(context.Context, api.ToolResult) error
+}
+
+func localToolFailure(tools LocalTools, call *ClientToolCall, output string) string {
+	label := "local · " + call.Name
+	if ref, ok := resolveLocalCall(tools, call); ok {
+		label = "local · " + ref.ServerName + " · " + ref.Tool
+	}
+	reason, _, _ := strings.Cut(strings.TrimSpace(output), "\n")
+	if runes := []rune(reason); len(runes) > 160 {
+		reason = string(runes[:160]) + "…"
+	}
+	if reason == "" {
+		return "✗ " + label + " failed"
+	}
+	return "✗ " + label + " failed: " + reason
 }
 
 func localToolActivity(ref mcp.ToolRef) string {

@@ -232,3 +232,31 @@ func TestTUIClientToolWriteNeedsApproval(t *testing.T) {
 		t.Fatal("declined tool must not run")
 	}
 }
+
+func TestTUIFailedLocalToolPrintsCross(t *testing.T) {
+	manager := &fakeMCPManager{changes: make(chan struct{})}
+	manager.tools = map[string]mcp.ToolRef{"local_fs_read_text_file": {ServerID: "user:fs", ServerName: "fs", Tool: "read_text_file", ReadOnly: true}}
+	call := &ClientToolCall{CallID: "c1", Name: "local_fs_read_text_file"}
+	line := localToolFailure(manager, call, "ENOENT: no such file or directory, open '/tmp/x'\nstack")
+	if line != "✗ local · fs · read_text_file failed: ENOENT: no such file or directory, open '/tmp/x'" {
+		t.Fatalf("failure line = %q", line)
+	}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.turn = 1
+	model.Update(localToolDoneMsg{turn: 1, failure: line})
+	if !strings.Contains(transcriptText(model), "read_text_file failed: ENOENT") {
+		t.Fatalf("transcript = %v", model.transcript)
+	}
+	model.Update(localToolDoneMsg{turn: 0, failure: "✗ stale"})
+	if strings.Contains(transcriptText(model), "stale") {
+		t.Fatal("results from an earlier turn must not print")
+	}
+}
+
+func transcriptText(model *TUIModel) string {
+	lines := make([]string, 0, len(model.transcript))
+	for _, block := range model.transcript {
+		lines = append(lines, block.text)
+	}
+	return strings.Join(lines, "\n")
+}
