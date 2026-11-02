@@ -359,6 +359,9 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.historyPending = false
+		if m.status == historyLoadingStatus {
+			m.status = ""
+		}
 		if title := normalizeSessionTitle(msg.sessionTitle); title != "" {
 			m.sessionTitle = title
 		}
@@ -990,7 +993,7 @@ func (m *TUIModel) submit() tea.Cmd {
 	}
 	if m.historyPending {
 		m.composer.SetValue(message)
-		m.status = "Loading session history…"
+		m.status = historyLoadingStatus
 		return nil
 	}
 
