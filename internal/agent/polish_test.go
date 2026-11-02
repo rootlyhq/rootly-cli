@@ -390,17 +390,28 @@ func TestSendWaitsForPendingHistory(t *testing.T) {
 	if cmd := model.submit(); cmd != nil || model.state == tuiStreaming {
 		t.Fatal("a prompt sent before resumed history loads must wait")
 	}
-	if model.composer.Value() != "hello" || model.status != "Loading session history…" {
-		t.Fatalf("composer %q status %q", model.composer.Value(), model.status)
+	if model.queuedPrompt != "hello" || model.status != "Loading session history…" {
+		t.Fatalf("queued %q status %q", model.queuedPrompt, model.status)
 	}
-	model.Update(pending())
-	if model.historyPending || model.sessionID != nil {
-		t.Fatal("a missing session should clear the pending flag and start fresh")
+	_, cmd := model.Update(pending())
+	if model.historyPending || model.queuedPrompt != "" {
+		t.Fatal("settled history should clear the pending flag and the queue")
 	}
-	if model.status != "" {
-		t.Fatalf("status %q should clear once history settles", model.status)
+	if cmd == nil || model.state != tuiStreaming || model.currentPrompt != "hello" {
+		t.Fatal("the queued prompt should send once history has settled")
 	}
-	if cmd := model.submit(); cmd == nil {
-		t.Fatal("the kept prompt should send once history has settled")
+}
+
+func TestSkillPromptWaitsForPendingHistory(t *testing.T) {
+	sessionID := uuid.New()
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true, API: &fakeTUIAPI{}, SessionID: &sessionID})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model.loadHistory(sessionID)
+	if cmd := model.submitPrompt("expanded skill prompt"); cmd != nil || model.state == tuiStreaming {
+		t.Fatal("skill prompts must wait for resumed history too")
+	}
+	model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if model.queuedPrompt != "" {
+		t.Fatal("Ctrl+C should drop a queued prompt")
 	}
 }

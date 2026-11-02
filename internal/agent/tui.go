@@ -160,6 +160,7 @@ type TUIModel struct {
 	resumedSession       bool
 	historyRequest       int
 	historyPending       bool
+	queuedPrompt         string
 	promptHistory        []string
 	historyIndex         int
 	historyDraft         string
@@ -361,7 +362,12 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if title := normalizeSessionTitle(msg.sessionTitle); title != "" {
 			m.sessionTitle = title
 		}
+		queued := m.queuedPrompt
+		m.queuedPrompt = ""
 		m.handleHistoryLoaded(msg)
+		if queued != "" {
+			return m, m.submitPrompt(queued)
+		}
 		return m, nil
 	case statusLoadedMsg:
 		if msg.request != m.statusRequest {
@@ -857,6 +863,7 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		m.idleInterrupt = true
+		m.queuedPrompt = ""
 		m.composer.Reset()
 		m.status = "press Ctrl+C again to exit"
 		return m, nil
@@ -985,16 +992,15 @@ func (m *TUIModel) submit() tea.Cmd {
 		m.commandMenuOpen = false
 		return m.runSlashCommand(message)
 	}
-	if m.historyPending {
-		m.composer.SetValue(message)
-		m.status = historyLoadingStatus
-		return nil
-	}
-
 	return m.submitPrompt(message)
 }
 
 func (m *TUIModel) submitPrompt(message string) tea.Cmd {
+	if m.historyPending {
+		m.queuedPrompt = message
+		m.status = historyLoadingStatus
+		return nil
+	}
 	m.currentPrompt = message
 	m.promptHistory = append(m.promptHistory, message)
 	m.historyIndex = -1
