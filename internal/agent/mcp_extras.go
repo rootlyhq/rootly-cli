@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -61,6 +62,11 @@ func oneLine(text string) string {
 }
 
 // appendPromptItems adds /server:prompt entries after built-ins and skills, which win on collision.
+// paletteSafeName rejects prompt names that would print terminal controls or could not be typed back as one word.
+func paletteSafeName(name string) bool {
+	return name != "" && name == sanitizeTerminalText(name) && !strings.ContainsFunc(name, unicode.IsSpace)
+}
+
 func (m *TUIModel) appendPromptItems(items []list.Item, value string) []list.Item {
 	taken := map[string]bool{}
 	for _, item := range items {
@@ -72,6 +78,9 @@ func (m *TUIModel) appendPromptItems(items []list.Item, value string) []list.Ite
 	added := 0
 	for _, view := range m.liveMCPViews() {
 		for _, prompt := range view.Prompts {
+			if !paletteSafeName(prompt.Name) {
+				continue
+			}
 			command := "/" + view.Server.Name + ":" + prompt.Name
 			key := strings.ToLower(command)
 			if taken[key] || isBuiltinSlashCommand(command) || !strings.HasPrefix(key, lower) {

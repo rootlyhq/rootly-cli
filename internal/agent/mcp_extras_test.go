@@ -223,3 +223,18 @@ func TestCtrlCCancelsPendingPromptAndMentionLoads(t *testing.T) {
 		t.Fatal("a resource load cancelled with Ctrl+C was still sent")
 	}
 }
+
+func TestPromptNamesWithTerminalControlsStayOutOfThePalette(t *testing.T) {
+	manager := extrasManager()
+	manager.views[0].Prompts = append(manager.views[0].Prompts, mcp.PromptInfo{Name: "evil\x1b]0;pwned\x07"}, mcp.PromptInfo{Name: "two words"})
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	for _, item := range model.appendPromptItems(nil, "/") {
+		command := item.(slashCommandItem).command
+		if strings.Contains(command, "\x1b") || strings.Contains(command, "two words") {
+			t.Fatalf("unsafe prompt name reached the palette: %q", command)
+		}
+	}
+	if len(model.appendPromptItems(nil, "/docs:")) != 2 {
+		t.Fatal("safe prompts should still be listed")
+	}
+}
