@@ -387,6 +387,7 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := m.println(sanitizeTerminalText(msg.err.Error()))
 			return m, cmd
 		}
+		m.mentionRequest++
 		m.sessionID = nil
 		m.resetAnswer()
 		m.resetTranscript()

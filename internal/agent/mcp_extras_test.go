@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"github.com/google/uuid"
 
 	"github.com/rootlyhq/rootly-cli/internal/mcp"
 )
@@ -204,6 +205,24 @@ func TestStalePromptAndMentionLoadsAreDropped(t *testing.T) {
 	model.Update(pending())
 	if strings.Contains(model.Transcript(), "prompt triage") {
 		t.Fatalf("prompt loaded before another send replaced it:\n%s", model.Transcript())
+	}
+}
+
+func TestSessionSwitchDropsPendingPromptAndMentionLoads(t *testing.T) {
+	model := newMCPTestModel(t, extrasManager(), &fakeConnectorAPI{})
+	pending := model.runSlashCommand("/docs:triage api")
+	model.selectPickerItem(sessionPickerItem{session: testSession(uuid.NewString(), "Other chat")})
+	model.historyPending = false
+	model.Update(pending())
+	if model.state == tuiStreaming || strings.Contains(model.Transcript(), "prompt triage") {
+		t.Fatal("a prompt loaded before resuming another session was sent into it")
+	}
+	model.composer.SetValue("see @docs:file:///runbook.md")
+	pending = model.submit()
+	model.Update(bindingResolvedMsg{request: model.actionRequest})
+	model.Update(pending())
+	if model.state == tuiStreaming {
+		t.Fatal("a resource load started before switching the bound incident was still sent")
 	}
 }
 

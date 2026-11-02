@@ -648,6 +648,7 @@ func (m *TUIModel) selectPickerItem(item sessionPickerItem) tea.Cmd {
 	m.pickerOpen = false
 	m.pickerLoading = false
 	m.actionRequest++
+	m.mentionRequest++
 	m.sessionID = &id
 	m.sessionTitle = normalizeSessionTitle(item.Title())
 	m.resumedSession = true
