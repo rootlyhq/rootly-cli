@@ -134,3 +134,17 @@ func TestLostAuthAfterConnectMarksNeedsAuth(t *testing.T) {
 		t.Fatal("TUI was not notified")
 	}
 }
+
+func TestAuthLostDuringDiscoveryMarksNeedsAuth(t *testing.T) {
+	session := connectInMemory(t, docsServer())
+	runtime := &runtimeServer{server: Server{Name: "remote"}, session: session, status: StatusConnected, generation: 2}
+	manager := &Manager{servers: []*runtimeServer{runtime}, changes: make(chan struct{}, 1)}
+	probe := &authProbe{}
+	probe.mark()
+	manager.mu.Lock()
+	manager.watchAuth(runtime, 2, probe)
+	manager.mu.Unlock()
+	if runtime.status != StatusNeedsAuth || runtime.session != nil {
+		t.Fatalf("runtime after a 401 during discovery = status %s session %v", runtime.status, runtime.session)
+	}
+}

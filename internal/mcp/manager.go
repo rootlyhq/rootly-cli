@@ -264,11 +264,19 @@ func (m *Manager) connectLocked(runtime *runtimeServer) {
 		runtime.session, runtime.tools, runtime.status, runtime.detail = session, tools, status, detail
 		runtime.prompts, runtime.resources = prompts, resources
 		if session != nil {
-			probe.watch(func() { m.loseAuth(runtime, generation) })
+			m.watchAuth(runtime, generation, probe)
 		}
 		m.notify()
 	}()
 	m.notify()
+}
+
+// watchAuth must run with m.mu held; a 401 seen while discovering prompts and resources marks the server at once.
+func (m *Manager) watchAuth(runtime *runtimeServer, generation int, probe *authProbe) {
+	if probe.watch(func() { m.loseAuth(runtime, generation) }) {
+		runtime.close()
+		runtime.status, runtime.detail = StatusNeedsAuth, "needs authentication, Enter to log in"
+	}
 }
 
 func (m *Manager) loseAuth(runtime *runtimeServer, generation int) {
@@ -445,13 +453,14 @@ func (p *authProbe) mark() {
 	}
 }
 
-func (p *authProbe) watch(onExpired func()) {
+func (p *authProbe) watch(onExpired func()) (alreadyUnauthorized bool) {
 	if p == nil {
-		return
+		return false
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.onExpired = onExpired
-	p.mu.Unlock()
+	return p.unauthorized
 }
 
 func (p *authProbe) seen() bool {
