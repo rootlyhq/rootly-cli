@@ -14,6 +14,7 @@ import (
 
 const (
 	sessionNotFoundMessage = "Session not found — starting a new chat"
+	historyLoadingStatus   = "Loading session history…"
 	blurredCursorGlyph     = "▢"
 	mcpReasonMaxWidth      = 120
 )

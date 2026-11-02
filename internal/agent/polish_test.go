@@ -397,6 +397,9 @@ func TestSendWaitsForPendingHistory(t *testing.T) {
 	if model.historyPending || model.sessionID != nil {
 		t.Fatal("a missing session should clear the pending flag and start fresh")
 	}
+	if model.status != "" {
+		t.Fatalf("status %q should clear once history settles", model.status)
+	}
 	if cmd := model.submit(); cmd == nil {
 		t.Fatal("the kept prompt should send once history has settled")
 	}
