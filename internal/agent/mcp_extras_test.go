@@ -206,3 +206,20 @@ func TestStalePromptAndMentionLoadsAreDropped(t *testing.T) {
 		t.Fatalf("prompt loaded before another send replaced it:\n%s", model.Transcript())
 	}
 }
+
+func TestCtrlCCancelsPendingPromptAndMentionLoads(t *testing.T) {
+	model := newMCPTestModel(t, extrasManager(), &fakeConnectorAPI{})
+	pending := model.runSlashCommand("/docs:triage api")
+	model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	model.Update(pending())
+	if model.state == tuiStreaming || strings.Contains(model.Transcript(), "prompt triage") {
+		t.Fatal("a prompt load cancelled with Ctrl+C was still sent")
+	}
+	model.composer.SetValue("see @docs:file:///runbook.md")
+	pending = model.submit()
+	model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	model.Update(pending())
+	if model.state == tuiStreaming {
+		t.Fatal("a resource load cancelled with Ctrl+C was still sent")
+	}
+}

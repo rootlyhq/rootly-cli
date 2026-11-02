@@ -160,6 +160,7 @@ type TUIModel struct {
 	resumedSession       bool
 	historyRequest       int
 	historyPending       bool
+	queuedPrompt         queuedSend
 	promptHistory        []string
 	historyIndex         int
 	historyDraft         string
@@ -355,18 +356,8 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case streamMessage:
 		return m.updateStream(msg)
 	case historyLoadedMsg:
-		if msg.request != m.historyRequest {
-			return m, nil
-		}
-		m.historyPending = false
-		if m.status == historyLoadingStatus {
-			m.status = ""
-		}
-		if title := normalizeSessionTitle(msg.sessionTitle); title != "" {
-			m.sessionTitle = title
-		}
-		m.handleHistoryLoaded(msg)
-		return m, nil
+		cmd := m.onHistoryLoaded(msg)
+		return m, cmd
 	case statusLoadedMsg:
 		if msg.request != m.statusRequest {
 			return m, nil
@@ -861,6 +852,8 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		m.idleInterrupt = true
+		m.queuedPrompt = queuedSend{}
+		m.mentionRequest++
 		m.composer.Reset()
 		m.status = "press Ctrl+C again to exit"
 		return m, nil
@@ -991,12 +984,6 @@ func (m *TUIModel) submit() tea.Cmd {
 		m.commandMenuOpen = false
 		return m.runSlashCommand(message)
 	}
-	if m.historyPending {
-		m.composer.SetValue(message)
-		m.status = historyLoadingStatus
-		return nil
-	}
-
 	if cmd := m.sendWithResources(message); cmd != nil {
 		return cmd
 	}
@@ -1008,6 +995,11 @@ func (m *TUIModel) submitPrompt(message string) tea.Cmd {
 }
 
 func (m *TUIModel) sendPrompt(echo, message, note string) tea.Cmd {
+	if m.historyPending {
+		m.queuedPrompt = queuedSend{echo: echo, message: message, note: note}
+		m.status = historyLoadingStatus
+		return nil
+	}
 	m.mentionRequest++
 	m.currentPrompt = echo
 	m.promptHistory = append(m.promptHistory, echo)
@@ -1649,4 +1641,28 @@ func (m *TUIModel) runClientTool(call *ClientToolCall, declined bool) tea.Cmd {
 		}
 		return done
 	}
+}
+
+func (m *TUIModel) onHistoryLoaded(msg historyLoadedMsg) tea.Cmd {
+	if msg.request != m.historyRequest {
+		return nil
+	}
+	m.historyPending = false
+	if m.status == historyLoadingStatus {
+		m.status = ""
+	}
+	if title := normalizeSessionTitle(msg.sessionTitle); title != "" {
+		m.sessionTitle = title
+	}
+	queued := m.queuedPrompt
+	m.queuedPrompt = queuedSend{}
+	m.handleHistoryLoaded(msg)
+	if queued == (queuedSend{}) {
+		return nil
+	}
+	return m.sendPrompt(queued.echo, queued.message, queued.note)
+}
+
+type queuedSend struct {
+	echo, message, note string
 }
