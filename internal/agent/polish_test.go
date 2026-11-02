@@ -377,12 +377,12 @@ func TestBulletizeWideTablesKeepsEscapedPipeInItsColumn(t *testing.T) {
 	}
 }
 
-func TestSendingInvalidatesPendingHistory(t *testing.T) {
+func TestSendingKeepsPendingHistoryOfTheSameSession(t *testing.T) {
 	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model.historyRequest = 1
 	model.submitPrompt("hello")
-	if model.historyRequest == 1 {
-		t.Fatal("sending a prompt must invalidate the pending history load")
+	if model.historyRequest != 1 {
+		t.Fatal("sending in the same session must not drop its pending history")
 	}
 }
