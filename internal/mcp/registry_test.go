@@ -72,7 +72,7 @@ func TestFetchRegistryPagesAndMapsInstalls(t *testing.T) {
 }
 
 func TestCatalogPutsRootlyVendorsFirstAndSearchRanks(t *testing.T) {
-	catalog := Catalog([]MarketEntry{{Name: "sentry", Description: "registry duplicate"}, {Name: "pager-mcp", Description: "Paging tool", Config: npxConfig("@acme/pager-mcp")}})
+	catalog := Catalog([]MarketEntry{{Name: "sentry", Description: "registry duplicate", Config: ServerConfig{Type: TransportHTTP, URL: "https://mcp.sentry.dev/mcp"}}, {Name: "pager-mcp", Description: "Paging tool", Config: npxConfig("@acme/pager-mcp")}})
 	var first []string
 	for _, entry := range catalog[:4] {
 		first = append(first, entry.Name)
@@ -205,5 +205,21 @@ func TestCatalogKeepsRegistryEntriesWithTheSameShortName(t *testing.T) {
 		if err := ValidateServerName(name); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
+	}
+}
+
+func TestCatalogOnlyLetsCuratedReplaceTheSameServer(t *testing.T) {
+	catalog := Catalog([]MarketEntry{
+		{Name: "linear", RegistryName: "app.linear/linear", Config: ServerConfig{Type: TransportHTTP, URL: "https://mcp.linear.app/mcp"}},
+		{Name: "linear", RegistryName: "io.github.someone/linear", Config: npxConfig("@someone/linear-mcp")},
+	})
+	var linear []MarketEntry
+	for _, entry := range catalog {
+		if strings.HasPrefix(entry.Name, "linear") {
+			linear = append(linear, entry)
+		}
+	}
+	if len(linear) != 2 || linear[0].Name != "linear" || linear[0].RegistryName != "" || linear[1].Name != "linear-someone" {
+		t.Fatalf("linear entries = %+v, want curated linear plus linear-someone", linear)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -267,14 +266,15 @@ func LoadIndex(path string) (entries []MarketEntry, indexedAt time.Time, err err
 func Catalog(indexed []MarketEntry) []MarketEntry {
 	curated := CuratedEntries()
 	seen := map[string]bool{}
+	curatedInstalls := map[string]bool{}
 	entries := make([]MarketEntry, 0, len(curated)+len(indexed))
 	for _, entry := range curated {
 		seen[entry.Name] = true
+		curatedInstalls[entry.Name+"\x00"+installKey(entry.Config)] = true
 		entries = append(entries, entry)
 	}
-	curatedNames := maps.Clone(seen)
 	for _, entry := range indexed {
-		if entry.Name == "" || curatedNames[entry.Name] {
+		if entry.Name == "" || curatedInstalls[entry.Name+"\x00"+installKey(entry.Config)] {
 			continue
 		}
 		if seen[entry.Name] {
@@ -284,6 +284,10 @@ func Catalog(indexed []MarketEntry) []MarketEntry {
 		entries = append(entries, entry)
 	}
 	return entries
+}
+
+func installKey(config ServerConfig) string {
+	return strings.Join(append([]string{config.Transport(), config.URL, config.Command}, config.Args...), "\x00")
 }
 
 func distinctMarketName(entry MarketEntry, seen map[string]bool) string {
