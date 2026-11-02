@@ -647,8 +647,9 @@ func (m *TUIModel) mcpPageView() string {
 	}
 	page.offset = max(0, min(page.offset, max(0, len(rows)-height)))
 	end := min(len(rows), page.offset+height)
+	statusWidth := mcpStatusWidth(rows[page.offset:end], width)
 	for index := page.offset; index < end; index++ {
-		lines = append(lines, ansi.Truncate(m.renderMCPRow(rows[index], index == page.cursor), width, "…"))
+		lines = append(lines, ansi.Truncate(m.renderMCPRow(rows[index], index == page.cursor, statusWidth), width, "…"))
 	}
 	for len(lines) < height+3 {
 		lines = append(lines, "")
@@ -661,7 +662,17 @@ func (m *TUIModel) mcpPageView() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m *TUIModel) renderMCPRow(row mcpRow, selected bool) string {
+func mcpStatusWidth(rows []mcpRow, width int) int {
+	statusWidth := 24
+	for _, row := range rows {
+		if row.kind == mcpRowServer {
+			statusWidth = max(statusWidth, ansi.StringWidth(mcpStatusLabel(*row.view)))
+		}
+	}
+	return min(statusWidth, max(24, width-2-28-1-16))
+}
+
+func (m *TUIModel) renderMCPRow(row mcpRow, selected bool, statusWidth int) string {
 	prefix := "  "
 	if selected {
 		prefix = "❯ "
@@ -675,7 +686,7 @@ func (m *TUIModel) renderMCPRow(row mcpRow, selected bool) string {
 		return prefix + row.text
 	case mcpRowCloud:
 		name := sanitizeTerminalText(row.cloud.Name)
-		return prefix + padRight(name, 28) + " " + padRight(cloudStatusLabel(*row.cloud), 24) + " " + faint(m.noColor, sanitizeTerminalText(row.cloud.ProviderType))
+		return prefix + padRight(name, 28) + " " + padRight(cloudStatusLabel(*row.cloud), statusWidth) + " " + faint(m.noColor, sanitizeTerminalText(row.cloud.ProviderType))
 	case mcpRowServer:
 		view := row.view
 		name := sanitizeTerminalText(view.Server.Name)
@@ -686,7 +697,7 @@ func (m *TUIModel) renderMCPRow(row mcpRow, selected bool) string {
 		if view.Server.Scope == mcp.ScopeLocal {
 			origin += " · local"
 		}
-		return prefix + padRight(name, 28) + " " + padRight(mcpStatusLabel(*view), 24) + " " + faint(m.noColor, origin)
+		return prefix + padRight(name, 28) + " " + padRight(mcpStatusLabel(*view), statusWidth) + " " + faint(m.noColor, origin)
 	}
 	return ""
 }

@@ -257,3 +257,16 @@ func TestPromptNamesWithTerminalControlsStayOutOfThePalette(t *testing.T) {
 		t.Fatal("safe prompts should still be listed")
 	}
 }
+
+func TestMCPListRowShowsFullCountsAtTypicalWidth(t *testing.T) {
+	manager := &fakeMCPManager{views: []mcp.ServerView{{
+		Server: mcp.Server{Name: "everything", Scope: mcp.ScopeUser}, Status: mcp.StatusConnected,
+		Tools: make([]mcp.ToolInfo, 22), Resources: make([]mcp.ResourceInfo, 11), Prompts: make([]mcp.PromptInfo, 4),
+	}}}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.width = 139
+	model.mcpPage.open = true
+	if view := model.mcpPageView(); !strings.Contains(view, "✔ 22 tools · 11 resources · 4 prompts") {
+		t.Fatalf("list row clipped the capability counts:\n%s", view)
+	}
+}
