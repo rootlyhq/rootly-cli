@@ -377,12 +377,27 @@ func TestBulletizeWideTablesKeepsEscapedPipeInItsColumn(t *testing.T) {
 	}
 }
 
-func TestSendingKeepsPendingHistoryOfTheSameSession(t *testing.T) {
-	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+func TestSendWaitsForPendingHistory(t *testing.T) {
+	sessionID := uuid.New()
+	fake := &fakeTUIAPI{messagePages: []*rootly.ListAiChatSessionMessagesResponse{{
+		Body:         []byte(`{"errors":[{"title":"Not found"}]}`),
+		HTTPResponse: &http.Response{StatusCode: http.StatusNotFound},
+	}}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true, API: fake, SessionID: &sessionID})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	model.historyRequest = 1
-	model.submitPrompt("hello")
-	if model.historyRequest != 1 {
-		t.Fatal("sending in the same session must not drop its pending history")
+	pending := model.loadHistory(sessionID)
+	model.composer.SetValue("hello")
+	if cmd := model.submit(); cmd != nil || model.state == tuiStreaming {
+		t.Fatal("a prompt sent before resumed history loads must wait")
+	}
+	if model.composer.Value() != "hello" || model.status != "Loading session history…" {
+		t.Fatalf("composer %q status %q", model.composer.Value(), model.status)
+	}
+	model.Update(pending())
+	if model.historyPending || model.sessionID != nil {
+		t.Fatal("a missing session should clear the pending flag and start fresh")
+	}
+	if cmd := model.submit(); cmd == nil {
+		t.Fatal("the kept prompt should send once history has settled")
 	}
 }

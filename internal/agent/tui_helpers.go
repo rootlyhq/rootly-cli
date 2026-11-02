@@ -515,6 +515,7 @@ func (m *TUIModel) statusLines() string {
 
 func (m *TUIModel) loadHistory(sessionID uuid.UUID) tea.Cmd {
 	m.historyRequest++
+	m.historyPending = true
 	request := m.historyRequest
 	apiClient := m.api
 	ctx := m.ctx
@@ -1109,6 +1110,7 @@ func (m *TUIModel) startNewSession() {
 	m.actionRequest++
 	m.pickerRequest++
 	m.historyRequest++
+	m.historyPending = false
 	m.sessionID = nil
 	m.sessionTitle = ""
 	m.resetAnswer()
