@@ -352,23 +352,8 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case streamMessage:
 		return m.updateStream(msg)
 	case historyLoadedMsg:
-		if msg.request != m.historyRequest {
-			return m, nil
-		}
-		m.historyPending = false
-		if m.status == historyLoadingStatus {
-			m.status = ""
-		}
-		if title := normalizeSessionTitle(msg.sessionTitle); title != "" {
-			m.sessionTitle = title
-		}
-		queued := m.queuedPrompt
-		m.queuedPrompt = ""
-		m.handleHistoryLoaded(msg)
-		if queued != "" {
-			return m, m.submitPrompt(queued)
-		}
-		return m, nil
+		cmd := m.onHistoryLoaded(msg)
+		return m, cmd
 	case statusLoadedMsg:
 		if msg.request != m.statusRequest {
 			return m, nil
@@ -1631,4 +1616,24 @@ func (m *TUIModel) runClientTool(call *ClientToolCall, declined bool) tea.Cmd {
 		}
 		return done
 	}
+}
+
+func (m *TUIModel) onHistoryLoaded(msg historyLoadedMsg) tea.Cmd {
+	if msg.request != m.historyRequest {
+		return nil
+	}
+	m.historyPending = false
+	if m.status == historyLoadingStatus {
+		m.status = ""
+	}
+	if title := normalizeSessionTitle(msg.sessionTitle); title != "" {
+		m.sessionTitle = title
+	}
+	queued := m.queuedPrompt
+	m.queuedPrompt = ""
+	m.handleHistoryLoaded(msg)
+	if queued == "" {
+		return nil
+	}
+	return m.submitPrompt(queued)
 }
