@@ -989,6 +989,7 @@ func (m *TUIModel) submitPrompt(message string) tea.Cmd {
 	m.promptHistory = append(m.promptHistory, message)
 	m.historyIndex = -1
 	m.actionRequest++
+	m.historyRequest++
 	m.startNewTurn()
 	m.activities.Reset()
 	params := &rootly.StreamAiChatParams{Message: &message, SessionID: m.sessionID}
