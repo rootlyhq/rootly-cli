@@ -347,3 +347,42 @@ func TestBulletizeWideTablesAfterLongerFenceCloser(t *testing.T) {
 		t.Errorf("table after a longer fence closer was not converted:\n%s", got)
 	}
 }
+
+func TestBulletizeWideTablesFenceRules(t *testing.T) {
+	table := "| Service | Owner | Status |\n|---|---|---|\n| api | Platform team | degraded |"
+	bullet := "- **api** · Owner: Platform team · Status: degraded"
+	cases := map[string]struct {
+		markdown string
+		convert  bool
+	}{
+		"inner shorter fence stays inside": {"````\n```\n" + table + "\n````", false},
+		"longer closer closes":             {"```\ncode\n````\n" + table, true},
+		"indented code is not a fence":     {"    ```\n\n" + table, true},
+		"indented closer does not close":   {"```\n    ```\n" + table + "\n```", false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := bulletizeWideTables(tc.markdown, 10)
+			if strings.Contains(got, bullet) != tc.convert {
+				t.Errorf("convert=%v, got:\n%s", tc.convert, got)
+			}
+		})
+	}
+}
+
+func TestBulletizeWideTablesKeepsEscapedPipeInItsColumn(t *testing.T) {
+	got := bulletizeWideTables("| Service | Status |\n|---|---|\n| api\\|worker | degraded |", 10)
+	if !strings.Contains(got, "- **api|worker** · Status: degraded") {
+		t.Errorf("escaped pipe split the row:\n%s", got)
+	}
+}
+
+func TestSendingInvalidatesPendingHistory(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model.historyRequest = 1
+	model.submitPrompt("hello")
+	if model.historyRequest == 1 {
+		t.Fatal("sending a prompt must invalidate the pending history load")
+	}
+}
