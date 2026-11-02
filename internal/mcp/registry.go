@@ -286,8 +286,8 @@ func Catalog(indexed []MarketEntry) []MarketEntry {
 	return entries
 }
 
-func installKey(config ServerConfig) string {
-	return strings.Join(append([]string{config.Transport(), config.URL, config.Command}, config.Args...), "\x00")
+func installKey(server ServerConfig) string {
+	return strings.Join(append([]string{server.Transport(), server.URL, server.Command}, server.Args...), "\x00")
 }
 
 func distinctMarketName(entry MarketEntry, seen map[string]bool) string {
