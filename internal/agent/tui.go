@@ -159,6 +159,7 @@ type TUIModel struct {
 	alertUsed            bool
 	resumedSession       bool
 	historyRequest       int
+	historyPending       bool
 	promptHistory        []string
 	historyIndex         int
 	historyDraft         string
@@ -357,6 +358,7 @@ func (m *TUIModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.request != m.historyRequest {
 			return m, nil
 		}
+		m.historyPending = false
 		if title := normalizeSessionTitle(msg.sessionTitle); title != "" {
 			m.sessionTitle = title
 		}
@@ -985,6 +987,11 @@ func (m *TUIModel) submit() tea.Cmd {
 	if strings.HasPrefix(message, "/") {
 		m.commandMenuOpen = false
 		return m.runSlashCommand(message)
+	}
+	if m.historyPending {
+		m.composer.SetValue(message)
+		m.status = "Loading session history…"
+		return nil
 	}
 
 	if cmd := m.sendWithResources(message); cmd != nil {
