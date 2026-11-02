@@ -25,8 +25,8 @@ type MCPManager interface {
 	Changes() <-chan struct{}
 	Connecting() int
 	ToggleSession(string) error
-	GetPrompt(context.Context, string, string, map[string]string) (string, error)
-	ReadResource(context.Context, string, string, int) (string, bool, error)
+	GetPrompt(ctx context.Context, serverID, name string, arguments map[string]string) (string, error)
+	ReadResource(ctx context.Context, serverID, uri string, limit int) (string, bool, error)
 	Approve(string) error
 	Enable(string) error
 	Reconnect(string) error

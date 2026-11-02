@@ -124,3 +124,21 @@ func TestMarketplacePreviewIgnoresEnter(t *testing.T) {
 		t.Fatalf("Enter in the preview must not add: added=%+v", manager.added)
 	}
 }
+
+func TestSameNamedServersMentionAndPromptCarryServerID(t *testing.T) {
+	imported := mcp.Server{Name: "docs", Scope: mcp.ScopeImported, Path: "/repo/.cursor/mcp.json"}
+	user := mcp.Server{Name: "docs", Scope: mcp.ScopeUser, Path: "/home/u/.rootly-cli/mcp.json"}
+	manager := &fakeMCPManager{views: []mcp.ServerView{
+		{Server: imported, Status: mcp.StatusConnected},
+		{Server: user, Status: mcp.StatusConnected, Prompts: []mcp.PromptInfo{{Name: "triage"}}, Resources: []mcp.ResourceInfo{{URI: "file:///runbook.md"}}},
+	}}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true, MCP: manager})
+	model.mcpPage.views = manager.views
+	refs := model.resourceMentions("see @docs:file:///runbook.md")
+	if len(refs) != 1 || refs[0].serverID != user.ID() {
+		t.Fatalf("mention refs = %+v, want the user server's ID", refs)
+	}
+	if _, serverID, found := model.findPrompt("docs", "triage"); !found || serverID != user.ID() {
+		t.Fatalf("findPrompt serverID = %q found=%v", serverID, found)
+	}
+}

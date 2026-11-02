@@ -73,19 +73,20 @@ func TestGetPromptAndReadResourceWithCap(t *testing.T) {
 		{server: Server{Name: "docs"}, session: session, status: StatusConnected},
 	}}
 	ctx := context.Background()
-	text, err := manager.GetPrompt(ctx, "docs", "triage", map[string]string{"service": "api"})
+	docsID := Server{Name: "docs"}.ID()
+	text, err := manager.GetPrompt(ctx, docsID, "triage", map[string]string{"service": "api"})
 	if err != nil || text != "Triage api" {
 		t.Fatalf("GetPrompt = %q, %v", text, err)
 	}
-	body, truncated, err := manager.ReadResource(ctx, "docs", "file:///runbook.md", 1001)
+	body, truncated, err := manager.ReadResource(ctx, docsID, "file:///runbook.md", 1001)
 	if err != nil || !truncated || len(body) != 1000 || !strings.HasPrefix(body, "éé") {
 		t.Fatalf("ReadResource = len %d truncated %v err %v", len(body), truncated, err)
 	}
-	full, truncated, err := manager.ReadResource(ctx, "docs", "file:///runbook.md", 0)
+	full, truncated, err := manager.ReadResource(ctx, docsID, "file:///runbook.md", 0)
 	if err != nil || truncated || len(full) != 80000 {
 		t.Fatalf("uncapped ReadResource = len %d truncated %v err %v", len(full), truncated, err)
 	}
-	if _, _, err := manager.ReadResource(ctx, "docs", "file:///logo.png", ResourceByteCap); err == nil {
+	if _, _, err := manager.ReadResource(ctx, docsID, "file:///logo.png", ResourceByteCap); err == nil {
 		t.Fatal("binary resource should be unreadable")
 	}
 	if _, _, err := manager.ReadResource(ctx, "off", "file:///runbook.md", ResourceByteCap); err == nil {
@@ -96,20 +97,23 @@ func TestGetPromptAndReadResourceWithCap(t *testing.T) {
 	}
 }
 
-func TestSameNamedServersRouteToTheAdvertisingOne(t *testing.T) {
+func TestSameNamedServersRouteByServerID(t *testing.T) {
 	other := connectInMemory(t, sdk.NewServer(&sdk.Implementation{Name: "other"}, nil))
 	docs := connectInMemory(t, docsServer())
+	imported := Server{Name: "docs", Scope: ScopeImported, Path: "/repo/.cursor/mcp.json"}
+	user := Server{Name: "docs", Scope: ScopeUser, Path: "/home/u/.rootly-cli/mcp.json"}
 	manager := &Manager{servers: []*runtimeServer{
-		{server: Server{Name: "docs", SourceLabel: "cursor"}, session: other, status: StatusConnected},
-		{server: Server{Name: "docs"}, session: docs, status: StatusConnected,
-			prompts:   []PromptInfo{{Name: "triage"}},
-			resources: []ResourceInfo{{URI: "file:///runbook.md"}}},
+		{server: imported, session: other, status: StatusConnected},
+		{server: user, session: docs, status: StatusConnected},
 	}}
 	ctx := context.Background()
-	if text, err := manager.GetPrompt(ctx, "docs", "triage", map[string]string{"service": "api"}); err != nil || text != "Triage api" {
+	if text, err := manager.GetPrompt(ctx, user.ID(), "triage", map[string]string{"service": "api"}); err != nil || text != "Triage api" {
 		t.Fatalf("GetPrompt = %q, %v", text, err)
 	}
-	if _, _, err := manager.ReadResource(ctx, "docs", "file:///runbook.md", ResourceByteCap); err != nil {
+	if _, err := manager.GetPrompt(ctx, imported.ID(), "triage", nil); err == nil {
+		t.Fatal("GetPrompt by the imported server's ID must not reach the user server")
+	}
+	if _, _, err := manager.ReadResource(ctx, user.ID(), "file:///runbook.md", ResourceByteCap); err != nil {
 		t.Fatalf("ReadResource routed to the wrong server: %v", err)
 	}
 }

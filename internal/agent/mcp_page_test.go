@@ -51,18 +51,18 @@ func (f *fakeMCPManager) AddFromMarket(entry mcp.MarketEntry) (mcp.Server, error
 	return server, nil
 }
 
-func (f *fakeMCPManager) GetPrompt(_ context.Context, server, name string, arguments map[string]string) (string, error) {
-	if server != "docs" {
+func (f *fakeMCPManager) GetPrompt(_ context.Context, serverID, name string, arguments map[string]string) (string, error) {
+	if !strings.HasSuffix(serverID, ":docs") {
 		return "", errors.New("not connected")
 	}
 	return fmt.Sprintf("prompt %s %v", name, arguments), nil
 }
 
-func (f *fakeMCPManager) ReadResource(_ context.Context, server, uri string, limit int) (text string, truncated bool, err error) {
+func (f *fakeMCPManager) ReadResource(_ context.Context, serverID, uri string, limit int) (text string, truncated bool, err error) {
 	f.mu.Lock()
 	f.readLimits = append(f.readLimits, limit)
 	f.mu.Unlock()
-	text, ok := f.resources[server+":"+uri]
+	text, ok := f.resources[serverID[strings.LastIndex(serverID, ":")+1:]+":"+uri]
 	if !ok {
 		return "", false, errors.New("no text content")
 	}

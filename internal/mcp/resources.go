@@ -64,52 +64,20 @@ func discoverExtras(ctx context.Context, session *sdk.ClientSession) (prompts []
 	return prompts, resources
 }
 
-func (m *Manager) sessionFor(serverName string, advertises func(*runtimeServer) bool) (*sdk.ClientSession, time.Duration, error) {
+func (m *Manager) sessionFor(serverID string) (*sdk.ClientSession, time.Duration, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var fallback *runtimeServer
 	for _, runtime := range m.servers {
-		if runtime.server.Name != serverName || runtime.session == nil || runtime.sessionOff {
-			continue
-		}
-		if advertises(runtime) {
+		if runtime.server.ID() == serverID && runtime.session != nil && !runtime.sessionOff {
 			return runtime.session, runtime.server.Config.CallTimeout(connectTimeout), nil
 		}
-		if fallback == nil {
-			fallback = runtime
-		}
 	}
-	if fallback != nil {
-		return fallback.session, fallback.server.Config.CallTimeout(connectTimeout), nil
-	}
-	return nil, 0, fmt.Errorf("MCP server %s is not connected", serverName)
-}
-
-func advertisesPrompt(name string) func(*runtimeServer) bool {
-	return func(runtime *runtimeServer) bool {
-		for _, prompt := range runtime.prompts {
-			if prompt.Name == name {
-				return true
-			}
-		}
-		return false
-	}
-}
-
-func advertisesResource(uri string) func(*runtimeServer) bool {
-	return func(runtime *runtimeServer) bool {
-		for _, resource := range runtime.resources {
-			if resource.URI == uri {
-				return true
-			}
-		}
-		return false
-	}
+	return nil, 0, fmt.Errorf("MCP server %s is not connected", serverID[strings.LastIndex(serverID, ":")+1:])
 }
 
 // GetPrompt renders an MCP prompt's text messages into one message.
-func (m *Manager) GetPrompt(ctx context.Context, serverName, name string, arguments map[string]string) (string, error) {
-	session, timeout, err := m.sessionFor(serverName, advertisesPrompt(name))
+func (m *Manager) GetPrompt(ctx context.Context, serverID, name string, arguments map[string]string) (string, error) {
+	session, timeout, err := m.sessionFor(serverID)
 	if err != nil {
 		return "", err
 	}
@@ -138,8 +106,8 @@ func (m *Manager) GetPrompt(ctx context.Context, serverName, name string, argume
 }
 
 // ReadResource returns a resource's text, cut to limit bytes on a rune boundary.
-func (m *Manager) ReadResource(ctx context.Context, serverName, uri string, limit int) (text string, truncated bool, err error) {
-	session, timeout, err := m.sessionFor(serverName, advertisesResource(uri))
+func (m *Manager) ReadResource(ctx context.Context, serverID, uri string, limit int) (text string, truncated bool, err error) {
+	session, timeout, err := m.sessionFor(serverID)
 	if err != nil {
 		return "", false, err
 	}

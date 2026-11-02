@@ -36,8 +36,9 @@ type mentionsReadyMsg struct {
 }
 
 type resourceRef struct {
-	server string
-	uri    string
+	server   string
+	uri      string
+	serverID string
 }
 
 func (r resourceRef) mention() string { return "@" + r.server + ":" + r.uri }
@@ -91,18 +92,18 @@ func (m *TUIModel) appendPromptItems(items []list.Item, value string) []list.Ite
 	return items
 }
 
-func (m *TUIModel) findPrompt(server, name string) (mcp.PromptInfo, bool) {
+func (m *TUIModel) findPrompt(server, name string) (prompt mcp.PromptInfo, serverID string, found bool) {
 	for _, view := range m.liveMCPViews() {
 		if view.Server.Name != server {
 			continue
 		}
-		for _, prompt := range view.Prompts {
-			if prompt.Name == name {
-				return prompt, true
+		for _, candidate := range view.Prompts {
+			if candidate.Name == name {
+				return candidate, view.Server.ID(), true
 			}
 		}
 	}
-	return mcp.PromptInfo{}, false
+	return mcp.PromptInfo{}, "", false
 }
 
 // promptArguments maps key=value tokens by name and fills the rest positionally; extra words join the last argument.
@@ -165,7 +166,7 @@ func (m *TUIModel) runMCPPrompt(command string) (tea.Cmd, bool) {
 	if !ok {
 		return nil, false
 	}
-	prompt, found := m.findPrompt(server, name)
+	prompt, serverID, found := m.findPrompt(server, name)
 	if !found {
 		return nil, false
 	}
@@ -177,7 +178,7 @@ func (m *TUIModel) runMCPPrompt(command string) (tea.Cmd, bool) {
 	manager, ctx, label, request := m.mcp, m.ctx, parts[0], m.mentionRequest
 	m.status = "Loading prompt " + sanitizeTerminalText(label) + "…"
 	return func() tea.Msg {
-		text, err := manager.GetPrompt(ctx, server, name, arguments)
+		text, err := manager.GetPrompt(ctx, serverID, name, arguments)
 		return mcpPromptMsg{request: request, label: label, text: text, err: err}
 	}, true
 }
@@ -272,10 +273,13 @@ func (m *TUIModel) insertMention(mention string) {
 }
 
 func (m *TUIModel) resourceMentions(message string) []resourceRef {
-	known := map[resourceRef]bool{}
+	known := map[resourceRef]string{}
 	for _, view := range m.liveMCPViews() {
 		for _, resource := range view.Resources {
-			known[resourceRef{server: view.Server.Name, uri: resource.URI}] = true
+			ref := resourceRef{server: view.Server.Name, uri: resource.URI}
+			if _, taken := known[ref]; !taken {
+				known[ref] = view.Server.ID()
+			}
 		}
 	}
 	if len(known) == 0 {
@@ -285,10 +289,12 @@ func (m *TUIModel) resourceMentions(message string) []resourceRef {
 	seen := map[resourceRef]bool{}
 	for _, match := range resourceMentionPattern.FindAllStringSubmatch(message, -1) {
 		ref := resourceRef{server: match[1], uri: strings.TrimRight(match[2], ".,;:!?)")}
-		if !known[ref] {
+		if _, ok := known[ref]; !ok {
 			ref.uri = match[2]
 		}
-		if known[ref] && !seen[ref] && len(refs) < maxAttachedResources {
+		serverID, ok := known[ref]
+		ref.serverID = serverID
+		if ok && !seen[ref] && len(refs) < maxAttachedResources {
 			seen[ref] = true
 			refs = append(refs, ref)
 		}
@@ -314,7 +320,7 @@ func readMentionedResources(ctx context.Context, manager MCPManager, request int
 	result := mentionsReadyMsg{request: request, echo: message, message: message}
 	var blocks []string
 	for _, ref := range refs {
-		text, truncated, err := manager.ReadResource(ctx, ref.server, ref.uri, mcp.ResourceByteCap)
+		text, truncated, err := manager.ReadResource(ctx, ref.serverID, ref.uri, mcp.ResourceByteCap)
 		if err != nil {
 			result.notes = append(result.notes, "skipped "+ref.mention()+": "+err.Error())
 			continue
