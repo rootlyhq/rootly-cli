@@ -153,3 +153,16 @@ func TestRemote401RefreshStopsWithRequestContext(t *testing.T) {
 		t.Fatalf("refresh ignored request cancellation, took %v", elapsed)
 	}
 }
+
+func TestConnectUsesConfiguredTimeout(t *testing.T) {
+	manager := NewManager(ManagerOptions{CWD: t.TempDir()})
+	server := Server{Name: "slow", Config: ServerConfig{Command: "sleep", Args: []string{"30"}, Timeout: 1}}
+	start := time.Now()
+	session, _, status, _, _ := manager.connect(context.Background(), server)
+	if session != nil || status == StatusConnected {
+		t.Fatalf("hanging server connected: %s", status)
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Fatalf("connect took %s; the 1s server timeout was ignored", elapsed)
+	}
+}
