@@ -17,7 +17,7 @@ require (
 	github.com/oapi-codegen/nullable v1.2.0
 	github.com/oapi-codegen/runtime v1.8.0
 	github.com/pelletier/go-toml/v2 v2.2.4
-	github.com/rootlyhq/rootly-go v0.15.0
+	github.com/rootlyhq/rootly-go v0.16.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
