@@ -404,6 +404,7 @@ func deniedPath(candidate string) bool {
 				filepath.Join(protectedHome, ".aws"),
 				filepath.Join(protectedHome, ".config", "gcloud"),
 				filepath.Join(protectedHome, ".kube", "config"),
+				filepath.Join(protectedHome, ".rootly-cli"),
 			} {
 				if isWithin(protected, clean) {
 					return true
