@@ -369,6 +369,19 @@ func kubectlNeedsApproval(args []string) bool {
 			strings.HasPrefix(arg, "--raw") {
 			return true
 		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		for _, part := range strings.FieldsFunc(strings.ToLower(arg), func(r rune) bool {
+			return r == ',' || r == '/'
+		}) {
+			if part == "se" || part == "secret" || part == "secrets" ||
+				strings.HasSuffix(part, ".secrets") ||
+				strings.HasPrefix(part, "secrets.") ||
+				strings.HasPrefix(part, "secret.") {
+				return true
+			}
+		}
 	}
 	return false
 }
