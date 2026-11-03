@@ -372,11 +372,16 @@ func AddFromMarket(store *Store, states *StateStore, entry MarketEntry) (Server,
 			return Server{}, fmt.Errorf("an MCP server named %s already exists (%s scope)", entry.Name, server.Scope)
 		}
 	}
-	server := Server{Name: entry.Name, Scope: ScopeUser, Path: store.UserPath, Config: entry.Config}
+	return AddDisabledUserServer(store, states, entry.Name, entry.Config)
+}
+
+// AddDisabledUserServer stores a user server with its enabled state turned off.
+func AddDisabledUserServer(store *Store, states *StateStore, name string, serverConfig ServerConfig) (Server, error) {
+	server := Server{Name: name, Scope: ScopeUser, Path: store.UserPath, Config: serverConfig}
 	if err := states.Update(func(state *State) { state.SetEnabled(server, false) }); err != nil {
 		return Server{}, err
 	}
-	if err := store.Add(ScopeUser, entry.Name, entry.Config); err != nil {
+	if err := store.Add(ScopeUser, name, serverConfig); err != nil {
 		return Server{}, errors.Join(err, states.Update(func(state *State) { state.SetEnabled(server, true) }))
 	}
 	return server, nil

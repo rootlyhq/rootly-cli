@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -204,6 +205,76 @@ func TestAddJSONAndImport(t *testing.T) {
 	}
 	if _, err := run(t, "remove", "-s", "imported", "github"); err == nil {
 		t.Fatal("imported servers are read-only")
+	}
+}
+
+func TestImportStoresServerOffUntilEnabled(t *testing.T) {
+	testEnvironment := setupEnv(t)
+	if err := os.MkdirAll(filepath.Join(testEnvironment.project, ".vscode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"servers":{"github":{"command":"rootly-import-test-command","args":[]}}}`
+	if err := os.WriteFile(filepath.Join(testEnvironment.project, ".vscode", "mcp.json"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, "import", "github")
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if !strings.Contains(out, "Imported github from ") || !strings.Contains(out, "(off — enable it in /mcp)") {
+		t.Fatalf("import output = %q, want disabled-state notice", out)
+	}
+
+	store := env.Store(testEnvironment.project)
+	servers, err := store.Servers(localmcp.ScopeUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 1 || servers[0].Name != "github" || servers[0].Scope != localmcp.ScopeUser {
+		t.Fatalf("user-scope servers = %#v", servers)
+	}
+	state, err := env.State().Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.IsEnabled(servers[0]) {
+		t.Fatal("imported user-scope server should be disabled")
+	}
+
+	lookupStarted := make(chan struct{}, 1)
+	releaseLookup := make(chan struct{})
+	manager := localmcp.NewManager(localmcp.ManagerOptions{
+		CWD:       testEnvironment.project,
+		Store:     store,
+		State:     env.State(),
+		Discovery: &localmcp.Discovery{Home: testEnvironment.home, CWD: testEnvironment.project, GOOS: "linux"},
+		LookPath: func(name string) (string, error) {
+			if name == "rootly-import-test-command" {
+				lookupStarted <- struct{}{}
+				<-releaseLookup
+				return "", errors.New("blocked test command")
+			}
+			return "", errors.New("not installed")
+		},
+	})
+	defer manager.Close()
+	defer close(releaseLookup)
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	manager.Start()
+	if manager.Connecting() != 0 {
+		t.Fatal("manager should not start a disabled imported server")
+	}
+	for _, view := range manager.Views() {
+		if view.Server.ID() == servers[0].ID() && view.Status != localmcp.StatusOff {
+			t.Fatalf("imported server status = %q, want off", view.Status)
+		}
+	}
+	select {
+	case <-lookupStarted:
+		t.Fatal("manager tried to start the disabled imported server")
+	default:
 	}
 }
 

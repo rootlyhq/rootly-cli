@@ -527,18 +527,19 @@ Claude Desktop into ~/.rootly-cli/mcp.json. Without names it asks which ones to 
 			taken[server.Name] = true
 		}
 		copied := 0
+		states := env.State()
 		for _, server := range selected {
 			if taken[server.Name] {
 				_, _ = fmt.Fprintf(errOut, "skipped %s: already in your user config\n", server.Name)
 				continue
 			}
-			if err := store.Add(localmcp.ScopeUser, server.Name, server.Config); err != nil {
+			if _, err := localmcp.AddDisabledUserServer(store, states, server.Name, server.Config); err != nil {
 				_, _ = fmt.Fprintf(errOut, "skipped %s: %v\n", server.Name, err)
 				continue
 			}
 			taken[server.Name] = true
 			copied++
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Imported %s from %s\n", server.Name, server.SourceLabel)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Imported %s from %s (off — enable it in /mcp)\n", server.Name, server.SourceLabel)
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Copied %d server(s) to %s\n", copied, scopeTarget(store, localmcp.ScopeUser))
 		return nil
