@@ -124,6 +124,7 @@ type Manager struct {
 	builtins       *builtin.Registry
 	builtinEnabled map[string]bool
 	builtinErr     error
+	sessionTools   map[string]bool
 	problems       []string
 	changes        chan struct{}
 	closed         bool
@@ -157,6 +158,7 @@ func NewManager(options ManagerOptions) *Manager {
 		builtins:       builtins,
 		builtinEnabled: map[string]bool{},
 		builtinErr:     builtinErr,
+		sessionTools:   map[string]bool{},
 		changes:        make(chan struct{}, 1),
 	}
 }
@@ -187,6 +189,11 @@ func (m *Manager) Load() error {
 	}
 	if m.builtinErr != nil {
 		m.problems = append(m.problems, m.builtinErr.Error())
+	}
+	if m.builtins != nil {
+		if err := m.builtins.Policy().LoadError(); err != nil {
+			m.problems = append(m.problems, "Local tool rules (~/.rootly-cli/rules) skipped: "+err.Error())
+		}
 	}
 	if stateErr != nil {
 		m.problems = append(m.problems, stateErr.Error())
@@ -859,10 +866,59 @@ func (m *Manager) NeedsApproval(name string, args map[string]any) bool {
 		return true
 	}
 	if ref.ServerID != builtinServerID {
-		return !ref.ReadOnly
+		return !ref.ReadOnly && !m.sessionTools[name]
 	}
 	tool, ok := m.builtins.Lookup(name)
 	return !ok || !m.builtinEnabledLocked(name) || tool.NeedsApproval(args)
+}
+
+// ApprovalOptions are the ways a call that needs approval may be remembered:
+// for the session (MCP tools by name, commands by Prefix) or, for commands,
+// as an allow rule in ~/.rootly-cli/rules/default.rules.
+type ApprovalOptions struct {
+	Session bool
+	Persist bool
+	Prefix  []string
+}
+
+func (m *Manager) ApprovalOptions(name string, args map[string]any) ApprovalOptions {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ref, ok := m.toolRefs[name]
+	if !ok {
+		return ApprovalOptions{}
+	}
+	if ref.ServerID != builtinServerID {
+		return ApprovalOptions{Session: !ref.ReadOnly}
+	}
+	tool, ok := m.builtins.Lookup(name)
+	if !ok || !m.builtinEnabledLocked(name) {
+		return ApprovalOptions{}
+	}
+	approval := tool.Approval(args)
+	if !approval.Needs || len(approval.Prefix) == 0 {
+		return ApprovalOptions{}
+	}
+	return ApprovalOptions{Session: true, Persist: true, Prefix: approval.Prefix}
+}
+
+// RememberApproval allows this kind of call for the session or, with
+// persist, saves an allow rule for its command prefix.
+func (m *Manager) RememberApproval(name string, args map[string]any, persist bool) error {
+	options := m.ApprovalOptions(name, args)
+	switch {
+	case len(options.Prefix) > 0 && persist:
+		return m.builtins.Policy().SaveAllow(options.Prefix)
+	case len(options.Prefix) > 0:
+		m.builtins.Policy().AllowForSession(options.Prefix)
+		return nil
+	case options.Session && !persist:
+		m.mu.Lock()
+		m.sessionTools[name] = true
+		m.mu.Unlock()
+		return nil
+	}
+	return errors.New("this call can only be approved once")
 }
 
 func (m *Manager) BuiltinTools() []BuiltinToolInfo {

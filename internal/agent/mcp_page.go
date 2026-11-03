@@ -884,7 +884,7 @@ func (m *TUIModel) builtinDetailView(view *mcp.ServerView, width int, bold lipgl
 		m.mcpStyle(bold, "Built-in tools") + "  " + mcpStatusLabel(*view),
 		faint(m.noColor, "Filesystem access is confined to the current working directory."),
 		"",
-		"[space] enable/disable selected tool   [bash] always requires approval",
+		"[space] enable/disable selected tool   [bash] asks unless read-only or allowed in ~/.rootly-cli/rules",
 	}
 	tools := m.detailTools(view)
 	header := fmt.Sprintf("Tools (%d)", len(view.Tools))

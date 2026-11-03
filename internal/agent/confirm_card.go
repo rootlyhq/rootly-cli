@@ -24,7 +24,13 @@ type confirmationPreview struct {
 	InferredFields json.RawMessage `json:"inferred_fields"`
 }
 
+const confirmationKeys = "y approve · n/Esc cancel"
+
 func renderConfirmationCard(confirmation *rootly.AiChatStreamConfirmationRequired, width int, noColor bool, now time.Time) string {
+	return renderConfirmationCardWithKeys(confirmation, width, noColor, now, confirmationKeys)
+}
+
+func renderConfirmationCardWithKeys(confirmation *rootly.AiChatStreamConfirmationRequired, width int, noColor bool, now time.Time, keys string) string {
 	if confirmation == nil {
 		return ""
 	}
@@ -73,7 +79,7 @@ func renderConfirmationCard(confirmation *rootly.AiChatStreamConfirmationRequire
 		lines = append(lines, "Missing: "+strings.Join(missing, ", "))
 	}
 
-	footer := "y approve · n/Esc cancel"
+	footer := keys
 	if remaining, ok := confirmationRemaining(confirmation.ExpiresAt, now); ok {
 		footer += " · expires in " + remaining
 	}

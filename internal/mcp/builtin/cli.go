@@ -53,17 +53,21 @@ var cliRegistry = []cliSpec{
 
 var sensitiveEnvironmentName = regexp.MustCompile(`(?i)(TOKEN|SECRET|PASSWORD|PASSWD|KEY|CREDENTIAL|AUTH|SESSION|COOKIE)`)
 
-func newCLITool(root string, spec cliSpec, lookPath LookPathFunc) Tool {
+func newCLITool(root string, spec cliSpec, lookPath LookPathFunc, policy *Policy) Tool {
 	name := "local_" + strings.ReplaceAll(spec.bin, "-", "_")
 	return localTool{
 		name:        name,
 		description: fmt.Sprintf("%s (%q) runs on this machine with its local credentials. Pass argument tokens via `args`.", spec.label, spec.bin),
 		schema:      jsonSchema(`{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI argument tokens, passed without a shell."}},"required":["args"]}`),
 		readOnly:    false,
-		needsApproval: func(args map[string]any) bool {
+		approve: func(args map[string]any) Approval {
 			values, ok := stringSliceArg(args, "args")
-			return !ok || cliNeedsApproval(spec.bin, values) ||
-				(spec.bin == "kubectl" && kubectlKubeconfigInsideRoot(root))
+			if !ok {
+				return Approval{Needs: true}
+			}
+			argv := append([]string{spec.bin}, values...)
+			builtinNeeds := cliNeedsApproval(spec.bin, values) || (spec.bin == "kubectl" && kubectlKubeconfigInsideRoot(root))
+			return commandsApproval(policy, [][]string{argv}, func([]string) bool { return !builtinNeeds })
 		},
 		run: func(ctx context.Context, args map[string]any) Result {
 			values, ok := stringSliceArg(args, "args")
@@ -75,13 +79,21 @@ func newCLITool(root string, spec cliSpec, lookPath LookPathFunc) Tool {
 	}
 }
 
-func newBashTool(root string) Tool {
+func newBashTool(root string, policy *Policy) Tool {
 	return localTool{
-		name:          "local_bash",
-		description:   "Run a shell command on this machine with its local credentials. Always requires approval; output and runtime are capped.",
-		schema:        jsonSchema(`{"type":"object","properties":{"command":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":600}},"required":["command"]}`),
-		readOnly:      false,
-		needsApproval: func(map[string]any) bool { return true },
+		name: "local_bash",
+		description: "Run a shell command on this machine with its local credentials. Read-only commands (ls, cat, grep, head, git status/log/diff/show) " +
+			"on files in the working directory run without approval; anything else asks first. Output and runtime are capped.",
+		schema:   jsonSchema(`{"type":"object","properties":{"command":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":600}},"required":["command"]}`),
+		readOnly: false,
+		approve: func(args map[string]any) Approval {
+			command, _ := stringArg(args, "command")
+			commands, ok := shellCommands(command)
+			if !ok {
+				return Approval{Needs: true}
+			}
+			return commandsApproval(policy, commands, func(argv []string) bool { return isKnownSafeCommand(argv, root) })
+		},
 		run: func(ctx context.Context, args map[string]any) Result {
 			command, ok := stringArg(args, "command")
 			if !ok || strings.TrimSpace(command) == "" {
@@ -90,6 +102,64 @@ func newBashTool(root string) Tool {
 			return runCommand(ctx, root, "bash", []string{"-c", command}, shellTimeout(args), maxShellOutput, "bash")
 		},
 	}
+}
+
+// commandsApproval combines user rules with the built-in read-only check:
+// any forbidden command blocks the call; it runs unasked only when every
+// command is allowed by a rule or known safe.
+func commandsApproval(policy *Policy, commands [][]string, safe func([]string) bool) Approval {
+	approval := Approval{}
+	ruleAsks := false
+	for _, argv := range commands {
+		decision, justification := policy.Evaluate(argv)
+		switch decision {
+		case DecisionForbidden:
+			if justification == "" {
+				justification = strings.Join(argv, " ")
+			}
+			return Approval{Forbidden: justification}
+		case DecisionPrompt:
+			ruleAsks = true
+			approval.Needs = true
+		case DecisionNone:
+			if !safe(argv) {
+				approval.Needs = true
+			}
+		}
+	}
+	if approval.Needs && !ruleAsks && len(commands) == 1 {
+		approval.Prefix = rememberPrefix(commands[0])
+	}
+	return approval
+}
+
+// rememberPrefix is the command plus up to two leading subcommands, e.g.
+// ["kubectl", "rollout", "undo"]. Commands that start with a flag or a path
+// get no prefix, so they can only be approved once, as do wrappers and
+// interpreters whose prefix would cover arbitrary commands.
+func rememberPrefix(argv []string) []string {
+	if len(argv) < 2 || strings.Contains(argv[0], "/") || unrememberableCommands[argv[0]] {
+		return nil
+	}
+	prefix := []string{argv[0]}
+	for _, token := range argv[1:min(len(argv), 3)] {
+		if token == "" || strings.HasPrefix(token, "-") || strings.ContainsAny(token, "/=.:@ ") {
+			break
+		}
+		prefix = append(prefix, token)
+	}
+	if len(prefix) < 2 {
+		return nil
+	}
+	return prefix
+}
+
+var unrememberableCommands = map[string]bool{
+	"sudo": true, "su": true, "doas": true, "env": true, "xargs": true, "eval": true, "exec": true, "command": true,
+	"builtin": true, "nohup": true, "nice": true, "time": true, "timeout": true, "watch": true, "ssh": true,
+	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "fish": true, "source": true,
+	"python": true, "python3": true, "node": true, "ruby": true, "perl": true, "php": true, "deno": true, "bun": true,
+	"npx": true, "uvx": true, "docker": true,
 }
 
 func shellTimeout(args map[string]any) time.Duration {

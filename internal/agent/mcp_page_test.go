@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
@@ -424,5 +426,86 @@ func TestTUILocalToolDispatchSerializesWritesWithReadOnlyCalls(t *testing.T) {
 	}
 	if model.localReadOnlyRunning != 0 || model.localApprovalRunning {
 		t.Fatal("local tool scheduler did not return to idle")
+	}
+}
+
+type fakeApprovalMemory struct {
+	fakeMCPManager
+	options    mcp.ApprovalOptions
+	remembered []string
+	allowed    map[string]bool
+}
+
+func (f *fakeApprovalMemory) NeedsApproval(name string, args map[string]any) bool {
+	return !f.allowed[name] && f.fakeMCPManager.NeedsApproval(name, args)
+}
+
+func (f *fakeApprovalMemory) ApprovalOptions(string, map[string]any) mcp.ApprovalOptions {
+	return f.options
+}
+
+func (f *fakeApprovalMemory) RememberApproval(name string, _ map[string]any, persist bool) error {
+	f.remembered = append(f.remembered, fmt.Sprintf("%s:%t", name, persist))
+	f.allowed[name] = true
+	return nil
+}
+
+func TestTUILocalApprovalKeysRememberOnlyWhenOffered(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		options    mcp.ApprovalOptions
+		key        string
+		remembered string
+		footer     string
+		transcript string
+	}{
+		{name: "once", options: mcp.ApprovalOptions{Session: true, Persist: true, Prefix: []string{"kubectl", "rollout"}}, key: "y",
+			footer: "a allow `kubectl rollout` this session · p always allow `kubectl rollout`"},
+		{name: "session prefix", options: mcp.ApprovalOptions{Session: true, Persist: true, Prefix: []string{"kubectl", "rollout"}}, key: "a",
+			remembered: "local_kubectl:false", transcript: "Allowing `kubectl rollout` for this session"},
+		{name: "permanent prefix", options: mcp.ApprovalOptions{Session: true, Persist: true, Prefix: []string{"kubectl", "rollout"}}, key: "p",
+			remembered: "local_kubectl:true", transcript: "Always allowing `kubectl rollout` (saved to ~/.rootly-cli/rules/default.rules)"},
+		{name: "mcp tool session", options: mcp.ApprovalOptions{Session: true}, key: "a",
+			remembered: "local_kubectl:false", footer: "y once · a allow this tool this session · n/Esc cancel", transcript: "Allowing this tool for this session"},
+		{name: "mcp tool cannot persist", options: mcp.ApprovalOptions{Session: true}, key: "p"},
+		{name: "complex bash is once only", key: "a", footer: "y approve · n/Esc cancel"},
+		{name: "complex bash cannot persist", key: "p"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager := &fakeApprovalMemory{options: test.options, allowed: map[string]bool{}}
+			manager.changes = make(chan struct{})
+			manager.tools = map[string]mcp.ToolRef{"local_kubectl": {ServerID: "builtin", ServerName: "Built-in", Tool: "kubectl"}}
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true, API: &fakeConnectorAPI{}, MCP: manager})
+			model.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+			model.turn = 1
+			model.state = tuiStreaming
+			call := &ClientToolCall{CallID: "c1", Name: "local_kubectl", Arguments: map[string]any{"args": []any{"rollout", "undo"}}}
+			if cmd := model.handleClientToolCall(call); cmd != nil || model.localConfirm == nil {
+				t.Fatal("approval card was not shown")
+			}
+			if view := strings.Join(strings.Fields(ansi.Strip(model.View().Content)), " "); test.footer != "" && !strings.Contains(view, test.footer) {
+				t.Errorf("card footer missing %q in %q", test.footer, view)
+			}
+			_, cmd := model.Update(tea.KeyPressMsg{Code: rune(test.key[0]), Text: test.key})
+			ran := test.key == "y" || test.remembered != ""
+			if (cmd != nil) != ran || (model.localConfirm == nil) != ran {
+				t.Fatalf("key %q: ran=%v cmd=%v confirm=%v", test.key, ran, cmd != nil, model.localConfirm != nil)
+			}
+			if got := strings.Join(manager.remembered, ","); got != test.remembered {
+				t.Errorf("remembered = %q, want %q", got, test.remembered)
+			}
+			if test.transcript != "" && !strings.Contains(ansi.Strip(model.Transcript()), test.transcript) {
+				t.Errorf("transcript missing %q: %q", test.transcript, ansi.Strip(model.Transcript()))
+			}
+			if !ran {
+				return
+			}
+			runCmd(model, cmd)
+			model.turn = 1
+			second := model.handleClientToolCall(&ClientToolCall{CallID: "c2", Name: "local_kubectl"})
+			if remembered := test.remembered != ""; (second != nil) != remembered {
+				t.Errorf("second call auto-ran=%v, want %v", second != nil, remembered)
+			}
+		})
 	}
 }

@@ -280,7 +280,7 @@ func (r *printRun) approveLocalTool(ref mcp.ToolRef, call *ClientToolCall) bool 
 		}
 		return false
 	}
-	_, _ = fmt.Fprintf(r.options.Stderr, "%s\n", renderLocalToolCard(ref, call, 80, r.options.NoColor))
+	_, _ = fmt.Fprintf(r.options.Stderr, "%s\n", renderLocalToolCard(ref, call, mcp.ApprovalOptions{}, 80, r.options.NoColor))
 	_, _ = fmt.Fprint(r.options.Stderr, "Run this local tool? [y/N] ")
 	if r.stdinReader == nil {
 		r.stdinReader = bufio.NewReader(r.options.Stdin)

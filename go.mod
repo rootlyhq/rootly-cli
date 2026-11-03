@@ -22,8 +22,10 @@ require (
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
 	github.com/yuin/goldmark v1.7.8
+	go.starlark.net v0.0.0-20261021141710-4f4267fb140d
 	golang.org/x/oauth2 v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
+	mvdan.cc/sh/v3 v3.14.1
 )
 
 require (

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -173,4 +174,92 @@ func containsBuiltin(tools []BuiltinToolInfo, name string, enabled bool) bool {
 		}
 	}
 	return false
+}
+
+func TestManagerRemembersApprovalsAndReportsBadRules(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	rules := filepath.Join(home, ".rootly-cli", "rules")
+	if err := os.MkdirAll(rules, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rules, "broken.rules"), []byte(`prefix_rule(`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cwd := t.TempDir()
+	options := ManagerOptions{
+		CWD:       cwd,
+		Store:     &Store{UserPath: filepath.Join(home, "mcp.json"), CWD: cwd},
+		State:     &StateStore{Path: filepath.Join(home, "mcp-state.json")},
+		Discovery: &Discovery{Home: home, CWD: cwd},
+		LookPath:  func(string) (string, error) { return "/bin/true", nil },
+	}
+	manager := NewManager(options)
+	defer manager.Close()
+	if err := manager.Load(); err == nil || !strings.Contains(err.Error(), "broken.rules:1:13") {
+		t.Fatalf("bad rules file not reported: %v", err)
+	}
+	if err := manager.SetBuiltinEnabled("local_bash", true); err != nil {
+		t.Fatal(err)
+	}
+	manager.ClientTools()
+	plan := map[string]any{"command": "terraform plan -out=tf.plan"}
+	if !manager.NeedsApproval("local_bash", plan) {
+		t.Fatal("terraform plan should ask before it is remembered")
+	}
+	if got := manager.ApprovalOptions("local_bash", plan); !got.Persist || strings.Join(got.Prefix, " ") != "terraform plan" {
+		t.Fatalf("options = %+v", got)
+	}
+	if err := manager.RememberApproval("local_bash", plan, false); err != nil {
+		t.Fatal(err)
+	}
+	if manager.NeedsApproval("local_bash", map[string]any{"command": "terraform plan"}) {
+		t.Fatal("session approval not applied")
+	}
+	complexCommand := map[string]any{"command": "terraform plan > $HOME/plan"}
+	if got := manager.ApprovalOptions("local_bash", complexCommand); got.Session || got.Persist {
+		t.Fatalf("complex shell must be once-only, got %+v", got)
+	}
+	if err := manager.RememberApproval("local_bash", complexCommand, true); err == nil {
+		t.Fatal("complex shell must not be saved")
+	}
+	if err := manager.RememberApproval("local_bash", map[string]any{"command": "npm test"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(rules, "broken.rules")); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewManager(options)
+	defer fresh.Close()
+	if err := fresh.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := fresh.SetBuiltinEnabled("local_bash", true); err != nil {
+		t.Fatal(err)
+	}
+	fresh.ClientTools()
+	if fresh.NeedsApproval("local_bash", map[string]any{"command": "npm test -- --watch=false"}) {
+		t.Fatal("saved rule not applied in a new process")
+	}
+	if !fresh.NeedsApproval("local_bash", plan) {
+		t.Fatal("session approval leaked into a new process")
+	}
+
+	addRuntimeTools(manager, "deploys", []*sdk.Tool{{Name: "rollback", InputSchema: map[string]any{"type": "object"}}})
+	all, _ := manager.ClientTools()
+	name := ""
+	for _, tool := range all {
+		if strings.HasSuffix(tool.Name, "rollback") {
+			name = tool.Name
+		}
+	}
+	if got := manager.ApprovalOptions(name, nil); !got.Session || got.Persist {
+		t.Fatalf("MCP tool options = %+v", got)
+	}
+	if err := manager.RememberApproval(name, nil, true); err == nil {
+		t.Fatal("MCP tools cannot be saved as rules")
+	}
+	if err := manager.RememberApproval(name, nil, false); err != nil || manager.NeedsApproval(name, nil) {
+		t.Fatalf("MCP session approval: %v", err)
+	}
 }

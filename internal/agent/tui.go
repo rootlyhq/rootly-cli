@@ -228,6 +228,7 @@ type localConfirmation struct {
 	ref      mcp.ToolRef
 	call     *ClientToolCall
 	approval bool
+	options  mcp.ApprovalOptions
 }
 
 type localToolDoneMsg struct {
@@ -836,6 +837,9 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "y":
 			cmd := m.resolveLocalConfirmation(true)
 			return m, cmd
+		case "a", "p":
+			cmd := m.rememberLocalConfirmation(strings.EqualFold(msg.String(), "p"))
+			return m, cmd
 		case "n", "esc":
 			cmd := m.resolveLocalConfirmation(false)
 			return m, cmd
@@ -1408,7 +1412,7 @@ func (m *TUIModel) liveSection() string {
 			sections = append(sections, m.renderLiveAssistantAnswerPart(markdown, m.committedOffset == 0))
 		}
 		if m.localConfirm != nil {
-			sections = append(sections, renderLocalToolCard(m.localConfirm.ref, m.localConfirm.call, m.width, m.noColor))
+			sections = append(sections, renderLocalToolCard(m.localConfirm.ref, m.localConfirm.call, m.localConfirm.options, m.width, m.noColor))
 		}
 	case tuiConfirming:
 		if m.pending != nil {
@@ -1624,6 +1628,9 @@ func (m *TUIModel) handleClientToolCall(call *ClientToolCall) tea.Cmd {
 		approval: tools.NeedsApproval(call.Name, call.Arguments),
 	}
 	if confirmation.approval {
+		if memory, ok := tools.(LocalApprovalMemory); ok {
+			confirmation.options = memory.ApprovalOptions(call.Name, call.Arguments)
+		}
 		if m.localConfirm != nil || m.localApprovalRunning || m.localReadOnlyRunning > 0 || len(m.localToolQueue) > 0 {
 			m.localToolQueue = append(m.localToolQueue, confirmation)
 			return nil
@@ -1650,6 +1657,32 @@ func (m *TUIModel) resolveLocalConfirmation(approved bool) tea.Cmd {
 	}
 	m.localApprovalRunning = true
 	return m.runApprovedClientTool(pending.call, !approved)
+}
+
+// rememberLocalConfirmation approves the pending call and remembers it for
+// the session (a) or as a saved allow rule (p), when the card offers that.
+func (m *TUIModel) rememberLocalConfirmation(persist bool) tea.Cmd {
+	pending := m.localConfirm
+	if pending == nil || (persist && !pending.options.Persist) || (!persist && !pending.options.Session) {
+		return nil
+	}
+	memory, ok := m.mcp.(LocalApprovalMemory)
+	if !ok {
+		return nil
+	}
+	label := "this tool"
+	if len(pending.options.Prefix) > 0 {
+		label = "`" + sanitizeTerminalText(strings.Join(pending.options.Prefix, " ")) + "`"
+	}
+	switch err := memory.RememberApproval(pending.call.Name, pending.call.Arguments, persist); {
+	case err != nil:
+		m.println(faint(m.noColor, "Could not remember approval: "+sanitizeTerminalError(err).Error()))
+	case persist:
+		m.println(faint(m.noColor, "Always allowing "+label+" (saved to ~/.rootly-cli/rules/default.rules)"))
+	default:
+		m.println(faint(m.noColor, "Allowing "+label+" for this session"))
+	}
+	return m.resolveLocalConfirmation(true)
 }
 
 func (m *TUIModel) runClientTool(call *ClientToolCall, declined bool) tea.Cmd {
@@ -1728,6 +1761,11 @@ type queuedSend struct {
 func (m *TUIModel) startNextLocalTool() tea.Cmd {
 	if m.localConfirm != nil || m.localApprovalRunning || m.localReadOnlyRunning > 0 || len(m.localToolQueue) == 0 {
 		return nil
+	}
+	for _, queued := range m.localToolQueue {
+		if queued.approval && m.mcp != nil && !m.mcp.NeedsApproval(queued.call.Name, queued.call.Arguments) {
+			queued.approval = false
+		}
 	}
 	var commands []tea.Cmd
 	for len(m.localToolQueue) > 0 && !m.localToolQueue[0].approval {

@@ -25,6 +25,12 @@ type LocalTools interface {
 	Call(context.Context, string, map[string]any) mcp.CallResult
 }
 
+// LocalApprovalMemory is implemented by managers that can remember approvals.
+type LocalApprovalMemory interface {
+	ApprovalOptions(string, map[string]any) mcp.ApprovalOptions
+	RememberApproval(string, map[string]any, bool) error
+}
+
 type ToolResultPoster interface {
 	PostAiChatToolResult(context.Context, api.ToolResult) error
 }
@@ -123,6 +129,17 @@ func previewArgs(value any) []string {
 	}
 }
 
-func renderLocalToolCard(ref mcp.ToolRef, call *ClientToolCall, width int, noColor bool) string {
-	return renderConfirmationCard(localToolConfirmation(ref, call), width, noColor, time.Now())
+func renderLocalToolCard(ref mcp.ToolRef, call *ClientToolCall, options mcp.ApprovalOptions, width int, noColor bool) string {
+	return renderConfirmationCardWithKeys(localToolConfirmation(ref, call), width, noColor, time.Now(), localApprovalKeys(options))
+}
+
+func localApprovalKeys(options mcp.ApprovalOptions) string {
+	switch {
+	case len(options.Prefix) > 0 && options.Persist:
+		prefix := sanitizeTerminalText(strings.Join(options.Prefix, " "))
+		return "y once · a allow `" + prefix + "` this session · p always allow `" + prefix + "` · n/Esc cancel"
+	case options.Session:
+		return "y once · a allow this tool this session · n/Esc cancel"
+	}
+	return confirmationKeys
 }

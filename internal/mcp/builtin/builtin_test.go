@@ -225,8 +225,8 @@ func TestFilesystemOutputIsCapped(t *testing.T) {
 
 func TestBashIsApprovalGatedAndEnforcesTimeout(t *testing.T) {
 	bash := mustLookup(t, testRegistry(t, t.TempDir(), nil), "local_bash")
-	if !bash.NeedsApproval(map[string]any{"command": "true"}) {
-		t.Fatal("bash must always require approval")
+	if !bash.NeedsApproval(map[string]any{"command": "rm -f scratch"}) {
+		t.Fatal("bash must require approval for commands that change things")
 	}
 	result := bash.Run(context.Background(), map[string]any{
 		"command":         "exec sleep 5",
@@ -368,7 +368,7 @@ func TestCLIDiscoveryAllowListApprovalAndTimeout(t *testing.T) {
 	if result.IsError || len([]rune(result.Output)) != maxCLIOutput || !strings.Contains(result.Output, "[truncated]") {
 		t.Fatalf("expected capped CLI output, got %#v", result)
 	}
-	argsTool := newCLITool(root, cliSpec{bin: "gh"}, func(string) (string, error) { return argsExecutable, nil })
+	argsTool := newCLITool(root, cliSpec{bin: "gh"}, func(string) (string, error) { return argsExecutable, nil }, nil)
 	argument := "; touch " + filepath.Join(root, "injected")
 	argsResult := argsTool.Run(context.Background(), map[string]any{"args": []any{argument}})
 	if argsResult.IsError || !strings.Contains(argsResult.Output, argument) {
@@ -377,14 +377,14 @@ func TestCLIDiscoveryAllowListApprovalAndTimeout(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "injected")); !os.IsNotExist(err) {
 		t.Fatalf("CLI argument was interpreted by a shell: %v", err)
 	}
-	timeoutTool := newCLITool(root, cliSpec{bin: "gh"}, func(string) (string, error) { return timeoutExecutable, nil })
+	timeoutTool := newCLITool(root, cliSpec{bin: "gh"}, func(string) (string, error) { return timeoutExecutable, nil }, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	timedOut := timeoutTool.Run(ctx, map[string]any{"args": []any{"version"}})
 	if !timedOut.IsError || !strings.Contains(timedOut.Output, "timed out") {
 		t.Fatalf("expected context timeout, got %#v", timedOut)
 	}
-	notInstalled := newCLITool(root, cliSpec{bin: "gh"}, func(string) (string, error) { return "", errors.New("missing") })
+	notInstalled := newCLITool(root, cliSpec{bin: "gh"}, func(string) (string, error) { return "", errors.New("missing") }, nil)
 	if got := notInstalled.Run(context.Background(), map[string]any{"args": []any{}}); !got.IsError || !strings.Contains(got.Output, "not on PATH") {
 		t.Fatalf("expected missing CLI rejection, got %#v", got)
 	}
@@ -462,7 +462,7 @@ func TestKubectlKubeconfigInsideRootNeedsApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("KUBECONFIG", outsidePath+string(os.PathListSeparator)+configPath)
-	kubectl := newCLITool(root, cliSpec{bin: "kubectl"}, func(string) (string, error) { return "", errors.New("unused") })
+	kubectl := newCLITool(root, cliSpec{bin: "kubectl"}, func(string) (string, error) { return "", errors.New("unused") }, nil)
 	args := map[string]any{"args": []any{"get", "pods"}}
 	if !kubectl.NeedsApproval(args) {
 		t.Fatal("KUBECONFIG entry inside the working directory must require approval")
