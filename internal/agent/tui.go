@@ -234,6 +234,7 @@ type localToolDoneMsg struct {
 	turn     int
 	err      error
 	isError  bool
+	activity *pendingActivity
 	credHint bool
 	failure  string
 	approval bool
@@ -1678,6 +1679,7 @@ func (m *TUIModel) runLocalTool(call *ClientToolCall, declined, approval, readOn
 	if m.sessionID != nil {
 		sessionID = m.sessionID.String()
 	}
+	activity := m.activities.pending
 	return func() tea.Msg {
 		result := mcp.CallResult{Output: userDeclinedOutput, IsError: true}
 		if !declined {
@@ -1687,6 +1689,7 @@ func (m *TUIModel) runLocalTool(call *ClientToolCall, declined, approval, readOn
 			turn:     turn,
 			err:      postLocalResult(ctx, poster, sessionID, call, result),
 			isError:  result.IsError,
+			activity: activity,
 			credHint: looksLikeExpiredCreds(result),
 			approval: approval,
 			readOnly: readOnly,

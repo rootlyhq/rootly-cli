@@ -255,7 +255,8 @@ func TestTUIFailedLocalToolPrintsCross(t *testing.T) {
 	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
 	model.turn = 1
 	model.activities.Handle(activityStatusEvent("Local read file..."))
-	model.Update(localToolDoneMsg{turn: 1, isError: true, failure: line})
+	activity := model.activities.pending
+	model.Update(localToolDoneMsg{turn: 1, isError: true, activity: activity, failure: line})
 	model.handleEvent(activityDoneEvent("complete"))
 	if !strings.Contains(transcriptText(model), "read_text_file failed: ENOENT") {
 		t.Fatalf("transcript = %v", model.transcript)
@@ -278,6 +279,48 @@ func TestTUIFailedLocalToolPrintsCross(t *testing.T) {
 	successModel.handleEvent(activityDoneEvent("complete"))
 	if got := strings.Count(transcriptText(successModel), "✓"); got != 1 {
 		t.Errorf("success markers = %d, want one:\n%s", got, transcriptText(successModel))
+	}
+}
+
+func TestTUIFailedLocalToolPreservesNewerActivity(t *testing.T) {
+	manager := &fakeMCPManager{
+		fakeLocalTools: fakeLocalTools{
+			tools: map[string]mcp.ToolRef{
+				"local_fs_read_text_file": {ServerID: "user:fs", ServerName: "fs", Tool: "read_text_file", ReadOnly: true},
+			},
+			output: "path is denied",
+		},
+		changes: make(chan struct{}),
+	}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.turn = 1
+	model.handleEvent(activityStatusEvent("Local read file..."))
+	originalActivity := model.activities.pending
+	cmd := model.handleClientToolCall(&ClientToolCall{CallID: "c1", Name: "local_fs_read_text_file"})
+	if cmd == nil {
+		t.Fatal("local tool command = nil")
+	}
+	message := cmd()
+	done, ok := message.(localToolDoneMsg)
+	if !ok {
+		t.Fatalf("local tool result message = %T, want localToolDoneMsg", message)
+	}
+	if done.activity != originalActivity {
+		t.Fatal("local tool completion did not retain the activity captured when dispatched")
+	}
+
+	model.handleEvent(activityStatusEvent("Search incidents..."))
+	newerActivity := model.activities.pending
+	if newerActivity == nil || newerActivity == originalActivity {
+		t.Fatal("new activity was not made pending before the tool completion")
+	}
+	model.Update(done)
+	if model.activities.pending != newerActivity {
+		t.Fatal("failed local tool discarded the newer pending activity")
+	}
+	model.handleEvent(activityDoneEvent("complete"))
+	if !strings.Contains(transcriptText(model), "✓ Search incidents") {
+		t.Fatalf("newer activity completion was dropped:\n%s", transcriptText(model))
 	}
 }
 

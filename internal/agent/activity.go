@@ -78,8 +78,10 @@ func (tracker *activityTracker) Reset() {
 	tracker.taskFinished = make(map[string]bool)
 }
 
-func (tracker *activityTracker) discardPending() {
-	tracker.pending = nil
+func (tracker *activityTracker) discardPendingIf(activity *pendingActivity) {
+	if activity != nil && tracker.pending == activity {
+		tracker.pending = nil
+	}
 }
 
 func (tracker *activityTracker) initialize() {

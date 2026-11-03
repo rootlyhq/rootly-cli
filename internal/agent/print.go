@@ -237,6 +237,7 @@ func (r *printRun) handleClientToolCall(call *ClientToolCall) {
 	if call == nil {
 		return
 	}
+	activity := r.activities.pending
 	ctx := r.ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -252,7 +253,7 @@ func (r *printRun) handleClientToolCall(call *ClientToolCall) {
 		}
 	}
 	if result.IsError {
-		r.activities.discardPending()
+		r.activities.discardPendingIf(activity)
 	}
 	if looksLikeExpiredCreds(result) && !r.credHintShown && !r.options.Quiet {
 		r.credHintShown = true
