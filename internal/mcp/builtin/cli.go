@@ -99,7 +99,7 @@ func newBashTool(root string, policy *Policy) Tool {
 			if !ok || strings.TrimSpace(command) == "" {
 				return errorResult("command is required")
 			}
-			return runCommand(ctx, root, "bash", []string{"-c", command}, shellTimeout(args), maxShellOutput, "bash")
+			return runCommand(ctx, root, "bash", []string{"-c", hardenSafeGit(command, root)}, shellTimeout(args), maxShellOutput, "bash")
 		},
 	}
 }

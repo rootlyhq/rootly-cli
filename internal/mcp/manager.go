@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -147,7 +148,11 @@ func NewManager(options ManagerOptions) *Manager {
 	if options.Lookup == nil {
 		options.Lookup = os.LookupEnv
 	}
-	builtins, builtinErr := builtin.NewRegistry(options.CWD, options.LookPath)
+	rulesDir := builtin.DefaultRulesDir()
+	if options.Discovery.Home != "" {
+		rulesDir = filepath.Join(options.Discovery.Home, ".rootly-cli", "rules")
+	}
+	builtins, builtinErr := builtin.NewRegistryWithPolicy(options.CWD, options.LookPath, builtin.LoadPolicy(rulesDir))
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		options:        options,

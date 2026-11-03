@@ -140,7 +140,11 @@ func (p *Policy) SaveAllow(prefix []string) error {
 		quoted[index] = starlark.String(token).String()
 	}
 	line := fmt.Sprintf("prefix_rule(pattern=[%s], decision=\"allow\")\n", strings.Join(quoted, ", "))
-	file, err := os.OpenFile(filepath.Join(p.dir, defaultRulesFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	path := filepath.Join(p.dir, defaultRulesFile)
+	if existing, err := os.ReadFile(path); err == nil && len(existing) > 0 && existing[len(existing)-1] != '\n' {
+		line = "\n" + line
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}

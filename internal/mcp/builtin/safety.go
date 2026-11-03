@@ -6,11 +6,15 @@ package builtin
 // denied files, no git global options, and no shell expansion at all.
 
 import (
+	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -158,7 +162,7 @@ func isKnownSafeCommand(argv []string, root string) bool {
 		return len(args) >= 2 && len(args) <= 3 && args[0] == "-n" && sedPrintArg.MatchString(args[1]) &&
 			pathArgsStayInRoot(args[2:], root)
 	case "git":
-		return gitIsReadOnly(args)
+		return gitIsReadOnly(args, root) && !repoConfigRunsFilters(args, root)
 	}
 	return false
 }
@@ -225,7 +229,12 @@ func pathArgsStayInRoot(args []string, root string) bool {
 
 func safeReadPath(root, candidate string) bool {
 	path := candidate
-	if !filepath.IsAbs(path) {
+	switch {
+	case filepath.IsAbs(path):
+	case filepath.VolumeName(path) != "" || strings.HasPrefix(path, "/") || strings.HasPrefix(path, `\`):
+		// Rooted or drive-relative on Windows: never inside the workspace.
+		return false
+	default:
 		path = filepath.Join(root, path)
 	}
 	path = filepath.Clean(path)
@@ -239,7 +248,18 @@ func safeReadPath(root, candidate string) bool {
 	return err == nil && isWithin(root, resolved) && !deniedPath(resolved)
 }
 
-func gitIsReadOnly(args []string) bool {
+var (
+	gitUnsafeFlags = []string{
+		"--output", "--ext-diff", "--textconv", "--exec", "--paginate", "--no-index", "--full-diff", "--show-signature",
+		"--open-files-in-pager",
+	}
+	gitDiffCommands = []string{"diff", "log", "show"}
+)
+
+// gitIsReadOnly allows status/log/diff/show/branch reads. Every revision or
+// path must stay in the workspace and miss the denied list; blob specs
+// (rev:path) and pathspec magic ask because they can name any file.
+func gitIsReadOnly(args []string, root string) bool {
 	index := 0
 	for index < len(args) && strings.HasPrefix(args[index], "-") {
 		if args[index] != "--no-pager" {
@@ -251,22 +271,141 @@ func gitIsReadOnly(args []string) bool {
 		return false
 	}
 	subcommand, rest := args[index], args[index+1:]
+	pathsOnly := false
 	for _, arg := range rest {
-		if arg == "--" {
-			break
-		}
-		if slices.Contains([]string{"--output", "--ext-diff", "--textconv", "--exec", "--paginate", "--no-index"}, arg) ||
-			strings.HasPrefix(arg, "--output=") || strings.HasPrefix(arg, "--exec=") {
+		switch {
+		case pathsOnly || !strings.HasPrefix(arg, "-"):
+			if strings.Contains(arg, ":") || !safeReadPath(root, arg) {
+				return false
+			}
+		case arg == "--":
+			pathsOnly = true
+		case slices.Contains(gitUnsafeFlags, arg) || strings.HasPrefix(arg, "--output=") || strings.HasPrefix(arg, "--exec=") ||
+			strings.HasPrefix(arg, "-L"):
 			return false
 		}
 	}
 	switch subcommand {
-	case "status", "log", "diff", "show":
+	case "status":
 		return true
+	case "log", "diff", "show":
+		_, ok := gitPathStart(rest, root)
+		return ok
 	case "branch":
 		return gitBranchIsReadOnly(rest)
 	}
 	return false
+}
+
+// gitPathStart finds where paths begin in the arguments after a diff/log/show
+// subcommand: at "--", or at the first argument naming an existing path.
+// Options after such a path are ambiguous to rewrite, so ok is false.
+func gitPathStart(rest []string, root string) (start int, ok bool) {
+	start = -1
+	for index, arg := range rest {
+		if arg == "--" {
+			return index, start < 0
+		}
+		if start < 0 && !strings.HasPrefix(arg, "-") {
+			if _, err := os.Lstat(filepath.Join(root, arg)); err == nil {
+				start = index
+			}
+		} else if start >= 0 && strings.HasPrefix(arg, "-") {
+			return -1, false
+		}
+	}
+	return start, true
+}
+
+// repoConfigRunsFilters reports whether repository config (not the user's
+// own global config) defines clean/smudge filters, which git diff and
+// status run on working-tree files and no flag can switch off.
+func repoConfigRunsFilters(args []string, root string) bool {
+	if !slices.Contains(args, "diff") && !slices.Contains(args, "status") {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "config", "--null", "--get-regexp", `^filter\..+\.(clean|smudge|process)$`)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+	err := cmd.Run()
+	var exitError *exec.ExitError
+	switch {
+	case err == nil:
+		return true
+	case errors.As(err, &exitError):
+		return exitError.ExitCode() != 1 && exitError.ExitCode() != 128
+	case errors.Is(err, exec.ErrNotFound):
+		return false
+	}
+	return true
+}
+
+var (
+	gitHardeningConfig = "-c core.fsmonitor=false -c log.showSignature=false"
+	gitDiffHardening   = "--no-ext-diff --no-textconv"
+	gitDeniedPathspecs = `':(exclude,glob,icase)**/.env*' ':(exclude,glob,icase)**/*.pem' ` +
+		`':(exclude,glob,icase)**/*.key' ':(exclude,glob,icase)**/id_*'`
+)
+
+// hardenSafeGit rewrites the git reads that run without approval so repo
+// config cannot run programs (fsmonitor, signature checks, textconv and
+// external diff drivers) and patches never include denied files.
+func hardenSafeGit(script, root string) string {
+	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(script), "")
+	if err != nil {
+		return script
+	}
+	type insertion struct {
+		offset uint
+		text   string
+	}
+	var inserts []insertion
+	syntax.Walk(file, func(node syntax.Node) bool {
+		call, ok := node.(*syntax.CallExpr)
+		if !ok || len(call.Args) < 2 {
+			return true
+		}
+		argv := make([]string, len(call.Args))
+		for index, word := range call.Args {
+			if argv[index], ok = literalWord(word); !ok {
+				return true
+			}
+		}
+		if argv[0] != "git" || !isKnownSafeCommand(argv, root) {
+			return true
+		}
+		inserts = append(inserts, insertion{call.Args[0].End().Offset(), " " + gitHardeningConfig})
+		sub := 1
+		for argv[sub] == "--no-pager" {
+			sub++
+		}
+		if !slices.Contains(gitDiffCommands, argv[sub]) {
+			return true
+		}
+		inserts = append(inserts, insertion{call.Args[sub].End().Offset(), " " + gitDiffHardening})
+		if slices.Contains(argv, "--follow") {
+			return true
+		}
+		start, _ := gitPathStart(argv[sub+1:], root)
+		separator := " --"
+		switch {
+		case start >= 0 && argv[sub+1+start] == "--":
+			separator = ""
+		case start >= 0:
+			inserts = append(inserts, insertion{call.Args[sub+1+start].Pos().Offset(), "-- "})
+			separator = ""
+		}
+		inserts = append(inserts, insertion{call.Args[len(call.Args)-1].End().Offset(), separator + " " + gitDeniedPathspecs})
+		return true
+	})
+	slices.SortStableFunc(inserts, func(a, b insertion) int { return int(a.offset) - int(b.offset) })
+	for index := len(inserts) - 1; index >= 0; index-- {
+		insert := inserts[index]
+		script = script[:insert.offset] + insert.text + script[insert.offset:]
+	}
+	return script
 }
 
 func gitBranchIsReadOnly(args []string) bool {

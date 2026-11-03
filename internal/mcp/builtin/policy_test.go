@@ -3,7 +3,9 @@ package builtin
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -43,7 +45,10 @@ func TestBashKnownSafeCommandsRunWithoutApproval(t *testing.T) {
 		"git diff --no-index /etc/passwd README.md", "git log --output=/tmp/x", "git branch -D main",
 		"find . -delete", "find . -exec rm {} ;", "sed -i s/a/b/ README.md", "base64 -o out README.md",
 		"FOO=1 ls", "(ls)", "for f in a; do ls; done", "ls | sh", "ls && curl example.com", "cat <<EOF\nx\nEOF",
-		"ls 2>err.txt", "cat < README.md",
+		"ls 2>err.txt", "cat < README.md", `cat '\etc\passwd'`,
+		"git show HEAD:.env", "git show HEAD:README.md", "git show :README.md", "git cat-file -p HEAD:README.md",
+		"git log -p -- .env", "git diff -- .env", "git diff .env", "git log -L1,2:README.md", "git log --full-diff -p -- src",
+		"git log --show-signature", "git log src -n 5",
 	}
 	for _, command := range asks {
 		if !bash.NeedsApproval(map[string]any{"command": command}) {
@@ -142,8 +147,117 @@ func TestSessionAndSavedApprovals(t *testing.T) {
 		t.Fatalf("saved rule not reloaded: %v", decision)
 	}
 	info, err := os.Stat(filepath.Join(dir, "default.rules"))
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("rules file mode: %v %v", info, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("rules file mode: %v", info.Mode())
+	}
+}
+
+func TestSaveAllowAfterFileWithoutTrailingNewline(t *testing.T) {
+	dir := t.TempDir()
+	writeRules(t, dir, "default.rules", `prefix_rule(pattern=["make", "test"], decision="allow")`)
+	if err := LoadPolicy(dir).SaveAllow([]string{"kubectl", "rollout"}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := LoadPolicy(dir)
+	if err := reloaded.LoadError(); err != nil || reloaded.RuleCount() != 2 {
+		t.Fatalf("appended rule broke the file: %v, %d rules", err, reloaded.RuleCount())
+	}
+}
+
+func TestHardenSafeGitRewritesAutoApprovedReads(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := "git " + gitHardeningConfig
+	cases := map[string]string{
+		"git status":                      config + " status",
+		"git diff":                        config + " diff " + gitDiffHardening + " -- " + gitDeniedPathspecs,
+		"git diff HEAD~1 src":             config + " diff " + gitDiffHardening + " HEAD~1 -- src " + gitDeniedPathspecs,
+		"git diff HEAD~1 -- src":          config + " diff " + gitDiffHardening + " HEAD~1 -- src " + gitDeniedPathspecs,
+		"git --no-pager show --stat HEAD": config + " --no-pager show " + gitDiffHardening + " --stat HEAD -- " + gitDeniedPathspecs,
+		"git log --oneline | head -3":     config + " log " + gitDiffHardening + " --oneline -- " + gitDeniedPathspecs + " | head -3",
+		"git log --follow -p -- src/a.go": config + " log " + gitDiffHardening + " --follow -p -- src/a.go",
+		"git branch -a && git log -1":     config + " branch -a && " + config + " log " + gitDiffHardening + " -1 -- " + gitDeniedPathspecs,
+		"git push":                        "git push",
+		"rm -rf src; git diff":            "rm -rf src; " + config + " diff " + gitDiffHardening + " -- " + gitDeniedPathspecs,
+		"echo $(git diff)":                "echo $(" + config + " diff " + gitDiffHardening + " -- " + gitDeniedPathspecs + ")",
+	}
+	for script, want := range cases {
+		if got := hardenSafeGit(script, root); got != want {
+			t.Errorf("hardenSafeGit(%q)\n got %q\nwant %q", script, got, want)
+		}
+	}
+}
+
+func TestAutoApprovedGitReadsCannotRunRepoProgramsOrLeakDeniedFiles(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("drivers below use POSIX shell commands")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := filepath.Join(home, "repo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.email=e2e@example.com", "-c", "user.name=e2e"}, args...)...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	marker := filepath.Join(home, "pwned")
+	git("init", "-q")
+	write("README.md", "one\n")
+	write(".env", "TOKEN=first\n")
+	write(".gitattributes", "*.md diff=evil\n")
+	git("add", "README.md", ".env", ".gitattributes")
+	git("commit", "-qm", "init")
+	write("README.md", "one\ntwo\n")
+	write(".env", "TOKEN=leaked-secret\n")
+	git("commit", "-qam", "two")
+	write("README.md", "one\ntwo\nthree\n")
+	git("config", "diff.evil.textconv", "touch "+marker+"; cat")
+	git("config", "diff.external", "touch "+marker+";")
+	git("config", "core.fsmonitor", "touch "+marker+"; true")
+	bash := mustLookup(t, testRegistryWithPolicy(t, root, LoadPolicy(filepath.Join(home, "rules"))), "local_bash")
+	for _, command := range []string{"git diff", "git show HEAD", "git log -p -2", "git status"} {
+		args := map[string]any{"command": command}
+		if bash.NeedsApproval(args) {
+			t.Fatalf("%q should run without approval", command)
+		}
+		result := bash.Run(context.Background(), args)
+		if result.IsError || strings.Contains(result.Output, "leaked-secret") || strings.Contains(result.Output, "TOKEN=") {
+			t.Fatalf("%q: %+v", command, result)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatalf("%q ran a repo-configured program", command)
+		}
+	}
+	git("config", "filter.evil.clean", "touch "+marker+"; cat")
+	write(".gitattributes", "*.md diff=evil filter=evil\n")
+	for _, command := range []string{"git diff", "git status"} {
+		if !bash.NeedsApproval(map[string]any{"command": command}) {
+			t.Errorf("%q must ask when the repo config defines a clean filter", command)
+		}
+	}
+	if bash.NeedsApproval(map[string]any{"command": "git log -1"}) {
+		t.Error("git log does not run filters and should not ask")
 	}
 }
 
