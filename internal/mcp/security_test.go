@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -116,7 +117,7 @@ func TestServerHTTPClientKeepsCredentialsOnOrigin(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newServerHTTPClient(ServerConfig{Type: TransportHTTP, URL: server.URL + "/mcp", Headers: map[string]string{"X-Api-Key": "k"}}, func() string { return "tok" }, nil)
+	client := newServerHTTPClient(ServerConfig{Type: TransportHTTP, URL: server.URL + "/mcp", Headers: map[string]string{"X-Api-Key": "k"}}, func(context.Context) string { return "tok" }, nil)
 	get := func(target string) error {
 		request, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
 		response, err := client.Do(request)

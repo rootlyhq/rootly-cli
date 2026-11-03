@@ -424,9 +424,9 @@ func (m *Manager) transport(ctx context.Context, server Server, config ServerCon
 	}
 }
 
-func (m *Manager) bearerFuncs(config ServerConfig) (bearer func() string, refresh func(context.Context) string) {
+func (m *Manager) bearerFuncs(config ServerConfig) (bearer, refresh func(context.Context) string) {
 	if config.BearerTokenEnvVar != "" {
-		return func() string {
+		return func(context.Context) string {
 			value, _ := m.options.Lookup(config.BearerTokenEnvVar)
 			return value
 		}, nil
@@ -435,15 +435,15 @@ func (m *Manager) bearerFuncs(config ServerConfig) (bearer func() string, refres
 	serverURL := config.URL
 	var source *persistingTokenSource
 	var mu sync.Mutex
-	bearer = func() string {
+	bearer = func(ctx context.Context) string {
 		mu.Lock()
 		defer mu.Unlock()
-		if source == nil {
+		if source == nil || !source.base.token().Valid() {
 			credential, ok := tokens.Get(serverURL)
 			if !ok {
 				return ""
 			}
-			source = tokens.tokenSource(serverURL, credential, credential.oauthConfig(), credential.token(), nil).(*persistingTokenSource)
+			source = tokens.tokenSourceWithContext(ctx, serverURL, credential, credential.oauthConfig(), credential.token(), nil).(*persistingTokenSource)
 		}
 		token, err := source.Token()
 		if err != nil {
@@ -508,11 +508,11 @@ func (p *authProbe) seen() bool {
 
 // newServerHTTPClient sends the configured headers and bearer token only to
 // the server's own origin and refuses redirects to any other origin.
-func newServerHTTPClient(config ServerConfig, bearer func() string, probe *authProbe) *http.Client {
+func newServerHTTPClient(config ServerConfig, bearer func(context.Context) string, probe *authProbe) *http.Client {
 	return newServerHTTPClientWithRefresh(config, bearer, nil, probe)
 }
 
-func newServerHTTPClientWithRefresh(config ServerConfig, bearer func() string, refresh func(context.Context) string, probe *authProbe) *http.Client {
+func newServerHTTPClientWithRefresh(config ServerConfig, bearer, refresh func(context.Context) string, probe *authProbe) *http.Client {
 	return &http.Client{
 		Transport: &headerTransport{
 			base:    http.DefaultTransport,
@@ -552,7 +552,7 @@ type headerTransport struct {
 	base    http.RoundTripper
 	origin  string
 	headers map[string]string
-	bearer  func() string
+	bearer  func(context.Context) string
 	refresh func(context.Context) string
 	probe   *authProbe
 }
@@ -567,7 +567,7 @@ func (t *headerTransport) RoundTrip(request *http.Request) (*http.Response, erro
 	}
 	usedBearer := false
 	if request.Header.Get("Authorization") == "" && t.bearer != nil {
-		if token := t.bearer(); token != "" {
+		if token := t.bearer(request.Context()); token != "" {
 			request.Header.Set("Authorization", "Bearer "+token)
 			usedBearer = true
 		}

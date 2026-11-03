@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -151,6 +152,65 @@ func TestRemote401RefreshStopsWithRequestContext(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed > 3*time.Second {
 		t.Fatalf("refresh ignored request cancellation, took %v", elapsed)
+	}
+}
+
+func TestExpiredBearerRefreshStopsWithRequestContext(t *testing.T) {
+	release := make(chan struct{})
+	tokenStarted := make(chan struct{}, 1)
+	var mcpRequests atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		tokenStarted <- struct{}{}
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	})
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		mcpRequests.Add(1)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { close(release) })
+	store := &TokenStore{Path: filepath.Join(t.TempDir(), "mcp-oauth.json")}
+	if err := store.Put(server.URL+"/mcp", StoredCredential{
+		ClientID:     "c",
+		TokenURL:     server.URL + "/token",
+		AccessToken:  "expired",
+		RefreshToken: "r1",
+		TokenType:    "Bearer",
+		Expiry:       time.Now().Add(-time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manager := &Manager{options: ManagerOptions{Tokens: store}}
+	config := ServerConfig{Type: TransportHTTP, URL: server.URL + "/mcp"}
+	bearer, refresh := manager.bearerFuncs(config)
+	client := newServerHTTPClientWithRefresh(config, bearer, refresh, &authProbe{})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, config.URL, http.NoBody)
+	started := time.Now()
+	response, err := client.Do(request)
+	if response != nil {
+		_ = response.Body.Close()
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("request error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("expired bearer refresh ignored request cancellation, took %v", elapsed)
+	}
+	select {
+	case <-tokenStarted:
+	default:
+		t.Fatal("expired token did not attempt refresh before the MCP request")
+	}
+	if got := mcpRequests.Load(); got != 0 {
+		t.Errorf("MCP requests = %d, want none after the token refresh timed out", got)
 	}
 }
 

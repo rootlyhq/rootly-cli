@@ -173,7 +173,13 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 }
 
 func (s *TokenStore) tokenSource(serverURL string, credential StoredCredential, cfg *oauth2.Config, token *oauth2.Token, client *http.Client) oauth2.TokenSource {
-	ctx := context.Background()
+	return s.tokenSourceWithContext(context.Background(), serverURL, credential, cfg, token, client)
+}
+
+func (s *TokenStore) tokenSourceWithContext(ctx context.Context, serverURL string, credential StoredCredential, cfg *oauth2.Config, token *oauth2.Token, client *http.Client) oauth2.TokenSource {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if client != nil {
 		ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
 	}
