@@ -144,6 +144,7 @@ func isKnownSafeCommand(argv []string, root string) bool {
 	if len(argv) == 0 {
 		return false
 	}
+	root = resolveRoot(root)
 	name, args := argv[0], argv[1:]
 	switch {
 	case slices.Contains(plainSafeCommands, name):
@@ -227,7 +228,12 @@ func pathArgsStayInRoot(args []string, root string) bool {
 	return true
 }
 
+// safeReadPath reports whether candidate stays in the workspace and misses
+// the denied list. An existing path is judged by where it really points, so
+// a symlink can't escape and an alias of root (macOS /var -> /private/var)
+// still counts as inside.
 func safeReadPath(root, candidate string) bool {
+	root = resolveRoot(root)
 	path := candidate
 	switch {
 	case filepath.IsAbs(path):
@@ -238,14 +244,27 @@ func safeReadPath(root, candidate string) bool {
 		path = filepath.Join(root, path)
 	}
 	path = filepath.Clean(path)
-	if !isWithin(root, path) || deniedPath(path) {
+	if deniedPath(path) {
 		return false
 	}
 	if _, err := os.Lstat(path); err != nil {
-		return true
+		return isWithin(root, path)
 	}
 	resolved, err := filepath.EvalSymlinks(path)
 	return err == nil && isWithin(root, resolved) && !deniedPath(resolved)
+}
+
+// resolveRoot returns the workspace root as an absolute path with symlinks
+// resolved, so it compares equal to resolved candidates.
+func resolveRoot(root string) string {
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return filepath.Clean(root)
+	}
+	if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
+		return resolved
+	}
+	return absolute
 }
 
 var (
@@ -447,6 +466,7 @@ var (
 // config cannot run programs (fsmonitor, signature checks, textconv and
 // external diff drivers) and patches never include denied files.
 func hardenSafeGit(script, root string) string {
+	root = resolveRoot(root)
 	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(script), "")
 	if err != nil {
 		return script

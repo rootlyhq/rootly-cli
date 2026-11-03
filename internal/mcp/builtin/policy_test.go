@@ -427,3 +427,51 @@ func writeRules(t *testing.T, dir, name, source string) {
 		t.Fatal(err)
 	}
 }
+
+func TestSymlinkedWorkspaceRootIsComparedResolved(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.MkdirAll(filepath.Join(target, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"README.md": "x\n", ".env": "TOKEN=x\n", filepath.Join("src", "a.go"): "x\n", filepath.Join("..", "outside.txt"): "x\n",
+	} {
+		if err := os.WriteFile(filepath.Join(target, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(base, "outside.txt"), filepath.Join(target, "escape")); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+	initTestRepo(t, target, "README.md", filepath.Join("src", "a.go"))
+	for _, root := range []string{alias, target} {
+		inside := []string{"README.md", filepath.Join("src", "a.go"), "missing.txt", filepath.Join(alias, "README.md"), filepath.Join(target, "README.md")}
+		for _, candidate := range inside {
+			if !safeReadPath(root, candidate) {
+				t.Errorf("root %s: %q is inside the workspace", root, candidate)
+			}
+		}
+		outside := []string{
+			"escape", ".env", filepath.Join("..", "outside.txt"), filepath.Join(base, "outside.txt"),
+			filepath.Join(alias, ".env"), filepath.Join(alias, "escape"), filepath.Join(alias, "..", "outside.txt"),
+		}
+		for _, candidate := range outside {
+			if safeReadPath(root, candidate) {
+				t.Errorf("root %s: %q must stay outside the workspace", root, candidate)
+			}
+		}
+		config := "git " + gitHardeningConfig
+		want := config + " log " + gitDiffHardening + " --follow -p -- src/a.go"
+		if got := hardenSafeGit("git log --follow -p -- src/a.go", root); got != want {
+			t.Errorf("root %s: hardenSafeGit\n got %q\nwant %q", root, got, want)
+		}
+		if !isKnownSafeCommand([]string{"cat", "README.md"}, root) || isKnownSafeCommand([]string{"cat", "escape"}, root) {
+			t.Errorf("root %s: cat classification changed through the symlinked root", root)
+		}
+	}
+}

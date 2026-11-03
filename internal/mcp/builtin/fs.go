@@ -340,6 +340,7 @@ func resolvePath(root, requested string) (string, error) {
 	if strings.TrimSpace(requested) == "" {
 		return "", errors.New("path is required")
 	}
+	root = resolveRoot(root)
 	requestedPath := requested
 	if !filepath.IsAbs(requestedPath) {
 		requestedPath = filepath.Join(root, requestedPath)
