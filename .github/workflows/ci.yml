@@ -52,6 +52,10 @@ jobs:
         if: runner.os != 'Windows'
         run: go test -v -race -coverprofile=coverage.out ./...
 
+      - name: Check coverage floor
+        if: matrix.os == 'blacksmith-2vcpu-ubuntu-2404'
+        run: make coverage-check
+
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         run: go test -v -race ./...
