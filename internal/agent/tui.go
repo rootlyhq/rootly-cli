@@ -943,6 +943,9 @@ func (m *TUIModel) handleCommandMenuKey(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		m.skillSuggestionReq++
 		return true, nil
 	case "enter":
+		if m.deleteConfirming || m.localConfirm != nil || m.state == tuiConfirming || m.state == tuiStreaming {
+			return true, nil
+		}
 		typed := strings.TrimSpace(m.composer.Value())
 		if item, ok := m.commandMenu.SelectedItem().(slashCommandItem); ok && !item.mention &&
 			strings.HasPrefix(strings.ToLower(item.command), strings.ToLower(typed)) {

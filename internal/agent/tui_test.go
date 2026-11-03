@@ -1149,6 +1149,65 @@ func TestTUICommandAutocompleteTabCompletes(t *testing.T) {
 	}
 }
 
+func TestTUICommandMenuEnterDoesNotSubmitDuringActiveTurn(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		draft string
+		item  slashCommandItem
+	}{
+		{name: "new session command", draft: "/new", item: slashCommandItem{command: "/new"}},
+		{name: "mention palette", draft: "@ops:resource", item: slashCommandItem{command: "@ops:resource", mention: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			streamer := &fakeStreamer{}
+			model := NewTUIModel(context.Background(), streamer, TUIOptions{})
+			sessionID := uuid.MustParse(testSessionID)
+			model.sessionID = &sessionID
+			model.currentPrompt = "in-flight prompt"
+			model.promptHistory = []string{"in-flight prompt"}
+			model.currentParams = &rootly.StreamAiChatParams{}
+			model.turn = 7
+			model.state = tuiStreaming
+			model.stream = make(chan streamMessage)
+			model.answer.WriteString("streaming answer")
+			model.println("persisted transcript")
+			model.composer.SetValue(test.draft)
+			model.showCommandMenu([]list.Item{test.item})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			model.cancel = cancel
+
+			sessionIDBefore := model.sessionID
+			paramsBefore := model.currentParams
+			streamBefore := model.stream
+			transcriptBefore := model.Transcript()
+			_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+			if cmd != nil {
+				t.Errorf("Enter command = %v, want nil while streaming", cmd)
+			}
+			if model.sessionID != sessionIDBefore {
+				t.Errorf("session id changed from %v to %v", sessionIDBefore, model.sessionID)
+			}
+			if got := model.Transcript(); got != transcriptBefore {
+				t.Errorf("transcript changed during active turn:\n got %q\nwant %q", got, transcriptBefore)
+			}
+			if model.stream != streamBefore || model.cancel == nil || ctx.Err() != nil {
+				t.Error("active stream was changed or canceled")
+			}
+			if model.currentParams != paramsBefore || model.state != tuiStreaming || model.turn != 7 {
+				t.Errorf("active turn changed: params=%p state=%v turn=%d", model.currentParams, model.state, model.turn)
+			}
+			if len(streamer.calls) != 0 || len(model.promptHistory) != 1 || model.currentPrompt != "in-flight prompt" {
+				t.Errorf("prompt was submitted: calls=%d history=%v current=%q", len(streamer.calls), model.promptHistory, model.currentPrompt)
+			}
+			if !model.commandMenuOpen || model.composer.Value() != test.draft {
+				t.Errorf("menu/draft changed: open=%t composer=%q", model.commandMenuOpen, model.composer.Value())
+			}
+		})
+	}
+}
+
 func TestTUISessionsAliasOpensPicker(t *testing.T) {
 	for _, command := range []string{"/resume", "/sessions"} {
 		t.Run(command, func(t *testing.T) {
@@ -2540,6 +2599,7 @@ func TestTUIModelNewCommandClearsSession(t *testing.T) {
 	model.println("old history")
 	model.conversation = []transcriptTurn{{user: "old question", assistant: "old answer"}}
 	model.composer.SetValue("/new")
+	model.showCommandMenu([]list.Item{slashCommandItem{command: "/new"}})
 
 	_, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if model.sessionID != nil {
