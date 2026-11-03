@@ -212,6 +212,9 @@ type TUIModel struct {
 	sentTools            int
 	toolsOffShown        bool
 	localConfirm         *localConfirmation
+	localToolQueue       []*localConfirmation
+	localApprovalRunning bool
+	localReadOnlyRunning int
 	workingDir           string
 	terminalBlurred      bool
 	toolsOnShown         bool
@@ -222,8 +225,9 @@ type TUIModel struct {
 }
 
 type localConfirmation struct {
-	ref  mcp.ToolRef
-	call *ClientToolCall
+	ref      mcp.ToolRef
+	call     *ClientToolCall
+	approval bool
 }
 
 type localToolDoneMsg struct {
@@ -231,6 +235,8 @@ type localToolDoneMsg struct {
 	err      error
 	credHint bool
 	failure  string
+	approval bool
+	readOnly bool
 }
 
 func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TUIModel {
@@ -664,6 +670,10 @@ func (m *TUIModel) finishTurn(err error) (tea.Model, tea.Cmd) {
 	m.cancel = nil
 	m.stream = nil
 	m.state = tuiIdle
+	m.localConfirm = nil
+	m.localToolQueue = nil
+	m.localApprovalRunning = false
+	m.localReadOnlyRunning = 0
 	if err != nil {
 		for _, line := range m.activities.Finish(false) {
 			m.println(m.activityLine(line))
@@ -838,6 +848,9 @@ func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		if m.state == tuiStreaming {
 			m.localConfirm = nil
+			m.localToolQueue = nil
+			m.localApprovalRunning = false
+			m.localReadOnlyRunning = 0
 			cmd := m.scrollback("Stopped locally. The server may still finish this turn and save it to the session.", lipgloss.NewStyle().Faint(true))
 			if m.cancel != nil {
 				m.cancel()
@@ -1167,6 +1180,9 @@ func (m *TUIModel) beginStream(params *rootly.StreamAiChatParams) tea.Cmd {
 	stream := m.stream
 	m.streamCtx = ctx
 	m.localConfirm = nil
+	m.localToolQueue = nil
+	m.localApprovalRunning = false
+	m.localReadOnlyRunning = 0
 	m.sentTools = 0
 	streamCtx := ctx
 	if m.mcp != nil {
@@ -1597,11 +1613,25 @@ func (m *TUIModel) handleClientToolCall(call *ClientToolCall) tea.Cmd {
 		return m.runClientTool(call, false)
 	}
 	m.println(faint(m.noColor, localToolActivity(ref)))
-	if ref.ReadOnly {
-		return m.runClientTool(call, false)
+	confirmation := &localConfirmation{
+		ref:      ref,
+		call:     call,
+		approval: tools.NeedsApproval(call.Name, call.Arguments),
 	}
-	m.localConfirm = &localConfirmation{ref: ref, call: call}
-	return nil
+	if confirmation.approval {
+		if m.localConfirm != nil || m.localApprovalRunning || m.localReadOnlyRunning > 0 || len(m.localToolQueue) > 0 {
+			m.localToolQueue = append(m.localToolQueue, confirmation)
+			return nil
+		}
+		m.localConfirm = confirmation
+		return nil
+	}
+	if m.localConfirm != nil || m.localApprovalRunning || len(m.localToolQueue) > 0 {
+		m.localToolQueue = append(m.localToolQueue, confirmation)
+		return nil
+	}
+	m.localReadOnlyRunning++
+	return m.runReadOnlyClientTool(call)
 }
 
 func (m *TUIModel) resolveLocalConfirmation(approved bool) tea.Cmd {
@@ -1613,10 +1643,23 @@ func (m *TUIModel) resolveLocalConfirmation(approved bool) tea.Cmd {
 	if !approved {
 		m.println(faint(m.noColor, "Declined local tool "+sanitizeTerminalText(pending.ref.ServerName)+" · "+sanitizeTerminalText(pending.ref.Tool)))
 	}
-	return m.runClientTool(pending.call, !approved)
+	m.localApprovalRunning = true
+	return m.runApprovedClientTool(pending.call, !approved)
 }
 
 func (m *TUIModel) runClientTool(call *ClientToolCall, declined bool) tea.Cmd {
+	return m.runLocalTool(call, declined, false, false)
+}
+
+func (m *TUIModel) runReadOnlyClientTool(call *ClientToolCall) tea.Cmd {
+	return m.runLocalTool(call, false, false, true)
+}
+
+func (m *TUIModel) runApprovedClientTool(call *ClientToolCall, declined bool) tea.Cmd {
+	return m.runLocalTool(call, declined, true, false)
+}
+
+func (m *TUIModel) runLocalTool(call *ClientToolCall, declined, approval, readOnly bool) tea.Cmd {
 	var tools LocalTools
 	if m.mcp != nil {
 		tools = m.mcp
@@ -1636,7 +1679,13 @@ func (m *TUIModel) runClientTool(call *ClientToolCall, declined bool) tea.Cmd {
 		if !declined {
 			result = runLocalCall(ctx, tools, call)
 		}
-		done := localToolDoneMsg{turn: turn, err: postLocalResult(ctx, poster, sessionID, call, result), credHint: looksLikeExpiredCreds(result)}
+		done := localToolDoneMsg{
+			turn:     turn,
+			err:      postLocalResult(ctx, poster, sessionID, call, result),
+			credHint: looksLikeExpiredCreds(result),
+			approval: approval,
+			readOnly: readOnly,
+		}
 		if !declined && result.IsError {
 			done.failure = localToolFailure(tools, call, result.Output)
 		}
@@ -1666,4 +1715,26 @@ func (m *TUIModel) onHistoryLoaded(msg historyLoadedMsg) tea.Cmd {
 
 type queuedSend struct {
 	echo, message, note string
+}
+
+func (m *TUIModel) startNextLocalTool() tea.Cmd {
+	if m.localConfirm != nil || m.localApprovalRunning || m.localReadOnlyRunning > 0 || len(m.localToolQueue) == 0 {
+		return nil
+	}
+	var commands []tea.Cmd
+	for len(m.localToolQueue) > 0 && !m.localToolQueue[0].approval {
+		next := m.localToolQueue[0]
+		m.localToolQueue = m.localToolQueue[1:]
+		m.localReadOnlyRunning++
+		commands = append(commands, m.runReadOnlyClientTool(next.call))
+	}
+	if len(commands) > 0 {
+		if len(commands) == 1 {
+			return commands[0]
+		}
+		return tea.Batch(commands...)
+	}
+	m.localConfirm = m.localToolQueue[0]
+	m.localToolQueue = m.localToolQueue[1:]
+	return nil
 }
