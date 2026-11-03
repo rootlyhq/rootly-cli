@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"iter"
 	"strings"
 	"testing"
+	"time"
 
 	rootly "github.com/rootlyhq/rootly-go"
+
+	"github.com/rootlyhq/rootly-cli/internal/api"
 )
 
 const testSessionID = "39fd7596-152c-43d3-afce-48b792ae386d"
@@ -27,6 +32,61 @@ func TestRunPrintJoinsTextToStdout(t *testing.T) {
 	}
 	if got := stdout.String(); got != "Hello there.\n" {
 		t.Errorf("stdout = %q, want joined response", got)
+	}
+}
+
+type blockingToolResultStreamer struct {
+	stopped chan struct{}
+}
+
+func (s *blockingToolResultStreamer) StreamAiChatEvents(ctx context.Context, _ *rootly.StreamAiChatParams) (iter.Seq2[rootly.AiChatStreamEvent, error], error) {
+	return func(yield func(rootly.AiChatStreamEvent, error) bool) {
+		yield(eventOf(EventClientToolCall, `{"call_id":"tool-1","name":"local_unknown","arguments":{}}`), nil)
+		<-ctx.Done()
+		close(s.stopped)
+	}, nil
+}
+
+type failingToolResultPoster struct {
+	err error
+}
+
+func (p failingToolResultPoster) PostAiChatToolResult(context.Context, api.ToolResult) error {
+	return p.err
+}
+
+func TestRunPrintCancelsStreamWhenToolResultPostFails(t *testing.T) {
+	streamer := &blockingToolResultStreamer{stopped: make(chan struct{})}
+	var stdout, stderr bytes.Buffer
+	options := newPrintOptions(&stdout, &stderr)
+	options.Quiet = true
+	options.ToolResults = failingToolResultPoster{err: errors.New("post failed \x1b]52;c;bad\u0007")}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- RunPrint(ctx, streamer, options)
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "post failed") {
+			t.Fatalf("RunPrint() error = %v, want tool-result post error", err)
+		}
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("RunPrint() did not return promptly after tool-result posting failed")
+	}
+	if !strings.Contains(stderr.String(), "post failed") {
+		t.Errorf("stderr = %q, want the tool-result post error even in quiet mode", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "\x1b") || strings.Contains(stderr.String(), "]52;") {
+		t.Errorf("stderr = %q, want terminal controls sanitized", stderr.String())
+	}
+	select {
+	case <-streamer.stopped:
+	default:
+		t.Fatal("stream was not canceled after tool-result posting failed")
 	}
 }
 

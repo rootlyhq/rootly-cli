@@ -46,13 +46,17 @@ func RunPrint(ctx context.Context, streamer Streamer, options PrintOptions) erro
 		return err
 	}
 
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	run := printRun{
 		streamer:  streamer,
 		options:   options,
 		params:    initialPrintParams(prompt, options),
 		sessionID: options.SessionID,
+		ctx:       runCtx,
+		cancel:    cancel,
 	}
-	return run.run(ctx)
+	return run.run(runCtx)
 }
 
 func preparePrint(options PrintOptions) (PrintOptions, string, error) {
@@ -100,7 +104,9 @@ type printRun struct {
 	doneStatus    string
 	doneReceived  bool
 	streamError   error
+	toolResultErr error
 	ctx           context.Context
+	cancel        context.CancelFunc
 	sentTools     int
 	toolsOffSeen  bool
 	stdinReader   *bufio.Reader
@@ -121,6 +127,7 @@ func (r *printRun) runTurn(ctx context.Context) (bool, error) {
 	r.doneStatus = ""
 	r.doneReceived = false
 	r.streamError = nil
+	r.toolResultErr = nil
 	resumeTextSeparator := r.params.CheckpointID != nil
 	r.ctx = ctx
 	r.sentTools = 0
@@ -133,6 +140,10 @@ func (r *printRun) runTurn(ctx context.Context) (bool, error) {
 	err := StreamTurn(streamCtx, r.streamer, r.params, func(event Event) bool {
 		return r.handleEvent(event, &resumeTextSeparator)
 	})
+	if r.toolResultErr != nil {
+		r.writeActivityLines(r.activities.Finish(false))
+		return false, finishPrintError(r.options, r.answer.String(), r.toolResultErr)
+	}
 	if err != nil {
 		r.writeActivityLines(r.activities.Finish(false))
 		return false, finishPrintError(r.options, r.answer.String(), err)
@@ -176,6 +187,9 @@ func (r *printRun) handleEvent(event Event, resumeTextSeparator *bool) bool {
 		}
 	case EventClientToolCall:
 		r.handleClientToolCall(event.ClientToolCall)
+		if r.toolResultErr != nil {
+			return false
+		}
 	case rootly.AiChatStreamEventText:
 		if event.Text != nil {
 			if *resumeTextSeparator {
@@ -245,8 +259,12 @@ func (r *printRun) handleClientToolCall(call *ClientToolCall) {
 	if r.sessionID != nil {
 		sessionID = r.sessionID.String()
 	}
-	if err := postLocalResult(ctx, r.options.ToolResults, sessionID, call, result); err != nil && !r.options.Quiet {
-		_, _ = fmt.Fprintln(r.options.Stderr, sanitizeTerminalText(err.Error()))
+	if err := postLocalResult(ctx, r.options.ToolResults, sessionID, call, result); err != nil {
+		r.toolResultErr = sanitizeTerminalError(err)
+		_, _ = fmt.Fprintln(r.options.Stderr, r.toolResultErr)
+		if r.cancel != nil {
+			r.cancel()
+		}
 	}
 }
 
