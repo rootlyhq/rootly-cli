@@ -1004,7 +1004,19 @@ func (m *TUIModel) updateLocalMCP(message tea.Msg) (tea.Cmd, bool) {
 // failLocalToolDelivery ends the turn when a local result can't reach the
 // server, as print mode does: the server would otherwise wait for it forever.
 // finishTurn cancels the stream and drops the rest of the local queue.
+// The call's own activity keeps its real local outcome first, so a write that
+// ran isn't shown as failed and retried.
 func (m *TUIModel) failLocalToolDelivery(msg localToolDoneMsg) tea.Cmd {
+	if msg.failure != "" {
+		m.println(m.activityLine(msg.failure))
+	}
+	if msg.isError {
+		m.activities.discardPendingIf(msg.activity)
+	} else {
+		for _, line := range m.activities.completePendingIf(msg.activity) {
+			m.println(m.activityLine(line))
+		}
+	}
 	_, cmd := m.finishTurn(fmt.Errorf("✗ %s: result not delivered to Rootly, turn stopped: %w", msg.tool, msg.err))
 	return cmd
 }

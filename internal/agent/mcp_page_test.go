@@ -559,53 +559,74 @@ func TestTUIRememberedWritesStillRunOneAtATime(t *testing.T) {
 }
 
 func TestTUIFailedToolResultDeliveryEndsTheTurn(t *testing.T) {
-	manager := &fakeMCPManager{changes: make(chan struct{})}
-	manager.tools = map[string]mcp.ToolRef{
-		"local_read_one":  {ServerID: "builtin", ServerName: "Built-in", Tool: "read_one", ReadOnly: true},
-		"local_write_one": {ServerID: "builtin", ServerName: "Built-in", Tool: "write_one"},
-	}
-	streamer := &twoTurnStreamer{firstStopped: make(chan struct{})}
-	poster := &switchableToolResultPoster{err: errors.New("post failed \x1b]52;c;bad\x07")}
-	model := NewTUIModel(context.Background(), streamer, TUIOptions{NoColor: true, API: &fakeConnectorAPI{}, MCP: manager, ToolResults: poster})
-	model.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
-	model.submitPrompt("first")
-	streamCtx := model.streamCtx
+	for _, test := range []struct {
+		name, toolOutput, wantActivity string
+	}{
+		{name: "tool ran", wantActivity: "✓ Local read one"},
+		{name: "tool failed", toolOutput: "boom", wantActivity: "✗ local · Built-in · read_one failed: boom"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager := &fakeMCPManager{changes: make(chan struct{})}
+			manager.output = test.toolOutput
+			manager.tools = map[string]mcp.ToolRef{
+				"local_read_one":  {ServerID: "builtin", ServerName: "Built-in", Tool: "read_one", ReadOnly: true},
+				"local_write_one": {ServerID: "builtin", ServerName: "Built-in", Tool: "write_one"},
+			}
+			streamer := &twoTurnStreamer{firstStopped: make(chan struct{})}
+			poster := &switchableToolResultPoster{err: errors.New("post failed \x1b]52;c;bad\x07")}
+			model := NewTUIModel(context.Background(), streamer, TUIOptions{NoColor: true, API: &fakeConnectorAPI{}, MCP: manager, ToolResults: poster})
+			model.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+			model.submitPrompt("first")
+			streamCtx := model.streamCtx
 
-	read := model.handleClientToolCall(&ClientToolCall{CallID: "read-1", Name: "local_read_one"})
-	model.handleClientToolCall(&ClientToolCall{CallID: "write-1", Name: "local_write_one"})
-	if read == nil || len(model.localToolQueue) != 1 {
-		t.Fatal("expected the read to run and the write to queue")
-	}
-	runCmd(model, read)
-	if model.state != tuiIdle || model.stream != nil || streamCtx.Err() == nil {
-		t.Fatal("a failed result delivery should cancel the stream and end the turn")
-	}
-	select {
-	case <-streamer.firstStopped:
-	case <-time.After(2 * time.Second):
-		t.Fatal("the first stream kept running after the failed delivery")
-	}
-	if model.localConfirm != nil || len(model.localToolQueue) != 0 || model.localApprovalRunning || model.localReadOnlyRunning != 0 {
-		t.Fatal("local tool state was not reset")
-	}
-	if got := strings.Join(manager.calls, ","); got != "local_read_one" {
-		t.Fatalf("queued tool ran after the failed delivery: %s", got)
-	}
-	transcript := transcriptText(model)
-	if strings.Count(transcript, "result not delivered") != 1 || !strings.Contains(transcript, "local · Built-in · read_one") || strings.Contains(transcript, "\x1b") {
-		t.Fatalf("want one sanitized error line naming the tool:\n%q", transcript)
-	}
+			model.activities.Handle(activityStatusEvent("Local read one..."))
+			read := model.handleClientToolCall(&ClientToolCall{CallID: "read-1", Name: "local_read_one"})
+			model.handleClientToolCall(&ClientToolCall{CallID: "write-1", Name: "local_write_one"})
+			if read == nil || len(model.localToolQueue) != 1 {
+				t.Fatal("expected the read to run and the write to queue")
+			}
+			runCmd(model, read)
+			if model.state != tuiIdle || model.stream != nil || streamCtx.Err() == nil {
+				t.Fatal("a failed result delivery should cancel the stream and end the turn")
+			}
+			select {
+			case <-streamer.firstStopped:
+			case <-time.After(2 * time.Second):
+				t.Fatal("the first stream kept running after the failed delivery")
+			}
+			if model.localConfirm != nil || len(model.localToolQueue) != 0 || model.localApprovalRunning || model.localReadOnlyRunning != 0 {
+				t.Fatal("local tool state was not reset")
+			}
+			if got := strings.Join(manager.calls, ","); got != "local_read_one" {
+				t.Fatalf("queued tool ran after the failed delivery: %s", got)
+			}
+			transcript := transcriptText(model)
+			if strings.Count(transcript, "result not delivered") != 1 || !strings.Contains(transcript, "✗ local · Built-in · read_one: result not delivered") || strings.Contains(transcript, "\x1b") {
+				t.Fatalf("want one sanitized error line naming the tool:\n%s", transcript)
+			}
+			if !strings.Contains(transcript, test.wantActivity) {
+				t.Fatalf("the tool's own outcome %q is missing:\n%s", test.wantActivity, transcript)
+			}
+			wantCrosses := 1
+			if test.toolOutput != "" {
+				wantCrosses = 2
+			}
+			if got := strings.Count(transcript, "✗"); got != wantCrosses {
+				t.Fatalf("red ✗ lines = %d, want %d:\n%s", got, wantCrosses, transcript)
+			}
 
-	poster.err = nil
-	model.submitPrompt("second")
-	for range 10 {
-		if model.state != tuiStreaming {
-			break
-		}
-		runCmd(model, model.waitForStream())
-	}
-	if model.state != tuiIdle || model.lastAnswer != "second answer" || model.status != "" {
-		t.Fatalf("the next prompt did not stream normally:\n%s", transcriptText(model))
+			poster.err = nil
+			model.submitPrompt("second")
+			for range 10 {
+				if model.state != tuiStreaming {
+					break
+				}
+				runCmd(model, model.waitForStream())
+			}
+			if model.state != tuiIdle || model.lastAnswer != "second answer" || model.status != "" {
+				t.Fatalf("the next prompt did not stream normally:\n%s", transcriptText(model))
+			}
+		})
 	}
 }
 

@@ -84,6 +84,17 @@ func (tracker *activityTracker) discardPendingIf(activity *pendingActivity) {
 	}
 }
 
+// completePendingIf marks activity done, as its local tool really ran, and
+// returns the lines ready to print.
+func (tracker *activityTracker) completePendingIf(activity *pendingActivity) []string {
+	tracker.initialize()
+	if activity == nil || tracker.pending != activity {
+		return nil
+	}
+	tracker.finishPending(true, false, false)
+	return tracker.flushCompleted()
+}
+
 func (tracker *activityTracker) initialize() {
 	if tracker.now == nil {
 		tracker.now = time.Now
