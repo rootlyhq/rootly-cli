@@ -208,7 +208,7 @@ func TestAutoApprovedGitReadsCannotRunRepoProgramsOrLeakDeniedFiles(t *testing.T
 	}
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-c", "user.email=e2e@example.com", "-c", "user.name=e2e"}, args...)...)
+		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-c", "user.email=e2e@example.com", "-c", "user.name=e2e"}, args...)...)
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
 		if out, err := cmd.CombinedOutput(); err != nil {
