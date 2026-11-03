@@ -1005,6 +1005,9 @@ func (m *TUIModel) handleLocalToolDone(msg localToolDoneMsg) tea.Cmd {
 	if msg.turn != m.turn {
 		return nil
 	}
+	if msg.isError {
+		m.activities.discardPending()
+	}
 	if msg.approval {
 		m.localApprovalRunning = false
 	}

@@ -251,6 +251,9 @@ func (r *printRun) handleClientToolCall(call *ClientToolCall) {
 			result = mcp.CallResult{Output: userDeclinedOutput, IsError: true}
 		}
 	}
+	if result.IsError {
+		r.activities.discardPending()
+	}
 	if looksLikeExpiredCreds(result) && !r.credHintShown && !r.options.Quiet {
 		r.credHintShown = true
 		_, _ = fmt.Fprintln(r.options.Stderr, localCredsHint)

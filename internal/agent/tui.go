@@ -233,6 +233,7 @@ type localConfirmation struct {
 type localToolDoneMsg struct {
 	turn     int
 	err      error
+	isError  bool
 	credHint bool
 	failure  string
 	approval bool
@@ -1685,6 +1686,7 @@ func (m *TUIModel) runLocalTool(call *ClientToolCall, declined, approval, readOn
 		done := localToolDoneMsg{
 			turn:     turn,
 			err:      postLocalResult(ctx, poster, sessionID, call, result),
+			isError:  result.IsError,
 			credHint: looksLikeExpiredCreds(result),
 			approval: approval,
 			readOnly: readOnly,

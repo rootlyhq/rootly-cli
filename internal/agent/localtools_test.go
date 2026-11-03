@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	rootly "github.com/rootlyhq/rootly-go"
+
 	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/config"
 	"github.com/rootlyhq/rootly-cli/internal/mcp"
@@ -203,6 +205,51 @@ func TestPrintClientToolCallRoundTripReadOnly(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "⚙ local · fs · read_file") || strings.Contains(stderr, localToolsOffMessage) {
 		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+func TestPrintLocalToolResultControlsCompletionActivity(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		output    string
+		wantCross int
+		wantCheck int
+	}{
+		{name: "error", output: "path is denied", wantCross: 1},
+		{name: "success", wantCheck: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tools := &fakeLocalTools{
+				tools:  map[string]mcp.ToolRef{"local_fs_read_file": {ServerID: "user:fs", ServerName: "fs", Tool: "read_file", ReadOnly: true}},
+				output: test.output,
+			}
+			var stdout, stderr bytes.Buffer
+			options := newPrintOptions(&stdout, &stderr)
+			options.IsStderrTTY = func() bool { return true }
+			options.OutputFormat = "text"
+			options.LocalTools = tools
+			run := &printRun{options: options, ctx: context.Background()}
+			run.activities.Handle(activityStatusEvent("Local read file..."))
+			run.handleClientToolCall(&ClientToolCall{CallID: "call-1", Name: "local_fs_read_file"})
+			if test.wantCross > 0 {
+				run.writeActivityLines(run.activities.Handle(Event{
+					Type: rootly.AiChatStreamEventTaskUpdate,
+					TaskUpdate: &rootly.AiChatStreamTaskUpdate{
+						ID:     "local-read",
+						Title:  "Local read file failed: path is denied",
+						Status: "failed",
+					},
+				}))
+			} else {
+				run.writeActivityLines(run.activities.Finish(true))
+			}
+			if got := strings.Count(stderr.String(), "✗"); got != test.wantCross {
+				t.Errorf("failure markers = %d, want %d:\n%s", got, test.wantCross, stderr.String())
+			}
+			if got := strings.Count(stderr.String(), "✓"); got != test.wantCheck {
+				t.Errorf("success markers = %d, want %d:\n%s", got, test.wantCheck, stderr.String())
+			}
+		})
 	}
 }
 

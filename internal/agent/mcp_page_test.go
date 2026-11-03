@@ -254,13 +254,30 @@ func TestTUIFailedLocalToolPrintsCross(t *testing.T) {
 	}
 	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
 	model.turn = 1
-	model.Update(localToolDoneMsg{turn: 1, failure: line})
+	model.activities.Handle(activityStatusEvent("Local read file..."))
+	model.Update(localToolDoneMsg{turn: 1, isError: true, failure: line})
+	model.handleEvent(activityDoneEvent("complete"))
 	if !strings.Contains(transcriptText(model), "read_text_file failed: ENOENT") {
 		t.Fatalf("transcript = %v", model.transcript)
+	}
+	if got := strings.Count(transcriptText(model), "✗"); got != 1 {
+		t.Errorf("failure markers = %d, want exactly one:\n%s", got, transcriptText(model))
+	}
+	if got := strings.Count(transcriptText(model), "✓"); got != 0 {
+		t.Errorf("success markers after failure = %d, want none:\n%s", got, transcriptText(model))
 	}
 	model.Update(localToolDoneMsg{turn: 0, failure: "✗ stale"})
 	if strings.Contains(transcriptText(model), "stale") {
 		t.Fatal("results from an earlier turn must not print")
+	}
+
+	successModel := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	successModel.turn = 1
+	successModel.activities.Handle(activityStatusEvent("Local read file..."))
+	successModel.Update(localToolDoneMsg{turn: 1})
+	successModel.handleEvent(activityDoneEvent("complete"))
+	if got := strings.Count(transcriptText(successModel), "✓"); got != 1 {
+		t.Errorf("success markers = %d, want one:\n%s", got, transcriptText(successModel))
 	}
 }
 
