@@ -46,6 +46,12 @@ make coverage   # Run tests with coverage report
 make check      # Format, lint, and test
 ```
 
+## Test coverage
+
+- CI fails when total statement coverage drops below `COVERAGE_MIN` in the Makefile (currently 80%). Check locally with `make coverage && make coverage-check`.
+- Each new package needs at least 80% statement coverage. Test behaviour and error paths, not just lines.
+- When total coverage rises, raise `COVERAGE_MIN` to the new whole-number floor in the same PR. Only lower it with a maintainer's approval.
+
 ## Architecture
 
 ### Command Pattern

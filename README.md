@@ -271,6 +271,7 @@ make test       # Run tests
 make lint       # Run linter
 make check      # Format, lint, and test
 make coverage   # Tests with coverage report
+make coverage-check # Check total statement coverage against the floor
 ```
 
 ### Release

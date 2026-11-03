@@ -1,4 +1,6 @@
-.PHONY: build build-all run clean test lint deps coverage coverage-html version bump-patch bump-minor bump-major push-tag release-patch release-minor release-major
+.PHONY: build build-all run clean test lint deps coverage coverage-html coverage-check version bump-patch bump-minor bump-major push-tag release-patch release-minor release-major
+
+COVERAGE_MIN ?= 80
 
 # Build variables
 BINARY_NAME := rootly
@@ -52,6 +54,11 @@ coverage:
 coverage-html: coverage
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
+
+# Fail if total statement coverage in coverage.out is below COVERAGE_MIN
+coverage-check:
+	@total=$$(go tool cover -func=coverage.out | awk '/^total:/ {sub("%","",$$3); print $$3}'); \
+	awk -v t="$$total" -v m="$(COVERAGE_MIN)" 'BEGIN { if (t == "" || t+0 < m+0) { printf "Total coverage %s%% is below the %s%% floor\n", t, m; exit 1 } printf "Total coverage %s%% (floor %s%%)\n", t, m }'
 
 # Run linter
 lint:
