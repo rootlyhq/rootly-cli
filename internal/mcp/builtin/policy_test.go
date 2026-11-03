@@ -23,6 +23,7 @@ func TestBashKnownSafeCommandsRunWithoutApproval(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	initTestRepo(t, root, "README.md", filepath.Join("src", "main.go"))
 	if err := os.Symlink(filepath.Join(home, "secret.txt"), filepath.Join(root, "escape")); err != nil {
 		t.Skipf("symlinks are unavailable: %v", err)
 	}
@@ -167,11 +168,56 @@ func TestSaveAllowAfterFileWithoutTrailingNewline(t *testing.T) {
 	}
 }
 
+// hermeticGit points git at empty user and system config so runner-wide
+// settings (for example a git-lfs filter) can't change what the tests see.
+func hermeticGit(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	empty := t.TempDir()
+	global := filepath.Join(empty, "gitconfig")
+	if err := os.WriteFile(global, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", empty)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+}
+
+func runGit(t *testing.T, root string, args ...string) string {
+	t.Helper()
+	cmd := exec.CommandContext(context.Background(), "git", append([]string{"-c", "user.email=e2e@example.com", "-c", "user.name=e2e"}, args...)...)
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// initTestRepo commits every file under root twice, so HEAD~1 exists.
+func initTestRepo(t *testing.T, root string, files ...string) {
+	t.Helper()
+	hermeticGit(t)
+	runGit(t, root, "init", "-q", "-b", "main")
+	runGit(t, root, append([]string{"add", "--"}, files...)...)
+	runGit(t, root, "commit", "-qm", "one")
+	if err := os.WriteFile(filepath.Join(root, files[0]), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "commit", "-qam", "two")
+}
+
 func TestHardenSafeGitRewritesAutoApprovedReads(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "src", "a.go"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	initTestRepo(t, root, filepath.Join("src", "a.go"))
 	config := "git " + gitHardeningConfig
 	cases := map[string]string{
 		"git status":                      config + " status",
@@ -189,6 +235,59 @@ func TestHardenSafeGitRewritesAutoApprovedReads(t *testing.T) {
 	for script, want := range cases {
 		if got := hardenSafeGit(script, root); got != want {
 			t.Errorf("hardenSafeGit(%q)\n got %q\nwant %q", script, got, want)
+		}
+	}
+}
+
+func TestGitDecidesWhichArgumentsAreRevisionsAndWhichArePaths(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "repo")
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"README.md", "gone.go", filepath.Join("src", "main.go")} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("x\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	initTestRepo(t, root, "README.md", "gone.go", filepath.Join("src", "main.go"))
+	runGit(t, root, "branch", "src")
+	if err := os.Remove(filepath.Join(root, "gone.go")); err != nil {
+		t.Fatal(err)
+	}
+	readmeBlob := runGit(t, root, "rev-parse", "HEAD:README.md")
+	bash := mustLookup(t, testRegistryWithPolicy(t, root, LoadPolicy(filepath.Join(home, "rules"))), "local_bash")
+	config := "git " + gitHardeningConfig
+	rewrites := map[string]string{
+		"git diff gone.go":             config + " diff " + gitDiffHardening + " -- gone.go " + gitDeniedPathspecs,
+		"git log HEAD~1..HEAD":         config + " log " + gitDiffHardening + " HEAD~1..HEAD -- " + gitDeniedPathspecs,
+		"git diff HEAD~1...HEAD":       config + " diff " + gitDiffHardening + " HEAD~1...HEAD -- " + gitDeniedPathspecs,
+		"git diff src --":              config + " diff " + gitDiffHardening + " src -- " + gitDeniedPathspecs,
+		"git diff -- src":              config + " diff " + gitDiffHardening + " -- src " + gitDeniedPathspecs,
+		"git log -n 3 src/main.go":     config + " log " + gitDiffHardening + " -n 3 -- src/main.go " + gitDeniedPathspecs,
+		"git log --oneline main..HEAD": config + " log " + gitDiffHardening + " --oneline main..HEAD -- " + gitDeniedPathspecs,
+	}
+	for command, want := range rewrites {
+		if bash.NeedsApproval(map[string]any{"command": command}) {
+			t.Errorf("%q should run without approval", command)
+			continue
+		}
+		if got := hardenSafeGit(command, root); got != want {
+			t.Errorf("hardenSafeGit(%q)\n got %q\nwant %q", command, got, want)
+		}
+	}
+	for _, command := range []string{"git diff gone.go", "git log HEAD~1..HEAD", "git diff src --"} {
+		if result := bash.Run(context.Background(), map[string]any{"command": command}); result.IsError {
+			t.Errorf("%q failed after hardening: %s", command, result.Output)
+		}
+	}
+	for _, command := range []string{
+		"git diff src", "git log src",
+		"git show " + readmeBlob, "git show " + readmeBlob[:10], "git diff " + readmeBlob + ".." + readmeBlob,
+		"git show HEAD^{tree}",
+	} {
+		if !bash.NeedsApproval(map[string]any{"command": command}) {
+			t.Errorf("%q is ambiguous or names a blob/tree and must ask", command)
 		}
 	}
 }
@@ -247,6 +346,31 @@ func TestAutoApprovedGitReadsCannotRunRepoProgramsOrLeakDeniedFiles(t *testing.T
 		}
 		if _, err := os.Stat(marker); err == nil {
 			t.Fatalf("%q ran a repo-configured program", command)
+		}
+	}
+	gitOut := func(args ...string) string {
+		t.Helper()
+		cmd := exec.CommandContext(context.Background(), "git", args...)
+		cmd.Dir = root
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	envBlob, oldEnvBlob := gitOut("rev-parse", "HEAD:.env"), gitOut("rev-parse", "HEAD~1:.env")
+	git("tag", "envblob", envBlob)
+	for _, command := range []string{
+		"git show " + envBlob, "git show " + envBlob[:12], "git diff " + oldEnvBlob + " " + envBlob,
+		"git diff " + oldEnvBlob + ".." + envBlob, "git show HEAD^{tree}", "git show envblob", "git log -p " + envBlob,
+	} {
+		if !bash.NeedsApproval(map[string]any{"command": command}) {
+			t.Errorf("%q names a blob or tree and must ask", command)
+		}
+	}
+	for _, command := range []string{"git show HEAD~1", "git diff HEAD~1..HEAD", "git log -n 2 -p", "git show v9.9.9"} {
+		if bash.NeedsApproval(map[string]any{"command": command}) {
+			t.Errorf("%q names commits only and should not ask", command)
 		}
 	}
 	git("config", "filter.evil.clean", "touch "+marker+"; cat")

@@ -298,23 +298,117 @@ func gitIsReadOnly(args []string, root string) bool {
 }
 
 // gitPathStart finds where paths begin in the arguments after a diff/log/show
-// subcommand: at "--", or at the first argument naming an existing path.
-// Options after such a path are ambiguous to rewrite, so ok is false.
+// subcommand: at "--", or at the first positional git doesn't resolve to a
+// commit. ok is false (ask) when a positional names a blob or tree, is both
+// a commit and an existing path with no "--", or can't be classified, and
+// when options follow a path, which is ambiguous to rewrite.
 func gitPathStart(rest []string, root string) (start int, ok bool) {
 	start = -1
-	for index, arg := range rest {
-		if arg == "--" {
+	for index := 0; index < len(rest); index++ {
+		arg := rest[index]
+		switch {
+		case arg == "--":
 			return index, start < 0
-		}
-		if start < 0 && !strings.HasPrefix(arg, "-") {
-			if _, err := os.Lstat(filepath.Join(root, arg)); err == nil {
-				start = index
+		case start >= 0:
+			if strings.HasPrefix(arg, "-") {
+				return -1, false
 			}
-		} else if start >= 0 && strings.HasPrefix(arg, "-") {
-			return -1, false
+		case strings.HasPrefix(arg, "-"):
+			if slices.Contains(gitValueFlags, arg) {
+				index++
+			}
+		default:
+			switch gitClassifyRev(root, arg) {
+			case gitRevCommit:
+				if _, err := os.Lstat(filepath.Join(root, arg)); err == nil && !slices.Contains(rest[index:], "--") {
+					return -1, false
+				}
+			case gitRevPath:
+				start = index
+			default:
+				return -1, false
+			}
 		}
 	}
 	return start, true
+}
+
+// gitValueFlags take their value as the next argument, which is neither a
+// revision nor a path.
+var gitValueFlags = []string{
+	"-n", "--max-count", "--skip", "--since", "--after", "--until", "--before", "--author",
+	"--committer", "--grep", "--format", "--pretty", "--date", "--diff-filter", "-G", "-S",
+}
+
+type gitRevKind int
+
+const (
+	gitRevPath gitRevKind = iota
+	gitRevCommit
+	gitRevContent
+	gitRevUnknown
+)
+
+// gitClassifyRev asks git what a positional means: a commit (or a range of
+// commits), a blob or tree object, whose content pathspec excludes can't
+// filter, or neither, in which case it is where paths start.
+func gitClassifyRev(root, arg string) gitRevKind {
+	sides := []string{arg}
+	if strings.Contains(arg, "..") {
+		sides = strings.Split(strings.ReplaceAll(arg, "...", ".."), "..")
+	}
+	kind := gitRevCommit
+	for _, side := range sides {
+		if side == "" {
+			continue
+		}
+		ok, err := gitSucceeds(root, "rev-parse", "--verify", "--quiet", "--end-of-options", side+"^{commit}")
+		switch {
+		case err != nil:
+			return gitRevUnknown
+		case ok:
+			continue
+		}
+		output, err := gitOutput(root, "cat-file", "-t", side+"^{}")
+		switch {
+		case err != nil:
+			return gitRevUnknown
+		case output == "blob" || output == "tree":
+			return gitRevContent
+		}
+		kind = gitRevPath
+	}
+	return kind
+}
+
+// gitSucceeds runs a hardened git lookup in root. ok is false when git exits
+// non-zero; err is set when git can't give an answer (killed, timed out).
+func gitSucceeds(root string, args ...string) (ok bool, err error) {
+	_, ok, err = runGitLookup(root, args)
+	return ok, err
+}
+
+func gitOutput(root string, args ...string) (string, error) {
+	output, _, err := runGitLookup(root, args)
+	return output, err
+}
+
+func runGitLookup(root string, args []string) (output string, ok bool, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false"}, args...)...)
+	cmd.Dir = root
+	raw, runErr := cmd.Output()
+	var exitError *exec.ExitError
+	switch {
+	case runErr == nil:
+		return strings.TrimSpace(string(raw)), true, nil
+	case errors.Is(runErr, exec.ErrNotFound):
+		return "", false, nil
+	case errors.As(runErr, &exitError) && exitError.ExitCode() > 0:
+		return "", false, nil
+	}
+	return "", false, runErr
 }
 
 // repoConfigRunsFilters reports whether repository config (not the user's
@@ -326,7 +420,7 @@ func repoConfigRunsFilters(args []string, root string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "config", "--null", "--get-regexp", `^filter\..+\.(clean|smudge|process)$`)
+	cmd := exec.CommandContext(ctx, "git", "config", "--local", "--includes", "--null", "--get-regexp", `^filter\..+\.(clean|smudge|process)$`)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
 	err := cmd.Run()
