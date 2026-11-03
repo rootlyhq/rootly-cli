@@ -32,6 +32,26 @@ func readJSON(t *testing.T, path string) map[string]any {
 	return document
 }
 
+func marshalTestJSON(t *testing.T, value any) string {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func assertFileModePerm(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != want {
+		t.Fatalf("file permissions = %v, want %v", info.Mode().Perm(), want)
+	}
+}
+
 func TestStoreScopesWriteClaudeShapes(t *testing.T) {
 	home, project := t.TempDir(), t.TempDir()
 	store := &Store{UserPath: filepath.Join(home, ".rootly-cli", "mcp.json"), CWD: project}
@@ -62,9 +82,7 @@ func TestStoreScopesWriteClaudeShapes(t *testing.T) {
 	if projectDocument["other"] == nil || projectDocument["mcpServers"].(map[string]any)["maestro"] == nil || projectDocument["mcpServers"].(map[string]any)["dart"] == nil {
 		t.Fatalf("project write must preserve other keys and servers: %v", projectDocument)
 	}
-	if info, err := os.Stat(store.UserPath); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("user config perms: %v %v", info, err)
-	}
+	assertFileModePerm(t, store.UserPath, 0o600)
 
 	all, err := store.All()
 	if err != nil || len(all) != 4 {
@@ -167,11 +185,23 @@ func TestClientToolNamer(t *testing.T) {
 
 func TestImportedSourcesRealShapes(t *testing.T) {
 	home, project := t.TempDir(), t.TempDir()
-	writeFile(t, filepath.Join(home, ".claude.json"), `{
-  "numStartups": 3,
-  "mcpServers": {"sentry": {"type": "http", "url": "https://mcp.sentry.dev/mcp"}},
-  "projects": {"`+project+`": {"allowedTools": [], "mcpServers": {"local-db": {"type": "stdio", "command": "npx", "args": ["-y", "db"], "env": {"DB": "x"}}}}}
-}`)
+	writeFile(t, filepath.Join(home, ".claude.json"), marshalTestJSON(t, map[string]any{
+		"numStartups": 3,
+		"mcpServers": map[string]any{
+			"sentry": map[string]any{"type": "http", "url": "https://mcp.sentry.dev/mcp"},
+		},
+		"projects": map[string]any{
+			project: map[string]any{
+				"allowedTools": []string{},
+				"mcpServers": map[string]any{
+					"local-db": map[string]any{
+						"type": "stdio", "command": "npx", "args": []string{"-y", "db"},
+						"env": map[string]string{"DB": "x"},
+					},
+				},
+			},
+		},
+	}))
 	writeFile(t, filepath.Join(home, ".codex", "config.toml"), `model = "gpt-5"
 [mcp_servers.docs]
 command = "npx"
@@ -253,9 +283,7 @@ func TestStateApprovalAndEnable(t *testing.T) {
 	if !state.NeedsApproval(changed) {
 		t.Fatal("a config change must require approval again")
 	}
-	if info, err := os.Stat(store.Path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("state perms: %v %v", info, err)
-	}
+	assertFileModePerm(t, store.Path, 0o600)
 }
 
 func TestTruncateOutput(t *testing.T) {
@@ -275,9 +303,7 @@ func TestTokenStorePerms(t *testing.T) {
 	if err := store.Put("https://api.braintrust.dev/mcp", StoredCredential{ClientID: "c", AccessToken: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	if info, err := os.Stat(store.Path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("token perms: %v %v", info, err)
-	}
+	assertFileModePerm(t, store.Path, 0o600)
 	if credential, ok := store.Get("https://api.braintrust.dev/mcp"); !ok || credential.AccessToken != "a" {
 		t.Fatal("token not stored")
 	}

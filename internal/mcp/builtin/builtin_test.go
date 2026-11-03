@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -347,8 +349,7 @@ func TestRunCommandRedactsBeforeOutputTruncation(t *testing.T) {
 func TestCLIDiscoveryAllowListApprovalAndTimeout(t *testing.T) {
 	root := t.TempDir()
 	binDir := t.TempDir()
-	executable := filepath.Join(binDir, "gh")
-	writeExecutable(t, executable, "#!/bin/sh\nprintf '%13000s' ''\n")
+	executable, argsExecutable, timeoutExecutable := createTestCLIs(t, binDir)
 	lookPath := func(bin string) (string, error) {
 		if bin == "gh" {
 			return executable, nil
@@ -367,8 +368,6 @@ func TestCLIDiscoveryAllowListApprovalAndTimeout(t *testing.T) {
 	if result.IsError || len([]rune(result.Output)) != maxCLIOutput || !strings.Contains(result.Output, "[truncated]") {
 		t.Fatalf("expected capped CLI output, got %#v", result)
 	}
-	argsExecutable := filepath.Join(binDir, "args-gh")
-	writeExecutable(t, argsExecutable, "#!/bin/sh\nprintf '%s' \"$1\"\n")
 	argsTool := newCLITool(root, cliSpec{bin: "gh"}, func(string) (string, error) { return argsExecutable, nil })
 	argument := "; touch " + filepath.Join(root, "injected")
 	argsResult := argsTool.Run(context.Background(), map[string]any{"args": []any{argument}})
@@ -378,8 +377,6 @@ func TestCLIDiscoveryAllowListApprovalAndTimeout(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "injected")); !os.IsNotExist(err) {
 		t.Fatalf("CLI argument was interpreted by a shell: %v", err)
 	}
-	timeoutExecutable := filepath.Join(binDir, "slow-gh")
-	writeExecutable(t, timeoutExecutable, "#!/bin/sh\nexec sleep 5\n")
 	timeoutTool := newCLITool(root, cliSpec{bin: "gh"}, func(string) (string, error) { return timeoutExecutable, nil })
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
@@ -493,9 +490,61 @@ func mustLookup(t *testing.T, registry *Registry, name string) Tool {
 	return tool
 }
 
-func writeExecutable(t *testing.T, path, contents string) {
+func createTestCLIs(t *testing.T, binDir string) (executable, argsExecutable, timeoutExecutable string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+	sourcePath := filepath.Join(binDir, "fake_cli.go")
+	const source = `package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+func main() {
+	name := strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0]))
+	switch name {
+	case "args-gh":
+		if len(os.Args) > 1 {
+			fmt.Print(os.Args[1])
+		}
+	case "slow-gh":
+		time.Sleep(5 * time.Second)
+	default:
+		fmt.Printf("%13000s", "")
+	}
+}
+`
+	if err := os.WriteFile(sourcePath, []byte(source), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	extension := ""
+	if runtime.GOOS == "windows" {
+		extension = ".exe"
+	}
+	helperPath := filepath.Join(binDir, "cli-helper"+extension)
+	command := exec.CommandContext(t.Context(), "go", "build", "-o", helperPath, sourcePath)
+	command.Dir = workingDir
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build fake CLI: %v\n%s", err, output)
+	}
+	helper, err := os.ReadFile(helperPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := make([]string, 0, 3)
+	for _, name := range []string{"gh", "args-gh", "slow-gh"} {
+		path := filepath.Join(binDir, name+extension)
+		if err := os.WriteFile(path, helper, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+	return paths[0], paths[1], paths[2]
 }

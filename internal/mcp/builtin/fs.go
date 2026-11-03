@@ -386,8 +386,14 @@ func isWithin(root, candidate string) bool {
 
 func deniedPath(candidate string) bool {
 	clean := filepath.Clean(candidate)
-	home, _ := os.UserHomeDir()
-	if home != "" {
+	homes := make([]string, 0, 2)
+	if home := os.Getenv("HOME"); home != "" {
+		homes = append(homes, home)
+	}
+	if home, _ := os.UserHomeDir(); home != "" && (len(homes) == 0 || home != homes[0]) {
+		homes = append(homes, home)
+	}
+	for _, home := range homes {
 		for _, protected := range []string{
 			filepath.Join(home, ".ssh"),
 			filepath.Join(home, ".aws"),

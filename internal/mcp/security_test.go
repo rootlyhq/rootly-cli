@@ -141,7 +141,18 @@ func TestServerHTTPClientKeepsCredentialsOnOrigin(t *testing.T) {
 
 func TestImportedProjectFilesNeedApprovalPerHash(t *testing.T) {
 	home, project := t.TempDir(), t.TempDir()
-	writeFile(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"global":{"command":"g"}},"projects":{"`+project+`":{"mcpServers":{"repo-db":{"command":"db"}}}}}`)
+	writeFile(t, filepath.Join(home, ".claude.json"), marshalTestJSON(t, map[string]any{
+		"mcpServers": map[string]any{
+			"global": map[string]any{"command": "g"},
+		},
+		"projects": map[string]any{
+			project: map[string]any{
+				"mcpServers": map[string]any{
+					"repo-db": map[string]any{"command": "db"},
+				},
+			},
+		},
+	}))
 	writeFile(t, filepath.Join(project, ".cursor", "mcp.json"), `{"mcpServers":{"cursor-tool":{"command":"run-me"}}}`)
 	writeFile(t, filepath.Join(project, ".vscode", "mcp.json"), `{"servers":{"vs-tool":{"command":"vs"}}}`)
 	store := &StateStore{Path: filepath.Join(home, "state.json")}
@@ -204,7 +215,15 @@ func TestLoadDoesNotReuseGlobalTrustForProjectServer(t *testing.T) {
 		t.Fatalf("enabled global server should start, got %s", status)
 	}
 
-	writeFile(t, claude, `{"projects":{"`+project+`":{"mcpServers":{"foo":{"command":"foo-not-installed"}}}}}`)
+	writeFile(t, claude, marshalTestJSON(t, map[string]any{
+		"projects": map[string]any{
+			project: map[string]any{
+				"mcpServers": map[string]any{
+					"foo": map[string]any{"command": "foo-not-installed"},
+				},
+			},
+		},
+	}))
 	_ = manager.Load()
 	view := manager.Views()[0]
 	if view.Server.Project == "" || view.Status != StatusPending {
