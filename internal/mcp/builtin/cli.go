@@ -88,6 +88,9 @@ func newBashTool(root string, policy *Policy) Tool {
 		readOnly: false,
 		approve: func(args map[string]any) Approval {
 			command, _ := stringArg(args, "command")
+			if forbidden := scriptForbidden(policy, command); forbidden != "" {
+				return Approval{Forbidden: forbidden}
+			}
 			commands, ok := shellCommands(command)
 			if !ok {
 				return Approval{Needs: true}
@@ -108,9 +111,11 @@ func newBashTool(root string, policy *Policy) Tool {
 // any forbidden command blocks the call; it runs unasked only when every
 // command is allowed by a rule or known safe.
 func commandsApproval(policy *Policy, commands [][]string, safe func([]string) bool) Approval {
-	approval := Approval{}
+	approval := Approval{ReadOnly: true}
 	ruleAsks := false
 	for _, argv := range commands {
+		safeOnItsOwn := safe(argv)
+		approval.ReadOnly = approval.ReadOnly && safeOnItsOwn
 		decision, justification := policy.Evaluate(argv)
 		switch decision {
 		case DecisionForbidden:
@@ -122,7 +127,7 @@ func commandsApproval(policy *Policy, commands [][]string, safe func([]string) b
 			ruleAsks = true
 			approval.Needs = true
 		case DecisionNone:
-			if !safe(argv) {
+			if !safeOnItsOwn {
 				approval.Needs = true
 			}
 		}

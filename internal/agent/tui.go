@@ -228,6 +228,7 @@ type localConfirmation struct {
 	ref      mcp.ToolRef
 	call     *ClientToolCall
 	approval bool
+	readOnly bool
 	options  mcp.ApprovalOptions
 }
 
@@ -1627,6 +1628,7 @@ func (m *TUIModel) handleClientToolCall(call *ClientToolCall) tea.Cmd {
 		call:     call,
 		approval: tools.NeedsApproval(call.Name, call.Arguments),
 	}
+	confirmation.readOnly = !confirmation.approval && localCallReadOnly(tools, ref, call)
 	if confirmation.approval {
 		if memory, ok := tools.(LocalApprovalMemory); ok {
 			confirmation.options = memory.ApprovalOptions(call.Name, call.Arguments)
@@ -1638,12 +1640,30 @@ func (m *TUIModel) handleClientToolCall(call *ClientToolCall) tea.Cmd {
 		m.localConfirm = confirmation
 		return nil
 	}
+	if !confirmation.readOnly {
+		if m.localConfirm != nil || m.localApprovalRunning || m.localReadOnlyRunning > 0 || len(m.localToolQueue) > 0 {
+			m.localToolQueue = append(m.localToolQueue, confirmation)
+			return nil
+		}
+		m.localApprovalRunning = true
+		return m.runApprovedClientTool(call, false)
+	}
 	if m.localConfirm != nil || m.localApprovalRunning || len(m.localToolQueue) > 0 {
 		m.localToolQueue = append(m.localToolQueue, confirmation)
 		return nil
 	}
 	m.localReadOnlyRunning++
 	return m.runReadOnlyClientTool(call)
+}
+
+// localCallReadOnly reports whether a call that needs no approval only reads
+// on its own merits. A write allowed by a remembered approval or rule is not
+// read-only: it still runs one at a time.
+func localCallReadOnly(tools LocalTools, ref mcp.ToolRef, call *ClientToolCall) bool {
+	if reader, ok := tools.(LocalReadOnlyCalls); ok {
+		return reader.ReadOnlyCall(call.Name, call.Arguments)
+	}
+	return ref.ReadOnly
 }
 
 func (m *TUIModel) resolveLocalConfirmation(approved bool) tea.Cmd {
@@ -1768,7 +1788,7 @@ func (m *TUIModel) startNextLocalTool() tea.Cmd {
 		}
 	}
 	var commands []tea.Cmd
-	for len(m.localToolQueue) > 0 && !m.localToolQueue[0].approval {
+	for len(m.localToolQueue) > 0 && !m.localToolQueue[0].approval && m.localToolQueue[0].readOnly {
 		next := m.localToolQueue[0]
 		m.localToolQueue = m.localToolQueue[1:]
 		m.localReadOnlyRunning++
@@ -1780,7 +1800,12 @@ func (m *TUIModel) startNextLocalTool() tea.Cmd {
 		}
 		return tea.Batch(commands...)
 	}
-	m.localConfirm = m.localToolQueue[0]
+	next := m.localToolQueue[0]
 	m.localToolQueue = m.localToolQueue[1:]
+	if !next.approval {
+		m.localApprovalRunning = true
+		return m.runApprovedClientTool(next.call, false)
+	}
+	m.localConfirm = next
 	return nil
 }

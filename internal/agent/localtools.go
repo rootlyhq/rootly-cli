@@ -31,6 +31,12 @@ type LocalApprovalMemory interface {
 	RememberApproval(string, map[string]any, bool) error
 }
 
+// LocalReadOnlyCalls is implemented by managers that can tell a read from a
+// write allowed by a remembered approval.
+type LocalReadOnlyCalls interface {
+	ReadOnlyCall(string, map[string]any) bool
+}
+
 type ToolResultPoster interface {
 	PostAiChatToolResult(context.Context, api.ToolResult) error
 }

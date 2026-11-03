@@ -509,3 +509,43 @@ func TestTUILocalApprovalKeysRememberOnlyWhenOffered(t *testing.T) {
 		})
 	}
 }
+
+func TestTUIRememberedWritesStillRunOneAtATime(t *testing.T) {
+	manager := &fakeApprovalMemory{allowed: map[string]bool{"local_apply": true}}
+	manager.changes = make(chan struct{})
+	manager.tools = map[string]mcp.ToolRef{
+		"local_apply": {ServerID: "builtin", ServerName: "Built-in", Tool: "apply"},
+		"local_read":  {ServerID: "builtin", ServerName: "Built-in", Tool: "read", ReadOnly: true},
+	}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true, API: &fakeConnectorAPI{}, MCP: manager})
+	model.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	model.turn = 1
+
+	first := model.handleClientToolCall(&ClientToolCall{CallID: "apply-1", Name: "local_apply"})
+	if first == nil || !model.localApprovalRunning || model.localReadOnlyRunning != 0 || model.localConfirm != nil {
+		t.Fatal("a remembered write should start alone without a card")
+	}
+	if cmd := model.handleClientToolCall(&ClientToolCall{CallID: "apply-2", Name: "local_apply"}); cmd != nil {
+		t.Fatal("a second remembered write started while the first ran")
+	}
+	if cmd := model.handleClientToolCall(&ClientToolCall{CallID: "read-1", Name: "local_read"}); cmd != nil {
+		t.Fatal("a read started while a write ran")
+	}
+	firstDone := first().(localToolDoneMsg)
+	second := model.handleLocalToolDone(firstDone)
+	if second == nil || !model.localApprovalRunning || model.localReadOnlyRunning != 0 || len(model.localToolQueue) != 1 {
+		t.Fatal("the queued write should run next, alone")
+	}
+	secondDone, ok := second().(localToolDoneMsg)
+	if !ok || !secondDone.approval {
+		t.Fatalf("second write was batched: %#v", secondDone)
+	}
+	third := model.handleLocalToolDone(secondDone)
+	if third == nil || model.localApprovalRunning || model.localReadOnlyRunning != 1 {
+		t.Fatal("the read should start after the writes")
+	}
+	runCmd(model, third)
+	if got := strings.Join(manager.calls, ","); got != "local_apply,local_apply,local_read" {
+		t.Fatalf("local tool order = %s", got)
+	}
+}

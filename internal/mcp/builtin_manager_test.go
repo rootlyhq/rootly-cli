@@ -263,3 +263,44 @@ func TestManagerRemembersApprovalsAndReportsBadRules(t *testing.T) {
 		t.Fatalf("MCP session approval: %v", err)
 	}
 }
+
+func TestSessionApprovalStaysWithItsServer(t *testing.T) {
+	manager := NewManager(ManagerOptions{Store: NewStore(t.TempDir())})
+	write := []*sdk.Tool{{Name: "write", InputSchema: map[string]any{"type": "object"}}}
+	user := &runtimeServer{server: Server{Name: "docs", Scope: ScopeUser, Path: "user.json"}, status: StatusConnected, tools: write}
+	project := &runtimeServer{server: Server{Name: "docs", Scope: ScopeProject, Path: "project.json"}, status: StatusConnected, tools: write}
+	manager.mu.Lock()
+	manager.servers = append(manager.servers, user, project)
+	manager.byID[user.server.ID()] = user
+	manager.byID[project.server.ID()] = project
+	manager.mu.Unlock()
+	nameFor := func(runtime *runtimeServer) string {
+		tools, _ := manager.ClientTools()
+		for _, tool := range tools {
+			if ref, ok := manager.Lookup(tool.Name); ok && ref.ServerID == runtime.server.ID() && ref.Tool == "write" {
+				return tool.Name
+			}
+		}
+		t.Fatalf("no write tool for %s", runtime.server.ID())
+		return ""
+	}
+	approved := nameFor(user)
+	if err := manager.RememberApproval(approved, nil, false); err != nil || manager.NeedsApproval(approved, nil) {
+		t.Fatalf("session approval for the user server: %v", err)
+	}
+	if other := nameFor(project); !manager.NeedsApproval(other, nil) {
+		t.Fatal("the other docs server inherited the approval")
+	}
+	manager.mu.Lock()
+	user.sessionOff = true
+	manager.mu.Unlock()
+	if other := nameFor(project); !manager.NeedsApproval(other, nil) {
+		t.Fatalf("%s moved to the other server and kept the approval", other)
+	}
+	manager.mu.Lock()
+	user.sessionOff = false
+	manager.mu.Unlock()
+	if manager.NeedsApproval(nameFor(user), nil) {
+		t.Fatal("approval lost for the server it was given to")
+	}
+}

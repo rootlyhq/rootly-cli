@@ -871,10 +871,33 @@ func (m *Manager) NeedsApproval(name string, args map[string]any) bool {
 		return true
 	}
 	if ref.ServerID != builtinServerID {
-		return !ref.ReadOnly && !m.sessionTools[name]
+		return !ref.ReadOnly && !m.sessionTools[sessionToolKey(ref)]
 	}
 	tool, ok := m.builtins.Lookup(name)
 	return !ok || !m.builtinEnabledLocked(name) || tool.NeedsApproval(args)
+}
+
+// sessionToolKey identifies an MCP tool by its server and original name:
+// generated client names are rebuilt each turn and can move between servers.
+func sessionToolKey(ref ToolRef) string {
+	return ref.ServerID + "\x00" + ref.Tool
+}
+
+// ReadOnlyCall reports whether a call reads only on its own merits (not
+// through a remembered approval or allow rule), so it may run alongside
+// other reads.
+func (m *Manager) ReadOnlyCall(name string, args map[string]any) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ref, ok := m.toolRefs[name]
+	if !ok {
+		return false
+	}
+	if ref.ServerID != builtinServerID {
+		return ref.ReadOnly
+	}
+	tool, ok := m.builtins.Lookup(name)
+	return ok && m.builtinEnabledLocked(name) && tool.Approval(args).ReadOnly
 }
 
 // ApprovalOptions are the ways a call that needs approval may be remembered:
@@ -919,8 +942,12 @@ func (m *Manager) RememberApproval(name string, args map[string]any, persist boo
 		return nil
 	case options.Session && !persist:
 		m.mu.Lock()
-		m.sessionTools[name] = true
-		m.mu.Unlock()
+		defer m.mu.Unlock()
+		ref, ok := m.toolRefs[name]
+		if !ok {
+			return errors.New("unknown local tool " + name)
+		}
+		m.sessionTools[sessionToolKey(ref)] = true
 		return nil
 	}
 	return errors.New("this call can only be approved once")

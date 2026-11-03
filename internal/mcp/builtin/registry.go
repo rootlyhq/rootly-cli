@@ -25,11 +25,14 @@ type Tool interface {
 
 // Approval is the local decision for one call. Prefix is the command prefix
 // the user may allow for the session or save as a rule; nil means the call
-// can only be approved once.
+// can only be approved once. ReadOnly means the call only reads on its own
+// merits, not because a rule or approval allows it, so it may run alongside
+// other reads.
 type Approval struct {
 	Needs     bool
 	Forbidden string
 	Prefix    []string
+	ReadOnly  bool
 }
 
 type LookPathFunc func(string) (string, error)
@@ -60,7 +63,8 @@ func (t localTool) Approval(args map[string]any) Approval {
 	if t.approve != nil {
 		return t.approve(args)
 	}
-	return Approval{Needs: t.needsApproval(args)}
+	needs := t.needsApproval(args)
+	return Approval{Needs: needs, ReadOnly: !needs}
 }
 
 func (t localTool) Run(ctx context.Context, args map[string]any) Result {

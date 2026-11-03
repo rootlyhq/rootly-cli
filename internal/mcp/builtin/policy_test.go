@@ -363,12 +363,13 @@ func TestAutoApprovedGitReadsCannotRunRepoProgramsOrLeakDeniedFiles(t *testing.T
 	for _, command := range []string{
 		"git show " + envBlob, "git show " + envBlob[:12], "git diff " + oldEnvBlob + " " + envBlob,
 		"git diff " + oldEnvBlob + ".." + envBlob, "git show HEAD^{tree}", "git show envblob", "git log -p " + envBlob,
+		"git show v9.9.9",
 	} {
 		if !bash.NeedsApproval(map[string]any{"command": command}) {
 			t.Errorf("%q names a blob or tree and must ask", command)
 		}
 	}
-	for _, command := range []string{"git show HEAD~1", "git diff HEAD~1..HEAD", "git log -n 2 -p", "git show v9.9.9"} {
+	for _, command := range []string{"git show HEAD~1", "git diff HEAD~1..HEAD", "git log -n 2 -p"} {
 		if bash.NeedsApproval(map[string]any{"command": command}) {
 			t.Errorf("%q names commits only and should not ask", command)
 		}
@@ -472,6 +473,141 @@ func TestSymlinkedWorkspaceRootIsComparedResolved(t *testing.T) {
 		}
 		if !isKnownSafeCommand([]string{"cat", "README.md"}, root) || isKnownSafeCommand([]string{"cat", "escape"}, root) {
 			t.Errorf("root %s: cat classification changed through the symlinked root", root)
+		}
+	}
+}
+
+func TestWorktreeConfigFiltersAsk(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("filter below uses a POSIX shell command")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	initTestRepo(t, root, "README.md")
+	runGit(t, root, "config", "extensions.worktreeConfig", "true")
+	if repoConfigRunsFilters([]string{"diff"}, root) {
+		t.Fatal("no filter configured yet")
+	}
+	runGit(t, root, "config", "--worktree", "filter.evil.clean", "touch pwned; cat")
+	for _, command := range [][]string{{"git", "diff"}, {"git", "status"}} {
+		if isKnownSafeCommand(command, root) {
+			t.Errorf("%v must ask when config.worktree defines a clean filter", command)
+		}
+	}
+}
+
+func TestFileSafeCommandsCannotWriteOrReadOutsideNames(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"in.txt", "out.txt", "list"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("x\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, argv := range [][]string{
+		{"uniq", "in.txt"}, {"uniq", "-c", "in.txt"}, {"uniq", "-f", "1", "-s", "2", "in.txt"}, {"uniq"}, {"wc", "-l", "in.txt"},
+	} {
+		if !isKnownSafeCommand(argv, root) {
+			t.Errorf("%v only reads and should run unasked", argv)
+		}
+	}
+	for _, argv := range [][]string{
+		{"uniq", "in.txt", "out.txt"}, {"uniq", "-", "out.txt"}, {"uniq", "-c", "in.txt", "missing.txt"}, {"uniq", "--", "in.txt", "out.txt"},
+		{"wc", "--files0-from=list"}, {"wc", "--files0-from", "list"}, {"find", ".", "-files0-from", "list"},
+	} {
+		if isKnownSafeCommand(argv, root) {
+			t.Errorf("%v writes or reads names it doesn't show and must ask", argv)
+		}
+	}
+}
+
+func TestGitBlobSpecsAskEvenForDeniedPaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"README.md", ".env", filepath.Join("sub", ".env")} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("TOKEN=x\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	initTestRepo(t, root, "README.md", ".env", filepath.Join("sub", ".env"))
+	for _, spec := range []string{"HEAD:.env", ":.env", ":0:.env", "HEAD:sub/.env", "HEAD:./.env", "HEAD~1:.env", "HEAD:README.md"} {
+		for _, sub := range []string{"show", "log", "diff"} {
+			if isKnownSafeCommand([]string{"git", sub, spec}, root) {
+				t.Errorf("git %s %s names a blob, which pathspec excludes can't filter, and must ask", sub, spec)
+			}
+		}
+	}
+}
+
+func TestForbiddenRulesSurviveRedirectsAndComplexSyntax(t *testing.T) {
+	home := t.TempDir()
+	rules := filepath.Join(home, "rules")
+	if err := os.MkdirAll(rules, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "prefix_rule(pattern=[\"git\", \"push\"], decision=\"forbidden\", justification=\"no pushes\")\n"
+	if err := os.WriteFile(filepath.Join(rules, "default.rules"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(home, "ran")
+	bash := mustLookup(t, testRegistryWithPolicy(t, home, LoadPolicy(rules)), "local_bash")
+	for _, command := range []string{
+		"git push", "git push > push.log", "git push 2>&1 | tee push.log", "echo $(git push)", "x=1 git push",
+		"sudo git push", "env A=1 git push", "/usr/bin/git push", "bash -c 'git push'", "eval git push",
+		"true && { git push; }", "(git push)", "for i in 1; do git push; done", "git push &", `git "push"`,
+		"git push ((",
+	} {
+		approval := bash.Approval(map[string]any{"command": command})
+		if approval.Forbidden != "no pushes" {
+			t.Errorf("%q lost its forbidden verdict: %+v", command, approval)
+		}
+		result := bash.Run(context.Background(), map[string]any{"command": command + "; touch " + marker})
+		if !result.IsError || !strings.Contains(result.Output, "Blocked by a rule") {
+			t.Errorf("%q ran despite a forbidden rule: %s", command, result.Output)
+		}
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a forbidden script ran")
+	}
+	if approval := bash.Approval(map[string]any{"command": "git status > /tmp/x"}); approval.Forbidden != "" || !approval.Needs {
+		t.Fatalf("an unrelated redirect should ask, not be forbidden: %+v", approval)
+	}
+}
+
+func TestGitRevisionSetsAreCommits(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	initTestRepo(t, root, "README.md")
+	bash := mustLookup(t, testRegistryWithPolicy(t, root, LoadPolicy(filepath.Join(t.TempDir(), "rules"))), "local_bash")
+	config := "git " + gitHardeningConfig
+	for command, want := range map[string]string{
+		"git log --oneline HEAD^!": config + " log " + gitDiffHardening + " --oneline HEAD^! -- " + gitDeniedPathspecs,
+		"git log -1 HEAD^@":        config + " log " + gitDiffHardening + " -1 HEAD^@ -- " + gitDeniedPathspecs,
+		"git log HEAD^-":           config + " log " + gitDiffHardening + " HEAD^- -- " + gitDeniedPathspecs,
+		"git diff HEAD^-1":         config + " diff " + gitDiffHardening + " HEAD^-1 -- " + gitDeniedPathspecs,
+	} {
+		if bash.NeedsApproval(map[string]any{"command": command}) {
+			t.Errorf("%q names commits and should run unasked", command)
+			continue
+		}
+		if got := hardenSafeGit(command, root); got != want {
+			t.Errorf("hardenSafeGit(%q)\n got %q\nwant %q", command, got, want)
+		}
+	}
+	for _, command := range []string{"git log --oneline HEAD^!", "git log -1 HEAD^@"} {
+		result := bash.Run(context.Background(), map[string]any{"command": command})
+		if result.IsError || strings.TrimSpace(result.Output) == "" {
+			t.Errorf("%q returned no commits after hardening: %s", command, result.Output)
+		}
+	}
+	for _, command := range []string{"git log nosuchref", "git log ^!", "git log HEAD^!..HEAD", "git show nosuch^@"} {
+		if !bash.NeedsApproval(map[string]any{"command": command}) {
+			t.Errorf("%q is neither a commit nor a known path and must ask", command)
 		}
 	}
 }

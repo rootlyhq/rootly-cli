@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -150,7 +151,7 @@ func isKnownSafeCommand(argv []string, root string) bool {
 	case slices.Contains(plainSafeCommands, name):
 		return true
 	case slices.Contains(fileSafeCommands, name):
-		return pathArgsStayInRoot(args, root)
+		return fileCommandOnlyReads(name, args) && pathArgsStayInRoot(args, root)
 	}
 	switch name {
 	case "grep":
@@ -166,6 +167,35 @@ func isKnownSafeCommand(argv []string, root string) bool {
 		return gitIsReadOnly(args, root) && !repoConfigRunsFilters(args, root)
 	}
 	return false
+}
+
+// fileCommandOnlyReads rejects the operands and flags of fileSafeCommands
+// that write a file or read paths from a file: uniq's second operand is its
+// output, and wc --files0-from reads names that pathArgsStayInRoot never sees.
+func fileCommandOnlyReads(name string, args []string) bool {
+	switch name {
+	case "uniq":
+		return uniqOperands(args) <= 1
+	case "wc":
+		return !hasFlag(args, "--files0-from")
+	}
+	return true
+}
+
+func uniqOperands(args []string) int {
+	operands := 0
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch {
+		case arg == "--":
+			return operands + len(args) - index - 1
+		case arg == "-f" || arg == "-s" || arg == "-w":
+			index++
+		case arg == "-" || !strings.HasPrefix(arg, "-"):
+			operands++
+		}
+	}
+	return operands
 }
 
 func hasFlag(args []string, flags ...string) bool {
@@ -197,7 +227,7 @@ func grepRecurses(args []string) bool {
 }
 
 func findIsReadOnly(args []string) bool {
-	unsafe := []string{"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fls", "-fprint", "-fprint0", "-fprintf"}
+	unsafe := []string{"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fls", "-fprint", "-fprint0", "-fprintf", "-files0-from"}
 	for _, arg := range args {
 		if slices.Contains(unsafe, arg) {
 			return false
@@ -368,18 +398,24 @@ const (
 	gitRevUnknown
 )
 
-// gitClassifyRev asks git what a positional means: a commit (or a range of
-// commits), a blob or tree object, whose content pathspec excludes can't
-// filter, or neither, in which case it is where paths start.
+// gitClassifyRev asks git what a positional means: a commit (a range or a
+// revision set), a blob or tree object, whose content pathspec excludes
+// can't filter, a path git knows, or unknown, which asks rather than guess.
 func gitClassifyRev(root, arg string) gitRevKind {
 	sides := []string{arg}
-	if strings.Contains(arg, "..") {
+	isRange := strings.Contains(arg, "..")
+	if isRange {
 		sides = strings.Split(strings.ReplaceAll(arg, "...", ".."), "..")
 	}
-	kind := gitRevCommit
 	for _, side := range sides {
 		if side == "" {
 			continue
+		}
+		if base := gitRevSetSuffix.ReplaceAllString(side, ""); base != side {
+			if base == "" || isRange {
+				return gitRevUnknown
+			}
+			side = base
 		}
 		ok, err := gitSucceeds(root, "rev-parse", "--verify", "--quiet", "--end-of-options", side+"^{commit}")
 		switch {
@@ -394,10 +430,26 @@ func gitClassifyRev(root, arg string) gitRevKind {
 			return gitRevUnknown
 		case output == "blob" || output == "tree":
 			return gitRevContent
+		case isRange || !gitKnowsPath(root, side):
+			return gitRevUnknown
 		}
-		kind = gitRevPath
+		return gitRevPath
 	}
-	return kind
+	return gitRevCommit
+}
+
+// gitRevSetSuffix matches the revision-set notations HEAD^!, HEAD^@ and
+// HEAD^-N, which name commits but don't peel with ^{commit}.
+var gitRevSetSuffix = regexp.MustCompile(`\^(!|@|-\d*)$`)
+
+// gitKnowsPath reports whether arg is clearly a path: it exists in the
+// worktree or git tracks it (e.g. a deleted file not yet committed).
+func gitKnowsPath(root, arg string) bool {
+	if _, err := os.Lstat(filepath.Join(root, arg)); err == nil {
+		return true
+	}
+	ok, err := gitSucceeds(root, "ls-files", "--error-unmatch", "--", ":(literal)"+arg)
+	return err == nil && ok
 }
 
 // gitSucceeds runs a hardened git lookup in root. ok is false when git exits
@@ -430,8 +482,8 @@ func runGitLookup(root string, args []string) (output string, ok bool, err error
 	return "", false, runErr
 }
 
-// repoConfigRunsFilters reports whether repository config (not the user's
-// own global config) defines clean/smudge filters, which git diff and
+// repoConfigRunsFilters reports whether repository or worktree config (not
+// the user's own global or system config) defines clean/smudge filters, which git diff and
 // status run on working-tree files and no flag can switch off.
 func repoConfigRunsFilters(args []string, root string) bool {
 	if !slices.Contains(args, "diff") && !slices.Contains(args, "status") {
@@ -439,7 +491,7 @@ func repoConfigRunsFilters(args []string, root string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "config", "--local", "--includes", "--null", "--get-regexp", `^filter\..+\.(clean|smudge|process)$`)
+	cmd := exec.CommandContext(ctx, "git", "config", "--includes", "--null", "--get-regexp", `^filter\..+\.(clean|smudge|process)$`)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
 	err := cmd.Run()
@@ -533,4 +585,109 @@ func gitBranchIsReadOnly(args []string) bool {
 		}
 	}
 	return true
+}
+
+// scriptForbidden matches forbidden rules against every command a script
+// could run, whatever its redirects, expansions or nesting: each simple
+// command in the AST, the command behind wrappers such as sudo or env, and
+// bash -c / eval bodies. A script that doesn't parse is matched token by
+// token. It returns the justification of the first forbidden match.
+func scriptForbidden(policy *Policy, script string) string {
+	for _, argv := range forbiddenCandidates(script, 0) {
+		if decision, justification := policy.Evaluate(argv); decision == DecisionForbidden {
+			if justification == "" {
+				justification = strings.Join(argv, " ")
+			}
+			return justification
+		}
+	}
+	return ""
+}
+
+func forbiddenCandidates(script string, depth int) [][]string {
+	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(script), "")
+	if err != nil || depth > 3 {
+		return tokenSuffixes(strings.FieldsFunc(script, func(r rune) bool {
+			return unicode.IsSpace(r) || strings.ContainsRune(";|&()<>`'\"${}\\", r)
+		}))
+	}
+	var candidates [][]string
+	syntax.Walk(file, func(node syntax.Node) bool {
+		call, ok := node.(*syntax.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		argv := make([]string, len(call.Args))
+		for index, word := range call.Args {
+			argv[index] = looseWord(word)
+		}
+		candidates = append(candidates, commandCandidates(argv, depth)...)
+		return true
+	})
+	return candidates
+}
+
+// looseWord renders the literal parts of a word; anything dynamic becomes a
+// placeholder no rule matches.
+func looseWord(word *syntax.Word) string {
+	var value strings.Builder
+	for _, part := range word.Parts {
+		switch part := part.(type) {
+		case *syntax.Lit:
+			value.WriteString(part.Value)
+		case *syntax.SglQuoted:
+			value.WriteString(part.Value)
+		case *syntax.DblQuoted:
+			for _, inner := range part.Parts {
+				if lit, ok := inner.(*syntax.Lit); ok {
+					value.WriteString(lit.Value)
+				} else {
+					value.WriteString("\x00")
+				}
+			}
+		default:
+			value.WriteString("\x00")
+		}
+	}
+	return value.String()
+}
+
+var shellInterpreters = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true}
+
+func commandCandidates(argv []string, depth int) [][]string {
+	if len(argv) == 0 {
+		return nil
+	}
+	candidates := [][]string{argv}
+	name := filepath.Base(argv[0])
+	if name != argv[0] {
+		candidates = append(candidates, append([]string{name}, argv[1:]...))
+	}
+	switch {
+	case name == "eval":
+		candidates = append(candidates, forbiddenCandidates(strings.Join(argv[1:], " "), depth+1)...)
+	case shellInterpreters[name]:
+		for index, arg := range argv[1:] {
+			if strings.HasPrefix(arg, "-") && strings.Contains(arg, "c") && index+2 < len(argv) {
+				candidates = append(candidates, forbiddenCandidates(argv[index+2], depth+1)...)
+				break
+			}
+		}
+	case unrememberableCommands[name]:
+		for index := 1; index < len(argv); index++ {
+			candidates = append(candidates, commandCandidates(argv[index:], depth)...)
+		}
+	}
+	return candidates
+}
+
+func tokenSuffixes(tokens []string) [][]string {
+	suffixes := make([][]string, 0, len(tokens)*2)
+	for index := range tokens {
+		suffixes = append(suffixes, tokens[index:])
+		if base := filepath.Base(tokens[index]); base != tokens[index] {
+			suffixes = append(suffixes, append([]string{base}, tokens[index+1:]...))
+		}
+	}
+	return suffixes
 }
