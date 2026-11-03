@@ -41,11 +41,15 @@ type ToolResultPoster interface {
 	PostAiChatToolResult(context.Context, api.ToolResult) error
 }
 
-func localToolFailure(tools LocalTools, call *ClientToolCall, output string) string {
-	label := "local · " + call.Name
+func localToolLabel(tools LocalTools, call *ClientToolCall) string {
 	if ref, ok := resolveLocalCall(tools, call); ok {
-		label = "local · " + ref.ServerName + " · " + ref.Tool
+		return "local · " + ref.ServerName + " · " + ref.Tool
 	}
+	return "local · " + call.Name
+}
+
+func localToolFailure(tools LocalTools, call *ClientToolCall, output string) string {
+	label := localToolLabel(tools, call)
 	reason, _, _ := strings.Cut(strings.TrimSpace(output), "\n")
 	if runes := []rune(reason); len(runes) > 160 {
 		reason = string(runes[:160]) + "…"

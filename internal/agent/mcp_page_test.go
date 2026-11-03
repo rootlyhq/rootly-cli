@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 
 	tea "charm.land/bubbletea/v2"
+	rootly "github.com/rootlyhq/rootly-go"
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/mcp"
@@ -27,6 +31,7 @@ type fakeMCPManager struct {
 	resources      map[string]string
 	readLimits     []int
 	added          []mcp.MarketEntry
+	promptText     string
 }
 
 func (f *fakeMCPManager) Views() []mcp.ServerView             { return f.views }
@@ -67,6 +72,9 @@ func (f *fakeMCPManager) AddFromMarket(entry mcp.MarketEntry) (mcp.Server, error
 func (f *fakeMCPManager) GetPrompt(_ context.Context, serverID, name string, arguments map[string]string) (string, error) {
 	if !strings.HasSuffix(serverID, ":docs") {
 		return "", errors.New("not connected")
+	}
+	if f.promptText != "" {
+		return f.promptText, nil
 	}
 	return fmt.Sprintf("prompt %s %v", name, arguments), nil
 }
@@ -548,4 +556,89 @@ func TestTUIRememberedWritesStillRunOneAtATime(t *testing.T) {
 	if got := strings.Join(manager.calls, ","); got != "local_apply,local_apply,local_read" {
 		t.Fatalf("local tool order = %s", got)
 	}
+}
+
+func TestTUIFailedToolResultDeliveryEndsTheTurn(t *testing.T) {
+	manager := &fakeMCPManager{changes: make(chan struct{})}
+	manager.tools = map[string]mcp.ToolRef{
+		"local_read_one":  {ServerID: "builtin", ServerName: "Built-in", Tool: "read_one", ReadOnly: true},
+		"local_write_one": {ServerID: "builtin", ServerName: "Built-in", Tool: "write_one"},
+	}
+	streamer := &twoTurnStreamer{firstStopped: make(chan struct{})}
+	poster := &switchableToolResultPoster{err: errors.New("post failed \x1b]52;c;bad\x07")}
+	model := NewTUIModel(context.Background(), streamer, TUIOptions{NoColor: true, API: &fakeConnectorAPI{}, MCP: manager, ToolResults: poster})
+	model.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	model.submitPrompt("first")
+	streamCtx := model.streamCtx
+
+	read := model.handleClientToolCall(&ClientToolCall{CallID: "read-1", Name: "local_read_one"})
+	model.handleClientToolCall(&ClientToolCall{CallID: "write-1", Name: "local_write_one"})
+	if read == nil || len(model.localToolQueue) != 1 {
+		t.Fatal("expected the read to run and the write to queue")
+	}
+	runCmd(model, read)
+	if model.state != tuiIdle || model.stream != nil || streamCtx.Err() == nil {
+		t.Fatal("a failed result delivery should cancel the stream and end the turn")
+	}
+	select {
+	case <-streamer.firstStopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first stream kept running after the failed delivery")
+	}
+	if model.localConfirm != nil || len(model.localToolQueue) != 0 || model.localApprovalRunning || model.localReadOnlyRunning != 0 {
+		t.Fatal("local tool state was not reset")
+	}
+	if got := strings.Join(manager.calls, ","); got != "local_read_one" {
+		t.Fatalf("queued tool ran after the failed delivery: %s", got)
+	}
+	transcript := transcriptText(model)
+	if strings.Count(transcript, "result not delivered") != 1 || !strings.Contains(transcript, "local · Built-in · read_one") || strings.Contains(transcript, "\x1b") {
+		t.Fatalf("want one sanitized error line naming the tool:\n%q", transcript)
+	}
+
+	poster.err = nil
+	model.submitPrompt("second")
+	for range 10 {
+		if model.state != tuiStreaming {
+			break
+		}
+		runCmd(model, model.waitForStream())
+	}
+	if model.state != tuiIdle || model.lastAnswer != "second answer" || model.status != "" {
+		t.Fatalf("the next prompt did not stream normally:\n%s", transcriptText(model))
+	}
+}
+
+type switchableToolResultPoster struct {
+	err error
+}
+
+func (p *switchableToolResultPoster) PostAiChatToolResult(context.Context, api.ToolResult) error {
+	return p.err
+}
+
+// twoTurnStreamer holds its first turn open, as Rails does while it waits for
+// a local tool result, and answers the second.
+type twoTurnStreamer struct {
+	mu           sync.Mutex
+	calls        int
+	firstStopped chan struct{}
+}
+
+func (s *twoTurnStreamer) StreamAiChatEvents(ctx context.Context, _ *rootly.StreamAiChatParams) (iter.Seq2[rootly.AiChatStreamEvent, error], error) {
+	s.mu.Lock()
+	s.calls++
+	first := s.calls == 1
+	s.mu.Unlock()
+	if first {
+		return func(func(rootly.AiChatStreamEvent, error) bool) {
+			<-ctx.Done()
+			close(s.firstStopped)
+		}, nil
+	}
+	return func(yield func(rootly.AiChatStreamEvent, error) bool) {
+		if yield(eventOf(rootly.AiChatStreamEventText, `{"content":"second answer"}`), nil) {
+			yield(eventOf(rootly.AiChatStreamEventDone, `{"status":"complete"}`), nil)
+		}
+	}, nil
 }

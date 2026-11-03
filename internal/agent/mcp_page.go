@@ -982,6 +982,9 @@ func (m *TUIModel) updateLocalMCP(message tea.Msg) (tea.Cmd, bool) {
 		m.handleMarketLoaded(msg)
 		return nil, true
 	case localToolDoneMsg:
+		if msg.err != nil && msg.turn == m.turn && m.state == tuiStreaming {
+			return m.failLocalToolDelivery(msg), true
+		}
 		var cmds []tea.Cmd
 		if msg.failure != "" && msg.turn == m.turn {
 			cmds = append(cmds, m.println(m.activityLine(msg.failure)))
@@ -990,15 +993,20 @@ func (m *TUIModel) updateLocalMCP(message tea.Msg) (tea.Cmd, bool) {
 			m.credHintShown = true
 			cmds = append(cmds, m.println(faint(m.noColor, localCredsHint)))
 		}
-		if msg.err != nil && msg.turn == m.turn {
-			cmds = append(cmds, m.println(faint(m.noColor, sanitizeTerminalText(msg.err.Error()))))
-		}
 		if cmd := m.handleLocalToolDone(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		return tea.Batch(cmds...), true
 	}
 	return nil, false
+}
+
+// failLocalToolDelivery ends the turn when a local result can't reach the
+// server, as print mode does: the server would otherwise wait for it forever.
+// finishTurn cancels the stream and drops the rest of the local queue.
+func (m *TUIModel) failLocalToolDelivery(msg localToolDoneMsg) tea.Cmd {
+	_, cmd := m.finishTurn(fmt.Errorf("✗ %s: result not delivered to Rootly, turn stopped: %w", msg.tool, msg.err))
+	return cmd
 }
 
 func (m *TUIModel) handleLocalToolDone(msg localToolDoneMsg) tea.Cmd {

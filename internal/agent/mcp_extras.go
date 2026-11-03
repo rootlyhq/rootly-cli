@@ -200,7 +200,7 @@ func (m *TUIModel) handleMCPPrompt(msg mcpPromptMsg) tea.Cmd {
 	if msg.err != nil {
 		return m.println(faint(m.noColor, sanitizeTerminalText("Prompt "+msg.label+" failed: "+msg.err.Error())))
 	}
-	return m.submitPrompt(msg.text)
+	return m.submitPrompt(sanitizeTerminalText(msg.text))
 }
 
 func (m *TUIModel) listMCPPrompts() tea.Cmd {

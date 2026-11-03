@@ -239,6 +239,7 @@ type localToolDoneMsg struct {
 	activity *pendingActivity
 	credHint bool
 	failure  string
+	tool     string
 	approval bool
 	readOnly bool
 }
@@ -1746,6 +1747,9 @@ func (m *TUIModel) runLocalTool(call *ClientToolCall, declined, approval, readOn
 			credHint: looksLikeExpiredCreds(result),
 			approval: approval,
 			readOnly: readOnly,
+		}
+		if done.err != nil {
+			done.tool = localToolLabel(tools, call)
 		}
 		if !declined && result.IsError {
 			done.failure = localToolFailure(tools, call, result.Output)

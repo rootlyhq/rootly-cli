@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
+	rootly "github.com/rootlyhq/rootly-go"
 
 	"github.com/rootlyhq/rootly-cli/internal/mcp"
 )
@@ -268,5 +270,24 @@ func TestMCPListRowShowsFullCountsAtTypicalWidth(t *testing.T) {
 	model.mcpPage.open = true
 	if view := model.mcpPageView(); !strings.Contains(view, "✔ 22 tools · 11 resources · 4 prompts") {
 		t.Fatalf("list row clipped the capability counts:\n%s", view)
+	}
+}
+
+func TestMCPPromptTextLosesTerminalControls(t *testing.T) {
+	manager := extrasManager()
+	manager.promptText = "clear\x1b[2J\x1b[H then\x1b]52;c;cGF5bG9hZA==\x07 copy \x1b]0;title\x1b\\ and \x9b31m forge"
+	model := NewTUIModel(context.Background(), &fakeStreamer{responses: [][]rootly.AiChatStreamEvent{{}}}, TUIOptions{NoColor: true, API: &fakeConnectorAPI{}, MCP: manager})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	cmd := model.handleMCPPrompt(mcpPromptMsg{request: model.mentionRequest, label: "/docs:summarize", text: manager.promptText})
+	if cmd == nil || model.state != tuiStreaming {
+		t.Fatal("prompt was not submitted")
+	}
+	for _, text := range []string{transcriptText(model), model.currentPrompt, model.promptHistory[len(model.promptHistory)-1], *model.currentParams.Message} {
+		if strings.ContainsAny(text, "\x1b\x07") || strings.Contains(text, "\x9b") || strings.Contains(text, "]52;") {
+			t.Fatalf("terminal control survived: %q", text)
+		}
+	}
+	if !strings.Contains(transcriptText(model), "clear then copy  and 31m forge") {
+		t.Fatalf("prompt text was lost: %q", transcriptText(model))
 	}
 }
