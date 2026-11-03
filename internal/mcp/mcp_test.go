@@ -216,11 +216,16 @@ bearer_token_env_var = "LINEAR_TOKEN"
 	writeFile(t, filepath.Join(home, ".cursor", "mcp.json"), `{"mcpServers":{"cursor-user":{"command":"uvx","args":["x"]}}}`)
 	writeFile(t, filepath.Join(project, ".cursor", "mcp.json"), `{"mcpServers":{"cursor-project":{"url":"https://example.com/sse","type":"sse"}}}`)
 	writeFile(t, filepath.Join(project, ".vscode", "mcp.json"), `{"inputs":[],"servers":{"github":{"type":"http","url":"https://api.githubcopilot.com/mcp/"}}}`)
-	desktop := filepath.Join(home, ".config", "Claude", "claude_desktop_config.json")
-	if runtime.GOOS == "darwin" {
+	var desktop string
+	switch runtime.GOOS {
+	case "darwin":
 		desktop = filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
+	case "linux":
+		desktop = filepath.Join(home, ".config", "Claude", "claude_desktop_config.json")
 	}
-	writeFile(t, desktop, `{"mcpServers":{"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/Users/me/Desktop"]}}}`)
+	if desktop != "" {
+		writeFile(t, desktop, `{"mcpServers":{"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/Users/me/Desktop"]}}}`)
+	}
 
 	discovery := Discovery{Home: home, CWD: project, GOOS: runtime.GOOS}
 	servers, problems := discovery.Imported()
@@ -234,7 +239,11 @@ bearer_token_env_var = "LINEAR_TOKEN"
 			t.Errorf("%s should be imported read-only", server.Name)
 		}
 	}
-	for _, name := range []string{"sentry", "local-db", "docs", "linear", "cursor-user", "cursor-project", "github", "filesystem"} {
+	expected := []string{"sentry", "local-db", "docs", "linear", "cursor-user", "cursor-project", "github"}
+	if desktop != "" {
+		expected = append(expected, "filesystem")
+	}
+	for _, name := range expected {
 		if _, ok := got[name]; !ok {
 			t.Errorf("missing imported server %s (got %v)", name, got)
 		}

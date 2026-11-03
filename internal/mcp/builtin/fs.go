@@ -386,22 +386,28 @@ func isWithin(root, candidate string) bool {
 
 func deniedPath(candidate string) bool {
 	clean := filepath.Clean(candidate)
-	homes := make([]string, 0, 2)
-	if home := os.Getenv("HOME"); home != "" {
-		homes = append(homes, home)
-	}
-	if home, _ := os.UserHomeDir(); home != "" && (len(homes) == 0 || home != homes[0]) {
-		homes = append(homes, home)
-	}
-	for _, home := range homes {
-		for _, protected := range []string{
-			filepath.Join(home, ".ssh"),
-			filepath.Join(home, ".aws"),
-			filepath.Join(home, ".config", "gcloud"),
-			filepath.Join(home, ".kube", "config"),
-		} {
-			if isWithin(protected, clean) {
-				return true
+	userHome, _ := os.UserHomeDir()
+	for _, home := range []string{os.Getenv("HOME"), userHome} {
+		if home == "" {
+			continue
+		}
+		if absolute, err := filepath.Abs(home); err == nil {
+			home = absolute
+		}
+		protectedHomes := []string{home}
+		if resolved, err := filepath.EvalSymlinks(home); err == nil && resolved != home {
+			protectedHomes = append(protectedHomes, resolved)
+		}
+		for _, protectedHome := range protectedHomes {
+			for _, protected := range []string{
+				filepath.Join(protectedHome, ".ssh"),
+				filepath.Join(protectedHome, ".aws"),
+				filepath.Join(protectedHome, ".config", "gcloud"),
+				filepath.Join(protectedHome, ".kube", "config"),
+			} {
+				if isWithin(protected, clean) {
+					return true
+				}
 			}
 		}
 	}
