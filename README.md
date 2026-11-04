@@ -166,7 +166,7 @@ rootly incidents create --title="Release" \
 
 ### Incident Associations
 
-`incidents create` and `incidents update` can link an incident to other Rootly records. Each flag takes comma-separated slugs or IDs, like `rootly pulse --services`:
+`incidents create` and `incidents update` can link an incident to other Rootly records. Each flag takes comma-separated slugs or IDs, like `rootly pulse create --services`:
 
 | Flag | Links | API attribute |
 |------|-------|---------------|
