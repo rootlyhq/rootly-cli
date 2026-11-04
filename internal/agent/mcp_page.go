@@ -684,7 +684,14 @@ func (m *TUIModel) mcpSummary() string {
 			tools += len(view.Tools)
 		}
 	}
-	return fmt.Sprintf("%d servers · %d tools available to the agent", servers, tools)
+	summary := fmt.Sprintf("%d servers · %d tools available to the agent", servers, tools)
+	if m.mcp != nil {
+		_, omitted := m.mcp.ClientTools()
+		if len(omitted) > 0 {
+			summary += fmt.Sprintf(" · %d left out (max %d)", len(omitted), mcp.MaxClientTools)
+		}
+	}
+	return summary
 }
 
 func (m *TUIModel) mcpStyle(style lipgloss.Style, text string) string {

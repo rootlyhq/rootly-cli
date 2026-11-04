@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,10 +21,40 @@ const (
 
 // LocalTools is the agent's view of the local MCP manager.
 type LocalTools interface {
-	ClientTools() (tools []mcp.ClientTool, omitted int)
+	ClientTools() (tools []mcp.ClientTool, omitted []mcp.ToolRef)
 	Lookup(string) (mcp.ToolRef, bool)
 	NeedsApproval(string, map[string]any) bool
 	Call(context.Context, string, map[string]any) mcp.CallResult
+}
+
+func formatOmittedLocalTools(omitted []mcp.ToolRef) string {
+	count := len(omitted)
+	if count == 0 {
+		return ""
+	}
+
+	names := make([]string, 0, min(count, 5)+1)
+	for _, ref := range omitted[:min(count, 5)] {
+		names = append(names, sanitizeTerminalText(ref.ServerName)+" · "+sanitizeTerminalText(ref.Tool))
+	}
+	if remaining := count - 5; remaining > 0 {
+		names = append(names, fmt.Sprintf("… +%d more", remaining))
+	}
+	noun := "local tools"
+	if count == 1 {
+		noun = "local tool"
+	}
+	return fmt.Sprintf("%d %s left out (max %d per turn): %s. Turn off servers or tools you don't need in /mcp.",
+		count, noun, mcp.MaxClientTools, strings.Join(names, ", "))
+}
+
+func omittedLocalToolsKey(omitted []mcp.ToolRef) string {
+	keys := make([]string, len(omitted))
+	for index, ref := range omitted {
+		keys[index] = fmt.Sprintf("%q:%q:%q:%t", ref.ServerID, ref.ServerName, ref.Tool, ref.ReadOnly)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "\n")
 }
 
 // LocalApprovalMemory is implemented by managers that can remember approvals.

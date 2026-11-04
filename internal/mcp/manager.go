@@ -740,13 +740,12 @@ func (m *Manager) Login(ctx context.Context, id string, options LoginOptions) er
 
 // ClientTools returns the tools to advertise for the next turn and
 // remembers how each generated name maps back to its server and tool.
-func (m *Manager) ClientTools() (advertised []ClientTool, omitted int) {
+func (m *Manager) ClientTools() (advertised []ClientTool, omitted []ToolRef) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	namer := NewClientToolNamer()
 	refs := map[string]ToolRef{}
 	var tools []ClientTool
-	skipped := 0
 	total := 2
 	if m.builtins != nil {
 		builtinTools := m.builtins.Tools()
@@ -759,7 +758,10 @@ func (m *Manager) ClientTools() (advertised []ClientTool, omitted int) {
 			}
 			schema := tool.Schema()
 			if len(schema) > MaxSchemaBytes || len(tools) >= MaxClientTools {
-				skipped++
+				omitted = append(omitted, ToolRef{
+					ServerID: builtinServerID, ServerName: "Built-in",
+					Tool: strings.TrimPrefix(tool.Name(), ClientToolPrefix),
+				})
 				continue
 			}
 			candidate := ClientTool{
@@ -770,7 +772,10 @@ func (m *Manager) ClientTools() (advertised []ClientTool, omitted int) {
 			}
 			encoded, err := json.Marshal(candidate)
 			if err != nil || total+len(encoded)+1 > MaxClientToolsBytes {
-				skipped++
+				omitted = append(omitted, ToolRef{
+					ServerID: builtinServerID, ServerName: "Built-in",
+					Tool: strings.TrimPrefix(tool.Name(), ClientToolPrefix),
+				})
 				continue
 			}
 			total += len(encoded) + 1
@@ -790,7 +795,10 @@ func (m *Manager) ClientTools() (advertised []ClientTool, omitted int) {
 		for _, tool := range runtime.tools {
 			schema, ok := clientSchema(tool.InputSchema)
 			if !ok || len(tools) >= MaxClientTools {
-				skipped++
+				omitted = append(omitted, ToolRef{
+					ServerID: runtime.server.ID(), ServerName: runtime.server.Name, Tool: tool.Name,
+					ReadOnly: readOnly(tool),
+				})
 				continue
 			}
 			candidate := ClientTool{
@@ -801,7 +809,10 @@ func (m *Manager) ClientTools() (advertised []ClientTool, omitted int) {
 			}
 			encoded, _ := json.Marshal(candidate)
 			if total+len(encoded)+1 > MaxClientToolsBytes {
-				skipped++
+				omitted = append(omitted, ToolRef{
+					ServerID: runtime.server.ID(), ServerName: runtime.server.Name, Tool: tool.Name,
+					ReadOnly: readOnly(tool),
+				})
 				continue
 			}
 			total += len(encoded) + 1
@@ -810,7 +821,7 @@ func (m *Manager) ClientTools() (advertised []ClientTool, omitted int) {
 		}
 	}
 	m.toolRefs = refs
-	return tools, skipped
+	return tools, omitted
 }
 
 func firstNonEmpty(values ...string) string {

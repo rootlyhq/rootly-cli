@@ -222,6 +222,7 @@ type TUIModel struct {
 	marketRequest        int
 	credHintShown        bool
 	mcpStartupReported   bool
+	lastOmittedToolsKey  string
 }
 
 type localConfirmation struct {
@@ -1197,9 +1198,12 @@ func (m *TUIModel) beginStream(params *rootly.StreamAiChatParams) tea.Cmd {
 	m.sentTools = 0
 	streamCtx := ctx
 	if m.mcp != nil {
-		tools, _ := m.mcp.ClientTools()
+		tools, omitted := m.mcp.ClientTools()
 		m.sentTools = len(tools)
+		m.warnOmittedLocalTools(omitted)
 		streamCtx = api.WithClientTools(ctx, tools)
+	} else {
+		m.warnOmittedLocalTools(nil)
 	}
 
 	go func() {
@@ -1219,6 +1223,14 @@ func (m *TUIModel) beginStream(params *rootly.StreamAiChatParams) tea.Cmd {
 	}()
 
 	return tea.Batch(m.waitForStream(), m.spinner.Tick)
+}
+
+func (m *TUIModel) warnOmittedLocalTools(omitted []mcp.ToolRef) {
+	omittedKey := omittedLocalToolsKey(omitted)
+	if len(omitted) > 0 && omittedKey != m.lastOmittedToolsKey {
+		m.println(faint(m.noColor, formatOmittedLocalTools(omitted)))
+	}
+	m.lastOmittedToolsKey = omittedKey
 }
 
 func (m *TUIModel) resume(decision rootly.StreamAiChatParamsDecision) tea.Cmd {

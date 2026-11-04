@@ -14,9 +14,12 @@ import (
 
 func TestBuiltinBashIsOptInAndStatePersists(t *testing.T) {
 	manager, options := newBuiltinManager(t, func(string) (string, error) { return "", fmt.Errorf("not installed") })
-	tools, _ := manager.ClientTools()
+	tools, omitted := manager.ClientTools()
 	if containsClientTool(tools, "local_bash") {
 		t.Fatal("bash must be off by default")
+	}
+	if len(omitted) != 0 {
+		t.Fatalf("disabled built-ins must not be reported as omitted: %+v", omitted)
 	}
 	if result := manager.Call(context.Background(), "local_bash", map[string]any{"command": "printf unexpected"}); !result.IsError {
 		t.Fatal("disabled bash unexpectedly ran")
@@ -61,8 +64,8 @@ func TestCombinedClientToolLimitsAndBuiltinNameReservation(t *testing.T) {
 	addRuntimeTools(manager, "workspace", mcpTools)
 
 	tools, omitted := manager.ClientTools()
-	if len(tools) > MaxClientTools || omitted == 0 {
-		t.Fatalf("combined client tool count = %d, omitted = %d", len(tools), omitted)
+	if len(tools) > MaxClientTools || len(omitted) == 0 {
+		t.Fatalf("combined client tool count = %d, omitted = %d", len(tools), len(omitted))
 	}
 	if !containsClientTool(tools, "local_sentry_cli") {
 		t.Fatal("built-in sentry-cli name is missing")
@@ -114,8 +117,8 @@ func TestCombinedSchemaByteLimitWithMCPTools(t *testing.T) {
 	addRuntimeTools(manager, "large", tools)
 
 	advertised, omitted := manager.ClientTools()
-	if omitted == 0 || len(advertised) >= MaxClientTools {
-		t.Fatalf("large schemas were not limited: %d tools, %d omitted", len(advertised), omitted)
+	if len(omitted) == 0 || len(advertised) >= MaxClientTools {
+		t.Fatalf("large schemas were not limited: %d tools, %d omitted", len(advertised), len(omitted))
 	}
 	for _, tool := range advertised {
 		if len(tool.InputSchema) > MaxSchemaBytes {
@@ -128,6 +131,36 @@ func TestCombinedSchemaByteLimitWithMCPTools(t *testing.T) {
 	}
 	if len(encoded) > MaxClientToolsBytes {
 		t.Fatalf("combined schema payload is %d bytes, limit is %d", len(encoded), MaxClientToolsBytes)
+	}
+}
+
+func TestClientToolsReportsOmittedToolReferences(t *testing.T) {
+	manager, _ := newBuiltinManager(t, func(string) (string, error) { return "", fmt.Errorf("not installed") })
+	manager.builtins = nil
+
+	for _, serverName := range []string{"first", "second"} {
+		tools := make([]*sdk.Tool, 35)
+		for index := range tools {
+			tools[index] = &sdk.Tool{
+				Name:        fmt.Sprintf("tool_%02d", index),
+				InputSchema: map[string]any{"type": "object"},
+			}
+		}
+		addRuntimeTools(manager, serverName, tools)
+	}
+
+	advertised, omitted := manager.ClientTools()
+	if len(advertised) != MaxClientTools {
+		t.Fatalf("advertised %d tools, want %d", len(advertised), MaxClientTools)
+	}
+	if len(omitted) != 6 {
+		t.Fatalf("omitted %d tools, want 6: %+v", len(omitted), omitted)
+	}
+	for index, ref := range omitted {
+		wantName := fmt.Sprintf("tool_%02d", index+29)
+		if ref.ServerName != "second" || ref.Tool != wantName {
+			t.Errorf("omitted[%d] = %+v, want second · %s", index, ref, wantName)
+		}
 	}
 }
 

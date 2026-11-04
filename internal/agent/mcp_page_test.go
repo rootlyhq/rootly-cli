@@ -19,6 +19,23 @@ import (
 	"github.com/rootlyhq/rootly-cli/internal/mcp"
 )
 
+func TestMCPSummaryShowsOmittedToolCount(t *testing.T) {
+	model := &TUIModel{
+		mcp: &fakeMCPManager{
+			fakeLocalTools: fakeLocalTools{
+				omitted: []mcp.ToolRef{
+					{ServerName: "braintrust", Tool: "list_datasets"},
+					{ServerName: "braintrust", Tool: "query_logs"},
+				},
+			},
+		},
+	}
+
+	if got := model.mcpSummary(); !strings.HasSuffix(got, " · 2 left out (max 64)") {
+		t.Fatalf("mcpSummary() = %q", got)
+	}
+}
+
 type fakeMCPManager struct {
 	fakeLocalTools
 	views          []mcp.ServerView

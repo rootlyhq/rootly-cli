@@ -23,18 +23,19 @@ import (
 const localTestSessionID = "39fd7596-152c-43d3-afce-48b792ae386d"
 
 type fakeLocalTools struct {
-	mu     sync.Mutex
-	tools  map[string]mcp.ToolRef
-	calls  []string
-	output string
+	mu      sync.Mutex
+	tools   map[string]mcp.ToolRef
+	omitted []mcp.ToolRef
+	calls   []string
+	output  string
 }
 
-func (f *fakeLocalTools) ClientTools() (tools []mcp.ClientTool, omitted int) {
+func (f *fakeLocalTools) ClientTools() (tools []mcp.ClientTool, omitted []mcp.ToolRef) {
 	out := []mcp.ClientTool{}
 	for name, ref := range f.tools {
 		out = append(out, mcp.ClientTool{Name: name, Description: ref.Tool, InputSchema: json.RawMessage(`{"type":"object"}`), ReadOnly: ref.ReadOnly})
 	}
-	return out, 0
+	return out, f.omitted
 }
 
 func (f *fakeLocalTools) Lookup(name string) (mcp.ToolRef, bool) {
@@ -55,6 +56,49 @@ func (f *fakeLocalTools) Call(_ context.Context, name string, arguments map[stri
 		return mcp.CallResult{Output: f.output, IsError: true}
 	}
 	return mcp.CallResult{Output: fmt.Sprintf("ran %s with %v", name, arguments["path"])}
+}
+
+func TestFormatOmittedLocalTools(t *testing.T) {
+	omitted := make([]mcp.ToolRef, 7)
+	for index := range omitted {
+		omitted[index] = mcp.ToolRef{ServerName: fmt.Sprintf("server-%d", index), Tool: fmt.Sprintf("tool-%d", index)}
+	}
+
+	got := formatOmittedLocalTools(omitted)
+	for _, expected := range []string{
+		"7 local tools left out (max 64 per turn)",
+		"server-0 · tool-0",
+		"server-4 · tool-4",
+		"… +2 more",
+		"Turn off servers or tools you don't need in /mcp.",
+	} {
+		if !strings.Contains(got, expected) {
+			t.Errorf("formatOmittedLocalTools() = %q, missing %q", got, expected)
+		}
+	}
+	if strings.Contains(got, "server-5 · tool-5") {
+		t.Fatalf("formatted more than five names: %q", got)
+	}
+
+	singular := formatOmittedLocalTools([]mcp.ToolRef{{ServerName: "x", Tool: "y"}})
+	if want := "1 local tool left out (max 64 per turn): x · y."; !strings.Contains(singular, want) {
+		t.Fatalf("singular notice = %q, want it to contain %q", singular, want)
+	}
+}
+
+func TestTUIOmittedLocalToolsWarningAppearsOnlyWhenSetChanges(t *testing.T) {
+	model := &TUIModel{noColor: true, width: 120}
+	model.resetTranscript()
+	first := []mcp.ToolRef{{ServerID: "one", ServerName: "server", Tool: "tool"}}
+	changed := []mcp.ToolRef{{ServerID: "two", ServerName: "server", Tool: "tool"}}
+
+	model.warnOmittedLocalTools(first)
+	model.warnOmittedLocalTools(first)
+	model.warnOmittedLocalTools(changed)
+
+	if got := strings.Count(model.Transcript(), "local tool left out"); got != 2 {
+		t.Fatalf("warning appeared %d times, want 2:\n%s", got, model.Transcript())
+	}
 }
 
 func TestLocalToolConfirmationPreservesExecutableCode(t *testing.T) {
@@ -250,6 +294,19 @@ func TestPrintLocalToolResultControlsCompletionActivity(t *testing.T) {
 				t.Errorf("success markers = %d, want %d:\n%s", got, test.wantCheck, stderr.String())
 			}
 		})
+	}
+}
+
+func TestPrintOmittedLocalToolsNoticeUsesStderr(t *testing.T) {
+	tools := &fakeLocalTools{omitted: []mcp.ToolRef{{ServerName: "braintrust", Tool: "list_datasets"}}}
+	trip := newToolRoundTrip(t, 0, "")
+	stdout, stderr, _ := trip.run(t, tools, false, "")
+
+	if !strings.Contains(stderr, "1 local tool left out (max 64 per turn): braintrust · list_datasets") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if strings.Contains(stdout, "left out") {
+		t.Fatalf("omission notice leaked to stdout: %q", stdout)
 	}
 }
 

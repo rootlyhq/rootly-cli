@@ -133,8 +133,13 @@ func (r *printRun) runTurn(ctx context.Context) (bool, error) {
 	r.sentTools = 0
 	streamCtx := ctx
 	if r.options.LocalTools != nil {
-		tools, _ := r.options.LocalTools.ClientTools()
+		tools, omitted := r.options.LocalTools.ClientTools()
 		r.sentTools = len(tools)
+		if len(omitted) > 0 && r.options.Stderr != nil {
+			if _, err := fmt.Fprintln(r.options.Stderr, faint(r.options.NoColor, formatOmittedLocalTools(omitted))); err != nil {
+				return false, err
+			}
+		}
 		streamCtx = api.WithClientTools(ctx, tools)
 	}
 	err := StreamTurn(streamCtx, r.streamer, r.params, func(event Event) bool {
