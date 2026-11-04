@@ -23,7 +23,7 @@ const mixedEvents = `{"data": [
 	{"id": "ev-completed", "attributes": {"event": "Done", "status": "completed", "status_page_id": "page-3"}}
 ], "meta": {"current_page": 1, "total_pages": 1}}`
 
-func newClient(t *testing.T, handler http.HandlerFunc) (*api.Client, *int32) {
+func newClient(t *testing.T, handler http.HandlerFunc) (c *api.Client, count *int32) {
 	t.Helper()
 	var requests int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
