@@ -684,12 +684,14 @@ func (m *TUIModel) mcpSummary() string {
 			tools += len(view.Tools)
 		}
 	}
-	summary := fmt.Sprintf("%d servers · %d tools available to the agent", servers, tools)
+	var omitted []mcp.ToolRef
 	if m.mcp != nil {
-		omitted := m.mcp.OmittedClientTools()
-		if len(omitted) > 0 {
-			summary += fmt.Sprintf(" · %d left out (max %d)", len(omitted), mcp.MaxClientTools)
-		}
+		omitted = m.mcp.OmittedClientTools()
+		tools = max(0, tools-len(omitted))
+	}
+	summary := fmt.Sprintf("%d servers · %d tools available to the agent", servers, tools)
+	if len(omitted) > 0 {
+		summary += fmt.Sprintf(" · %d left out (max %d)", len(omitted), mcp.MaxClientTools)
 	}
 	return summary
 }

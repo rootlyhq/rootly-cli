@@ -36,6 +36,31 @@ func TestMCPSummaryShowsOmittedToolCount(t *testing.T) {
 	}
 }
 
+func TestMCPSummaryExcludesOmittedToolsFromAvailableCount(t *testing.T) {
+	model := &TUIModel{
+		mcp: &fakeMCPManager{
+			fakeLocalTools: fakeLocalTools{
+				omitted: make([]mcp.ToolRef, 6),
+			},
+			views: []mcp.ServerView{
+				{
+					Server: mcp.Server{Name: "workspace", Scope: mcp.ScopeUser},
+					Status: mcp.StatusConnected,
+					Tools:  make([]mcp.ToolInfo, 70),
+				},
+			},
+		},
+	}
+
+	model.refreshMCPViews()
+	got := model.mcpSummary()
+	for _, want := range []string{"64 tools available", "6 left out"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("mcpSummary() = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
 type fakeMCPManager struct {
 	fakeLocalTools
 	views          []mcp.ServerView
