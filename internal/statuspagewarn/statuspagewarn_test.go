@@ -3,8 +3,10 @@ package statuspagewarn
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -88,12 +90,30 @@ func TestIncidentFollowsPagination(t *testing.T) {
 	}
 }
 
-func TestIncidentStopsAtPageLimit(t *testing.T) {
-	client, requests := newClient(t, eventsHandler(`{"data": [], "meta": {"current_page": 1, "next_page": 2, "total_pages": 99}}`, http.StatusOK))
+func TestIncidentFollowsManyPages(t *testing.T) {
+	const last = 25
+	client, requests := newClient(t, func(w http.ResponseWriter, r *http.Request) {
+		n, _ := strconv.Atoi(r.URL.Query().Get("page[number]"))
+		status, next := "resolved", fmt.Sprintf(`"next_page": %d,`, n+1)
+		if n == last {
+			status, next = "investigating", ""
+		}
+		_, _ = fmt.Fprintf(w, `{"data": [{"id": "ev-%d", "attributes": {"status": %q, "status_page_id": "p"}}],
+			"meta": {"current_page": %d, %s "total_pages": %d}}`, n, status, n, next, last)
+	})
 	var buf bytes.Buffer
 	Incident(context.Background(), client, "inc-1", "resolved", &buf)
-	if int(*requests) != maxEventPages {
-		t.Errorf("expected %d requests, got %d", maxEventPages, *requests)
+	if int(*requests) != last || !strings.Contains(buf.String(), "events resolve ev-25") {
+		t.Errorf("expected open event from page %d, got %q after %d requests", last, buf.String(), *requests)
+	}
+}
+
+func TestIncidentStopsWhenPageIgnored(t *testing.T) {
+	client, requests := newClient(t, eventsHandler(`{"data": [{"id": "a", "attributes": {"status": "resolved"}}], "meta": {"current_page": 1, "next_page": 2}}`, http.StatusOK))
+	var buf bytes.Buffer
+	Incident(context.Background(), client, "inc-1", "resolved", &buf)
+	if *requests != 2 {
+		t.Errorf("expected 2 requests, got %d", *requests)
 	}
 }
 
