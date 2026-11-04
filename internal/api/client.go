@@ -2745,7 +2745,7 @@ func (c *Client) listIncidentAlertIDsCLI(ctx context.Context, incidentID string)
 	var ids []string
 	for page := 1; ; page++ {
 		path := fmt.Sprintf("/v1/incidents/%s/alerts?page[number]=%d&page[size]=%d", neturl.PathEscape(incidentID), page, pageSize)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+path, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+path, http.NoBody)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
