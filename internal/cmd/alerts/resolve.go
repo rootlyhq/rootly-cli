@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/rootlyhq/rootly-cli/internal/statuspagewarn"
 )
 
 var resolveCmd = &cobra.Command{
@@ -52,5 +54,8 @@ func runResolve(cmd *cobra.Command, args []string) error {
 
 	// Print success message to stdout
 	_, _ = fmt.Fprintf(os.Stdout, "Resolved alert %s\n", alertID)
+	if resolveIncidents {
+		statuspagewarn.AlertIncidents(cmd.Context(), apiClient, alertID, os.Stderr)
+	}
 	return nil
 }

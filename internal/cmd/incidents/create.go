@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/rootlyhq/rootly-cli/internal/printer"
+	"github.com/rootlyhq/rootly-cli/internal/statuspagewarn"
 )
 
 var createCmd = &cobra.Command{
@@ -148,6 +149,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	// Print success message to stderr
 	fmt.Fprintf(os.Stderr, "Created incident %s\n", incident.SequentialID)
+	statuspagewarn.Incident(cmd.Context(), apiClient, incident.ID, incident.Status, os.Stderr)
 
 	// Print incident to stdout using configured format
 	format := viper.GetString("format")
