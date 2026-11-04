@@ -100,6 +100,11 @@ rootly alerts ack <id>
 rootly alerts resolve <id>
 rootly alerts escalate <id>
 rootly alerts escalate <id> --escalation-policy=<uuid> --level=2
+rootly alerts escalate <id> --team=platform              # Page a team on the alert
+
+# Page a team for an incident (links the page to the incident)
+rootly incidents escalate INC-123 --team=platform
+rootly incidents escalate INC-123 --team=platform --escalation-policy=<uuid> --note="Database is down"
 
 # Services
 rootly services list
@@ -167,9 +172,13 @@ List a status page's templates with `rootly status-pages templates list --status
 
 `status-pages events create` and `status-pages events update` accept incident statuses `investigating`, `identified`, `monitoring`, and `resolved`, plus scheduled-maintenance statuses `scheduled`, `in_progress`, and `completed`. For `status-pages events resolve`, `--status` defaults to `resolved`; use `--status=completed` to complete scheduled maintenance.
 
-### Alert Escalation
+### Escalation
 
 `rootly alerts escalate <alert-id>` escalates an alert using its current policy. Optionally pass `--escalation-policy=<uuid>` and/or `--level=<n>` to select a policy or escalation level; levels must be at least 1. The API's error title is shown when escalation cannot proceed.
+
+Pass `--team=<slug-or-id>` instead to page a team on the existing alert. `--team` cannot be combined with `--level`; `--escalation-policy` adds that policy as an extra paging target.
+
+`rootly incidents escalate <incident-id> --team=<slug-or-id>` pages a team for an incident. The incident can be a UUID, slug, or sequential ID such as `INC-123`. It creates an alert that pages the team and links it to the incident. Optional `--escalation-policy=<uuid>` pages that policy as well, and `--note=<text>` is sent to the responders as the alert description. An unknown team or incident gives a clear error, and the API's error title is shown otherwise. Paging requires Rootly alerting to be enabled for the organization.
 
 ### Pulse Flags
 
@@ -232,7 +241,7 @@ rootly incidents list --sort=-created_at
 
 | Command | Subcommands | Aliases |
 |---------|-------------|---------|
-| `rootly incidents` | `list`, `get`, `create`, `update`, `delete` | `incident`, `inc` |
+| `rootly incidents` | `list`, `get`, `create`, `update`, `delete`, `escalate` | `incident`, `inc` |
 | `rootly alerts` | `list`, `get`, `create`, `update`, `ack`, `resolve`, `escalate` | `alert`, `alr` |
 | `rootly form-fields` | `list` | |
 | `rootly services` | `list`, `get`, `create`, `update`, `delete` | `service`, `svc` |

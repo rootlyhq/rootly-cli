@@ -60,7 +60,7 @@ func runEscalate(cmd *cobra.Command, args []string) error {
 
 	label := incident.ID
 	if incident.SequentialID != "" {
-		label = "INC-" + incident.SequentialID
+		label = incident.SequentialID
 	}
 	summary := fmt.Sprintf("Escalation for %s: %s", label, incident.Title)
 	alertID, err := apiClient.PageAlertTargetsCLI(cmd.Context(), "", summary, note, targets)
