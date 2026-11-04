@@ -210,7 +210,7 @@ func newToolRoundTrip(t *testing.T, accepted int, toolName string) *toolRoundTri
 	return trip
 }
 
-func (trip *toolRoundTrip) run(t *testing.T, tools LocalTools, stdinTTY bool, stdin string) (stdout, stderr string, result api.ToolResult) {
+func (trip *toolRoundTrip) run(t *testing.T, tools LocalTools, stdinTTY bool, stdin string, quiet ...bool) (stdout, stderr string, result api.ToolResult) {
 	t.Helper()
 	client, err := api.NewClient(&config.Config{APIKey: "test-token", Endpoint: trip.server.URL})
 	if err != nil {
@@ -224,6 +224,9 @@ func (trip *toolRoundTrip) run(t *testing.T, tools LocalTools, stdinTTY bool, st
 	options.NoColor = true
 	options.LocalTools = tools
 	options.ToolResults = client
+	if len(quiet) > 0 {
+		options.Quiet = quiet[0]
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := RunPrint(ctx, client, options); err != nil {
@@ -311,6 +314,16 @@ func TestPrintOmittedLocalToolsNoticeUsesStderr(t *testing.T) {
 	}
 	if strings.Contains(stdout, "left out") {
 		t.Fatalf("omission notice leaked to stdout: %q", stdout)
+	}
+}
+
+func TestPrintOmittedLocalToolsNoticeQuietModeWritesNothingToStderr(t *testing.T) {
+	tools := &fakeLocalTools{omitted: []mcp.ToolRef{{ServerName: "braintrust", Tool: "list_datasets"}}}
+	trip := newToolRoundTrip(t, 0, "")
+	_, stderr, _ := trip.run(t, tools, false, "", true)
+
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 }
 

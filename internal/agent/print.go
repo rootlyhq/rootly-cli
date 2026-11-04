@@ -135,7 +135,7 @@ func (r *printRun) runTurn(ctx context.Context) (bool, error) {
 	if r.options.LocalTools != nil {
 		tools, omitted := r.options.LocalTools.ClientTools()
 		r.sentTools = len(tools)
-		if len(omitted) > 0 && r.options.Stderr != nil {
+		if len(omitted) > 0 && r.options.Stderr != nil && !r.options.Quiet {
 			if _, err := fmt.Fprintln(r.options.Stderr, faint(r.options.NoColor, formatOmittedLocalTools(omitted))); err != nil {
 				return false, err
 			}
