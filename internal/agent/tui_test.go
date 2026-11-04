@@ -694,6 +694,108 @@ func TestTUIViewportFollowControls(t *testing.T) {
 	}
 }
 
+func TestTUIMouseWheelScrollsTranscript(t *testing.T) {
+	model := newSizedTUITestModel(80, 24)
+	for index := 0; index < 60; index++ {
+		model.println(fmt.Sprintf("history block %02d", index+1))
+	}
+	model.View()
+	start := model.viewport.YOffset()
+	if start == 0 {
+		t.Fatal("viewport content is not taller than its height")
+	}
+
+	_, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	scrolledUp := model.viewport.YOffset()
+	if scrolledUp >= start {
+		t.Fatalf("wheel up moved viewport from %d to %d, want upward scroll", start, scrolledUp)
+	}
+	_, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	if got := model.viewport.YOffset(); got != start {
+		t.Errorf("wheel down returned viewport to %d, want %d", got, start)
+	}
+}
+
+func TestTUIMouseWheelDoesNotChangeComposerHistory(t *testing.T) {
+	model := newSizedTUITestModel(80, 24)
+	model.promptHistory = []string{"previous prompt"}
+	model.historyIndex = -1
+	model.composer.SetValue("current draft")
+
+	_, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	if got := model.composer.Value(); got != "current draft" {
+		t.Errorf("wheel changed composer value to %q", got)
+	}
+	if model.historyIndex != -1 {
+		t.Errorf("wheel changed history index to %d", model.historyIndex)
+	}
+}
+
+func TestTUIMouseInputDoesNotReachComposer(t *testing.T) {
+	model := newSizedTUITestModel(80, 24)
+	model.composer.SetValue("current draft")
+	model.composer.Blur()
+
+	for _, message := range []tea.Msg{
+		tea.MouseClickMsg{Button: tea.MouseLeft},
+		tea.MouseMotionMsg{Button: tea.MouseLeft},
+		tea.MouseReleaseMsg{Button: tea.MouseLeft},
+	} {
+		_, _ = model.Update(message)
+	}
+	if got := model.composer.Value(); got != "current draft" || model.composer.Focused() {
+		t.Errorf("mouse input changed composer to %q (focused=%t)", got, model.composer.Focused())
+	}
+}
+
+func TestTUIMouseWheelIsIgnoredWhileOverlayIsOpen(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		open func(*TUIModel)
+	}{
+		{
+			name: "approval card",
+			open: func(model *TUIModel) {
+				model.state = tuiConfirming
+				model.pending = &rootly.AiChatStreamConfirmationRequired{Question: "Approve this action?"}
+			},
+		},
+		{
+			name: "mcp page",
+			open: func(model *TUIModel) {
+				model.mcpPage.open = true
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := newSizedTUITestModel(80, 24)
+			for index := 0; index < 60; index++ {
+				model.println(fmt.Sprintf("history block %02d", index+1))
+			}
+			model.View()
+			model.viewport.GotoTop()
+			offset := model.viewport.YOffset()
+			model.composer.SetValue("overlay draft")
+			test.open(model)
+
+			_, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+			if got := model.viewport.YOffset(); got != offset {
+				t.Errorf("wheel changed viewport offset from %d to %d", offset, got)
+			}
+			if got := model.composer.Value(); got != "overlay draft" {
+				t.Errorf("wheel changed composer value to %q", got)
+			}
+		})
+	}
+}
+
+func TestTUIHelpExplainsMouseTextSelection(t *testing.T) {
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true})
+	if got := model.helpView(); !strings.Contains(got, "Hold Shift while dragging to select text (Option on macOS Terminal/iTerm)") {
+		t.Fatalf("/help does not explain mouse text selection: %q", got)
+	}
+}
+
 func TestTUISessionPickerConsumesPageDownWithoutScrollingViewport(t *testing.T) {
 	model := newSizedTUITestModel(80, 24)
 	for index := 0; index < 60; index++ {
@@ -2433,8 +2535,8 @@ func TestTUIPickersRenderFullScreenAndRestoreChat(t *testing.T) {
 				t.Fatal("opening picker returned no load command")
 			}
 			picker := model.View()
-			if picker.MouseMode != tea.MouseModeNone {
-				t.Errorf("picker mouse mode = %v, want none", picker.MouseMode)
+			if picker.MouseMode != tea.MouseModeCellMotion {
+				t.Errorf("picker mouse mode = %v, want cell-motion", picker.MouseMode)
 			}
 			pickerView := picker.Content
 			plainPickerView := ansi.Strip(pickerView)

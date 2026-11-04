@@ -1270,8 +1270,31 @@ func (m *TUIModel) View() tea.View {
 	content := m.viewContent()
 	view := tea.NewView(content)
 	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
 	view.ReportFocus = true
 	return view
+}
+
+func (m *TUIModel) blocksTranscriptMouseInput() bool {
+	return m.mcpPage.open || m.pickerOpen || m.skillPickerOpen || m.commandMenuOpen ||
+		m.deleteConfirming || m.state == tuiConfirming || m.localConfirm != nil
+}
+
+func (m *TUIModel) updateMouse(message tea.MouseMsg) (tea.Model, tea.Cmd) {
+	wheel, ok := message.(tea.MouseWheelMsg)
+	if !ok || m.blocksTranscriptMouseInput() {
+		return m, nil
+	}
+	switch wheel.Button {
+	case tea.MouseWheelUp:
+		m.viewport.ScrollUp(3)
+	case tea.MouseWheelDown:
+		m.viewport.ScrollDown(3)
+	default:
+		return m, nil
+	}
+	m.updateNewOutputIndicator()
+	return m, nil
 }
 
 func (m *TUIModel) viewContent() string {

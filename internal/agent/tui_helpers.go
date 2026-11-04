@@ -470,6 +470,7 @@ func (m *TUIModel) helpView() string {
 		"/incident <id>, /alert <id>: bind a resource\n" +
 		"/status: show session and API info\n" +
 		"PgUp/PgDn scroll · Ctrl+Home/Ctrl+End scroll · Home/End scroll when composer is empty\n" +
+		"Hold Shift while dragging to select text (Option on macOS Terminal/iTerm)\n" +
 		"/help: show this help"
 }
 

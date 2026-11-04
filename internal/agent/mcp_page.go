@@ -1045,6 +1045,9 @@ func (m *TUIModel) handleLocalToolDone(msg localToolDoneMsg) tea.Cmd {
 }
 
 func (m *TUIModel) updateOtherMessage(message tea.Msg) (tea.Model, tea.Cmd) {
+	if mouse, ok := message.(tea.MouseMsg); ok {
+		return m.updateMouse(mouse)
+	}
 	if m.updateFocus(message) {
 		return m, nil
 	}
