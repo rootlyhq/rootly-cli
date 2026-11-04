@@ -37,13 +37,17 @@ func Incident(ctx context.Context, client *api.Client, incidentID, status string
 			debugf(w, "status page check skipped: %v", err)
 			break
 		}
+		// An API that ignores the page number returns the same events again: drop them and stop.
+		if result.Pagination.CurrentPage != page {
+			break
+		}
 		for _, event := range result.Events {
 			if isOpen(event.Status) {
 				open = append(open, event)
 			}
 		}
-		// Stop when the API reports no next page, or ignores the page number (which would loop forever).
-		if !result.Pagination.HasNext || len(result.Events) == 0 || result.Pagination.CurrentPage != page {
+		hasNext := result.Pagination.HasNext || result.Pagination.CurrentPage < result.Pagination.TotalPages
+		if !hasNext || len(result.Events) == 0 {
 			break
 		}
 	}

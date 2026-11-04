@@ -109,11 +109,26 @@ func TestIncidentFollowsManyPages(t *testing.T) {
 }
 
 func TestIncidentStopsWhenPageIgnored(t *testing.T) {
-	client, requests := newClient(t, eventsHandler(`{"data": [{"id": "a", "attributes": {"status": "resolved"}}], "meta": {"current_page": 1, "next_page": 2}}`, http.StatusOK))
+	client, requests := newClient(t, eventsHandler(`{"data": [{"id": "ev-open", "attributes": {"status": "investigating", "status_page_id": "p"}}], "meta": {"current_page": 1, "next_page": 2}}`, http.StatusOK))
 	var buf bytes.Buffer
 	Incident(context.Background(), client, "inc-1", "resolved", &buf)
-	if *requests != 2 {
-		t.Errorf("expected 2 requests, got %d", *requests)
+	if *requests != 2 || strings.Count(buf.String(), "events resolve ev-open") != 1 {
+		t.Errorf("expected 2 requests and the event listed once, got %d requests: %q", *requests, buf.String())
+	}
+}
+
+func TestIncidentFollowsTotalPagesWithoutNextPage(t *testing.T) {
+	client, _ := newClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page[number]") == "2" {
+			_, _ = w.Write([]byte(`{"data": [{"id": "ev-page2", "attributes": {"status": "investigating", "status_page_id": "p"}}], "meta": {"current_page": 2, "total_pages": 2}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data": [{"id": "a", "attributes": {"status": "resolved", "status_page_id": "p"}}], "meta": {"current_page": 1, "total_pages": 2}}`))
+	})
+	var buf bytes.Buffer
+	Incident(context.Background(), client, "inc-1", "resolved", &buf)
+	if !strings.Contains(buf.String(), "events resolve ev-page2") {
+		t.Errorf("expected page 2 event, got %q", buf.String())
 	}
 }
 
