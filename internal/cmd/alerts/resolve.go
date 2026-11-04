@@ -12,7 +12,7 @@ import (
 var resolveCmd = &cobra.Command{
 	Use:   "resolve <alert-id>",
 	Short: "Resolve an alert",
-	Long:  "Mark an alert as resolved with optional resolution message.\n\nThis calls the dedicated resolve action endpoint. Optionally resolves related incidents.",
+	Long:  "Mark an alert as resolved with optional resolution message.\n\nThis calls the dedicated resolve action endpoint. Optionally resolves related incidents.\n\nResolving incidents does not resolve their status page events. If any are still open, a warning on stderr lists them with the `rootly status-pages events resolve` command.",
 	Example: `  # Basic resolve
   rootly alerts resolve ALR-123
 

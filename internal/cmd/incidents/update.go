@@ -15,7 +15,7 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update <incident-id>",
 	Short: "Update an incident",
-	Long:  "Update an existing Rootly incident's attributes.",
+	Long:  "Update an existing Rootly incident's attributes.\n\nResolving an incident does not resolve its status page events. If any are still open, a warning on stderr lists them with the `rootly status-pages events resolve` command.",
 	Example: `  # Update status
   rootly incidents update INC-123 --status=mitigated
 
