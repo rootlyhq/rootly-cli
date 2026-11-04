@@ -13,11 +13,7 @@ import (
 	"github.com/rootlyhq/rootly-cli/internal/api"
 )
 
-const (
-	eventsPageSize = 100
-	// maxEventPages bounds the lookup so a misbehaving API cannot loop forever.
-	maxEventPages = 20
-)
+const eventsPageSize = 100
 
 // IsResolved reports whether an incident status counts as resolved.
 func IsResolved(status string) bool {
@@ -35,7 +31,7 @@ func Incident(ctx context.Context, client *api.Client, incidentID, status string
 		return
 	}
 	var open []api.StatusPageEvent
-	for page := 1; page <= maxEventPages; page++ {
+	for page := 1; ; page++ {
 		result, err := client.ListStatusPageEventsCLI(ctx, incidentID, page, eventsPageSize)
 		if err != nil {
 			debugf(w, "status page check skipped: %v", err)
@@ -46,7 +42,8 @@ func Incident(ctx context.Context, client *api.Client, incidentID, status string
 				open = append(open, event)
 			}
 		}
-		if !result.Pagination.HasNext {
+		// Stop when the API reports no next page, or ignores the page number (which would loop forever).
+		if !result.Pagination.HasNext || len(result.Events) == 0 || result.Pagination.CurrentPage != page {
 			break
 		}
 	}
