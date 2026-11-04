@@ -178,7 +178,7 @@ List a status page's templates with `rootly status-pages templates list --status
 
 Pass `--team=<slug-or-id>` instead to page a team on the existing alert. `--team` cannot be combined with `--level`; `--escalation-policy` adds that policy as an extra paging target.
 
-`rootly incidents escalate <incident-id> --team=<slug-or-id>` pages a team for an incident. The incident can be a UUID, slug, or sequential ID such as `INC-123`. It creates an alert that pages the team and links it to the incident. Optional `--escalation-policy=<uuid>` pages that policy as well, and `--note=<text>` is sent to the responders as the alert description. An unknown team or incident gives a clear error, and the API's error title is shown otherwise. Paging requires Rootly alerting to be enabled for the organization.
+`rootly incidents escalate <incident-id> --team=<slug-or-id>` pages a team for an incident. The incident can be a UUID, slug, or sequential ID such as `INC-123`. It creates an alert that pages the team and links it to the incident. Optional `--escalation-policy=<uuid>` pages that policy as well, and `--note=<text>` is sent to the responders as the alert description. If the team was paged but linking the alert failed, the error prints the alert ID; retry only the link with `--link-alert=<alert-id>` so the team is not paged twice. Alerts already linked to the incident are kept. An unknown team or incident gives a clear error, and the API's error title is shown otherwise. Paging requires Rootly alerting to be enabled for the organization.
 
 ### Pulse Flags
 

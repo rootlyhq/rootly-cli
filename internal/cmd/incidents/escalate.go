@@ -29,6 +29,7 @@ func init() {
 	escalateCmd.Flags().String("team", "", "Team slug or ID to page")
 	escalateCmd.Flags().String("escalation-policy", "", "Escalation policy UUID to page as well")
 	escalateCmd.Flags().String("note", "", "Note for the responders")
+	escalateCmd.Flags().String("link-alert", "", "Only link this already created alert to the incident, without paging again (retry after a failed link)")
 	_ = escalateCmd.MarkFlagRequired("team")
 	IncidentsCmd.AddCommand(escalateCmd)
 }
@@ -62,13 +63,16 @@ func runEscalate(cmd *cobra.Command, args []string) error {
 	if incident.SequentialID != "" {
 		label = incident.SequentialID
 	}
-	summary := fmt.Sprintf("Escalation for %s: %s", label, incident.Title)
-	alertID, err := apiClient.PageAlertTargetsCLI(cmd.Context(), "", summary, note, targets)
-	if err != nil {
-		return fmt.Errorf("failed to page team: %w", err)
+	alertID, _ := cmd.Flags().GetString("link-alert")
+	if alertID == "" {
+		summary := fmt.Sprintf("Escalation for %s: %s", label, incident.Title)
+		alertID, err = apiClient.PageAlertTargetsCLI(cmd.Context(), "", summary, note, targets)
+		if err != nil {
+			return fmt.Errorf("failed to page team: %w", err)
+		}
 	}
 	if err := apiClient.AttachAlertsToIncidentCLI(cmd.Context(), incident.ID, []string{alertID}); err != nil {
-		return fmt.Errorf("team %s was paged by alert %s but linking it to %s failed: %w", team.Name, alertID, label, err)
+		return fmt.Errorf("team %s was paged by alert %s but linking it to %s failed; retry the link without paging again with --link-alert=%s: %w", team.Name, alertID, label, alertID, err)
 	}
 	_, err = fmt.Fprintf(os.Stdout, "Paged team %s for incident %s (alert %s)\n", team.Name, label, alertID)
 	return err

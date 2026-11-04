@@ -73,10 +73,16 @@ func TestPageAlertTargetsCLIUpsertsExistingAlert(t *testing.T) {
 			t.Errorf("failed to decode request body: %v", err)
 			return
 		}
-		if body.Data["id"] != "alert-1" {
-			t.Errorf("data.id = %v, want alert-1", body.Data["id"])
-		}
 		attributes := body.Data["attributes"].(map[string]interface{})
+		if attributes["id"] != "alert-1" {
+			t.Errorf("attributes.id = %v, want alert-1 (the server reads the upsert id from attributes)", attributes["id"])
+		}
+		if _, ok := body.Data["id"]; ok {
+			t.Errorf("data.id is ignored by the server and must not be relied on: %+v", body.Data)
+		}
+		if _, ok := attributes["summary"]; ok {
+			t.Errorf("existing alert must not be sent a summary: %+v", attributes)
+		}
 		if _, ok := attributes["description"]; ok {
 			t.Errorf("empty description must be omitted: %+v", attributes)
 		}
@@ -134,27 +140,65 @@ func TestPageAlertTargetsCLITransportError(t *testing.T) {
 }
 
 func TestAttachAlertsToIncidentCLI(t *testing.T) {
+	var posted struct {
+		Data struct {
+			Attributes struct {
+				AlertIDs []string `json:"alert_ids"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/incidents/inc-1/alerts" {
-			t.Errorf("request = %s %s, want POST /v1/incidents/inc-1/alerts", r.Method, r.URL.Path)
+		if r.URL.Path != "/v1/incidents/inc-1/alerts" {
+			t.Errorf("path = %s", r.URL.Path)
 		}
-		var body struct {
-			AlertIDs []string `json:"alert_ids"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("failed to decode request body: %v", err)
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"data":[{"id":"alert-old"},{"id":"alert-1"}]}`))
 			return
 		}
-		if len(body.AlertIDs) != 1 || body.AlertIDs[0] != "alert-1" {
-			t.Errorf("alert_ids = %v", body.AlertIDs)
+		if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	if err := client.AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-1"}); err != nil {
+	if err := client.AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-1", "alert-2"}); err != nil {
 		t.Fatalf("AttachAlertsToIncidentCLI returned error: %v", err)
+	}
+	got := strings.Join(posted.Data.Attributes.AlertIDs, ",")
+	if got != "alert-old,alert-1,alert-2" {
+		t.Errorf("data.attributes.alert_ids = %s, want existing alerts kept, deduplicated, new appended", got)
+	}
+}
+
+func TestListIncidentAlertIDsCLIPaginates(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page[number]") == "1" {
+			items := make([]string, 100)
+			for i := range items {
+				items[i] = `{"id":"a` + strings.Repeat("x", i) + `"}`
+			}
+			_, _ = w.Write([]byte(`{"data":[` + strings.Join(items, ",") + `]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"last"}]}`))
+	}))
+	defer server.Close()
+	ids, err := newTestClient(t, server.URL).listIncidentAlertIDsCLI(context.Background(), "inc-1")
+	if err != nil || len(ids) != 101 || ids[100] != "last" {
+		t.Fatalf("ids = %d, err = %v", len(ids), err)
+	}
+}
+
+func TestListIncidentAlertIDsCLIBadJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`nope`))
+	}))
+	defer server.Close()
+	_, err := newTestClient(t, server.URL).listIncidentAlertIDsCLI(context.Background(), "inc-1")
+	if err == nil || !strings.Contains(err.Error(), "failed to parse response") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -168,6 +212,7 @@ func TestAttachAlertsToIncidentCLIErrors(t *testing.T) {
 		{"api title", http.StatusNotFound, `{"errors":[{"title":"Incident not found"}]}`, "Incident not found"},
 		{"5xx", http.StatusInternalServerError, ``, "API returned status 500"},
 	}
+	// The same status on the initial listing and on the update both fail.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -189,7 +234,7 @@ func TestAttachAlertsToIncidentCLITransportError(t *testing.T) {
 	client := newTestClient(t, server.URL)
 	server.Close()
 	err := client.AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"a"})
-	if err == nil || !strings.Contains(err.Error(), "failed to attach alerts") {
+	if err == nil || !strings.Contains(err.Error(), "failed to list incident alerts") {
 		t.Fatalf("error = %v", err)
 	}
 }

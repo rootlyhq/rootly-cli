@@ -2684,8 +2684,12 @@ func apiStatusError(status int, body []byte) error {
 // returns the ID of the alert that paged the targets.
 func (c *Client) PageAlertTargetsCLI(ctx context.Context, alertID, summary, description string, targets []NotificationTarget) (string, error) {
 	attributes := map[string]interface{}{
-		"summary":              summary,
 		"notification_targets": targets,
+	}
+	// An existing alert keeps its summary: sending a stale one would overwrite
+	// concurrent edits. The server needs it only to create the alert.
+	if alertID == "" {
+		attributes["summary"] = summary
 	}
 	if description != "" {
 		attributes["description"] = description
@@ -2695,7 +2699,8 @@ func (c *Client) PageAlertTargetsCLI(ctx context.Context, alertID, summary, desc
 		"attributes": attributes,
 	}
 	if alertID != "" {
-		data["id"] = alertID
+		// The server reads the upsert id from data.attributes only.
+		attributes["id"] = alertID
 	}
 	bodyBytes, err := json.Marshal(map[string]interface{}{"data": data})
 	if err != nil {
@@ -2734,9 +2739,68 @@ func (c *Client) PageAlertTargetsCLI(ctx context.Context, alertID, summary, desc
 	return response.Data.ID, nil
 }
 
-// AttachAlertsToIncidentCLI links existing alerts to an incident.
+// listIncidentAlertIDsCLI returns the IDs of every alert already linked to an incident.
+func (c *Client) listIncidentAlertIDsCLI(ctx context.Context, incidentID string) ([]string, error) {
+	const pageSize = 100
+	var ids []string
+	for page := 1; ; page++ {
+		path := fmt.Sprintf("/v1/incidents/%s/alerts?page[number]=%d&page[size]=%d", neturl.PathEscape(incidentID), page, pageSize)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+path, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("Content-Type", "application/vnd.api+json")
+		httpResp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list incident alerts: %w", err)
+		}
+		body, err := io.ReadAll(httpResp.Body)
+		_ = httpResp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response: %w", err)
+		}
+		if err := apiStatusError(httpResp.StatusCode, body); err != nil {
+			return nil, err
+		}
+		var response struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, fmt.Errorf("failed to parse response: %w", err)
+		}
+		for _, a := range response.Data {
+			ids = append(ids, a.ID)
+		}
+		if len(response.Data) < pageSize {
+			return ids, nil
+		}
+	}
+}
+
+// AttachAlertsToIncidentCLI links alerts to an incident. The endpoint replaces
+// the incident's alert set, so the already linked alerts are sent along.
 func (c *Client) AttachAlertsToIncidentCLI(ctx context.Context, incidentID string, alertIDs []string) error {
-	bodyBytes, err := json.Marshal(map[string]interface{}{"alert_ids": alertIDs})
+	existing, err := c.listIncidentAlertIDsCLI(ctx, incidentID)
+	if err != nil {
+		return err
+	}
+	seen := make(map[string]bool, len(existing))
+	merged := make([]string, 0, len(existing)+len(alertIDs))
+	for _, id := range append(existing, alertIDs...) {
+		if !seen[id] {
+			seen[id] = true
+			merged = append(merged, id)
+		}
+	}
+	bodyBytes, err := json.Marshal(map[string]interface{}{
+		"data": map[string]interface{}{
+			"type":       "incidents",
+			"attributes": map[string]interface{}{"alert_ids": merged},
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal request body: %w", err)
 	}

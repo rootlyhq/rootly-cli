@@ -83,7 +83,7 @@ func runPageTeam(cmd *cobra.Command, alertID, teamRef string, policyID *string) 
 	if policyID != nil {
 		targets = append(targets, api.NotificationTarget{Type: api.NotificationTargetEscalationPolicy, ID: *policyID})
 	}
-	if _, err := apiClient.PageAlertTargetsCLI(cmd.Context(), alert.ID, alert.Summary, "", targets); err != nil {
+	if _, err := apiClient.PageAlertTargetsCLI(cmd.Context(), alert.ID, "", "", targets); err != nil {
 		return fmt.Errorf("failed to page team: %w", err)
 	}
 	_, err = fmt.Fprintf(os.Stdout, "Paged team %s on alert %s\n", team.Name, alertID)

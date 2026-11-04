@@ -17,6 +17,7 @@ func newEscalateCmd(t *testing.T, flags map[string]string) *cobra.Command {
 	cmd.Flags().String("team", "", "")
 	cmd.Flags().String("escalation-policy", "", "")
 	cmd.Flags().String("note", "", "")
+	cmd.Flags().String("link-alert", "", "")
 	for name, value := range flags {
 		if err := cmd.Flags().Set(name, value); err != nil {
 			t.Fatal(err)
@@ -29,12 +30,19 @@ type escalateRecorder struct {
 	paged    map[string]interface{}
 	attached map[string]interface{}
 	paths    []string
+	existing string // JSON array body of alerts already linked to the incident
 }
 
 func (rec *escalateRecorder) handler(t *testing.T, pageStatus, attachStatus int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rec.paths = append(rec.paths, r.Method+" "+r.URL.Path)
 		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/incidents/inc-1/alerts":
+			existing := rec.existing
+			if existing == "" {
+				existing = "[]"
+			}
+			_, _ = w.Write([]byte(`{"data":` + existing + `}`))
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/incidents/"):
 			_, _ = w.Write([]byte(getResponse()))
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/teams/platform":
@@ -85,7 +93,7 @@ func TestRunEscalatePagesTeamAndLinksIncident(t *testing.T) {
 	if len(targets) != 1 || targets[0].(map[string]interface{})["type"] != "Group" || targets[0].(map[string]interface{})["id"] != "team-uuid" {
 		t.Errorf("targets = %+v", targets)
 	}
-	ids := rec.attached["alert_ids"].([]interface{})
+	ids := rec.attached["data"].(map[string]interface{})["attributes"].(map[string]interface{})["alert_ids"].([]interface{})
 	if len(ids) != 1 || ids[0] != "alert-new" {
 		t.Errorf("alert_ids = %v", ids)
 	}
@@ -165,8 +173,42 @@ func TestRunEscalateLinkFailureNamesCreatedAlert(t *testing.T) {
 	rec := &escalateRecorder{}
 	setupTestServer(t, rec.handler(t, http.StatusOK, http.StatusInternalServerError))
 	err := runEscalate(newEscalateCmd(t, map[string]string{"team": "platform"}), []string{"INC-42"})
-	if err == nil || !strings.Contains(err.Error(), "was paged by alert alert-new") {
+	if err == nil || !strings.Contains(err.Error(), "was paged by alert alert-new") || !strings.Contains(err.Error(), "--link-alert=alert-new") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRunEscalateKeepsAlreadyLinkedAlerts(t *testing.T) {
+	rec := &escalateRecorder{existing: `[{"id":"alert-old"}]`}
+	setupTestServer(t, rec.handler(t, http.StatusOK, http.StatusOK))
+	captureStdout(t, func() {
+		if err := runEscalate(newEscalateCmd(t, map[string]string{"team": "platform"}), []string{"INC-42"}); err != nil {
+			t.Fatalf("runEscalate returned error: %v", err)
+		}
+	})
+	ids := rec.attached["data"].(map[string]interface{})["attributes"].(map[string]interface{})["alert_ids"].([]interface{})
+	if len(ids) != 2 || ids[0] != "alert-old" || ids[1] != "alert-new" {
+		t.Errorf("alert_ids = %v, want the existing alert kept and the new one appended", ids)
+	}
+}
+
+func TestRunEscalateLinkAlertRetriesWithoutPagingAgain(t *testing.T) {
+	rec := &escalateRecorder{}
+	setupTestServer(t, rec.handler(t, http.StatusOK, http.StatusOK))
+	output := captureStdout(t, func() {
+		if err := runEscalate(newEscalateCmd(t, map[string]string{"team": "platform", "link-alert": "alert-new"}), []string{"INC-42"}); err != nil {
+			t.Fatalf("runEscalate returned error: %v", err)
+		}
+	})
+	if rec.paged != nil {
+		t.Errorf("--link-alert must not page again: %+v", rec.paged)
+	}
+	ids := rec.attached["data"].(map[string]interface{})["attributes"].(map[string]interface{})["alert_ids"].([]interface{})
+	if len(ids) != 1 || ids[0] != "alert-new" {
+		t.Errorf("alert_ids = %v", ids)
+	}
+	if !strings.Contains(output, "alert alert-new") {
+		t.Errorf("output = %q", output)
 	}
 }
 

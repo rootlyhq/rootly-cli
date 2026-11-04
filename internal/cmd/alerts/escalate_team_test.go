@@ -52,12 +52,12 @@ func TestRunEscalateTeamPagesExistingAlert(t *testing.T) {
 		t.Errorf("output = %q", output)
 	}
 	data := paged["data"].(map[string]interface{})
-	if data["id"] != "alert-1" {
-		t.Errorf("data.id = %v, want alert-1", data["id"])
-	}
 	attributes := data["attributes"].(map[string]interface{})
-	if attributes["summary"] != "High CPU usage" {
-		t.Errorf("summary = %v", attributes["summary"])
+	if attributes["id"] != "alert-1" {
+		t.Errorf("attributes.id = %v, want alert-1", attributes["id"])
+	}
+	if _, ok := attributes["summary"]; ok {
+		t.Errorf("summary must not be rewritten from the earlier read: %+v", attributes)
 	}
 	targets := attributes["notification_targets"].([]interface{})
 	if len(targets) != 1 || targets[0].(map[string]interface{})["id"] != "team-uuid" || targets[0].(map[string]interface{})["type"] != "Group" {
