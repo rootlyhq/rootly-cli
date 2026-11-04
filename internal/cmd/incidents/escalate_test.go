@@ -135,8 +135,8 @@ func TestEscalateCmdRequiresTeam(t *testing.T) {
 	setupTestServer(t, func(_ http.ResponseWriter, r *http.Request) {
 		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 	})
-	err := escalateCmd.ValidateRequiredFlags()
-	if err == nil || !strings.Contains(err.Error(), `required flag(s) "team" not set`) {
+	err := runEscalate(newEscalateCmd(t, map[string]string{"escalation-policy": "ep-1"}), []string{"INC-42"})
+	if err == nil || !strings.Contains(err.Error(), "--team must not be empty") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -173,7 +173,7 @@ func TestRunEscalateLinkFailureNamesCreatedAlert(t *testing.T) {
 	rec := &escalateRecorder{}
 	setupTestServer(t, rec.handler(t, http.StatusOK, http.StatusInternalServerError))
 	err := runEscalate(newEscalateCmd(t, map[string]string{"team": "platform"}), []string{"INC-42"})
-	if err == nil || !strings.Contains(err.Error(), "was paged by alert alert-new") || !strings.Contains(err.Error(), "--link-alert=alert-new") {
+	if err == nil || !strings.Contains(err.Error(), "alert alert-new was created") || !strings.Contains(err.Error(), "--link-alert=alert-new") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -196,7 +196,7 @@ func TestRunEscalateLinkAlertRetriesWithoutPagingAgain(t *testing.T) {
 	rec := &escalateRecorder{}
 	setupTestServer(t, rec.handler(t, http.StatusOK, http.StatusOK))
 	output := captureStdout(t, func() {
-		if err := runEscalate(newEscalateCmd(t, map[string]string{"team": "platform", "link-alert": "alert-new"}), []string{"INC-42"}); err != nil {
+		if err := runEscalate(newEscalateCmd(t, map[string]string{"link-alert": "alert-new"}), []string{"INC-42"}); err != nil {
 			t.Fatalf("runEscalate returned error: %v", err)
 		}
 	})
@@ -207,7 +207,7 @@ func TestRunEscalateLinkAlertRetriesWithoutPagingAgain(t *testing.T) {
 	if len(ids) != 1 || ids[0] != "alert-new" {
 		t.Errorf("alert_ids = %v", ids)
 	}
-	if !strings.Contains(output, "alert alert-new") {
+	if !strings.Contains(output, "Linked alert alert-new to incident INC-42") {
 		t.Errorf("output = %q", output)
 	}
 }
