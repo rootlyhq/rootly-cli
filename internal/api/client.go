@@ -2644,7 +2644,25 @@ func (c *Client) EscalateAlertCLI(ctx context.Context, id string, escalationPoli
 	if err != nil {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
-	if httpResp.StatusCode >= http.StatusBadRequest && httpResp.StatusCode < http.StatusInternalServerError {
+	return apiStatusError(httpResp.StatusCode, body)
+}
+
+// Notification target types accepted by POST /v1/alerts.
+const (
+	NotificationTargetGroup            = "Group"
+	NotificationTargetEscalationPolicy = "EscalationPolicy"
+)
+
+// NotificationTarget is a team or escalation policy to page.
+type NotificationTarget struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+// apiStatusError returns nil for 2xx responses. For 4xx it surfaces the first
+// JSON:API error title when present, otherwise just the status code.
+func apiStatusError(status int, body []byte) error {
+	if status >= http.StatusBadRequest && status < http.StatusInternalServerError {
 		var response struct {
 			Errors []struct {
 				Title string `json:"title"`
@@ -2653,12 +2671,93 @@ func (c *Client) EscalateAlertCLI(ctx context.Context, id string, escalationPoli
 		if json.Unmarshal(body, &response) == nil && len(response.Errors) > 0 && response.Errors[0].Title != "" {
 			return fmt.Errorf("%s", response.Errors[0].Title)
 		}
-		return fmt.Errorf("API returned status %d", httpResp.StatusCode)
+		return fmt.Errorf("API returned status %d", status)
 	}
-	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("API returned status %d", httpResp.StatusCode)
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		return fmt.Errorf("API returned status %d", status)
 	}
 	return nil
+}
+
+// PageAlertTargetsCLI pages the given targets through POST /v1/alerts. An empty
+// alertID creates a new alert; otherwise the existing alert is upserted. It
+// returns the ID of the alert that paged the targets.
+func (c *Client) PageAlertTargetsCLI(ctx context.Context, alertID, summary, description string, targets []NotificationTarget) (string, error) {
+	attributes := map[string]interface{}{
+		"summary":              summary,
+		"notification_targets": targets,
+	}
+	if description != "" {
+		attributes["description"] = description
+	}
+	data := map[string]interface{}{
+		"type":       "alerts",
+		"attributes": attributes,
+	}
+	if alertID != "" {
+		data["id"] = alertID
+	}
+	bodyBytes, err := json.Marshal(map[string]interface{}{"data": data})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"/v1/alerts", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to page team: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+	if err := apiStatusError(httpResp.StatusCode, body); err != nil {
+		return "", err
+	}
+	var response struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+	if response.Data.ID == "" {
+		return "", fmt.Errorf("failed to parse response: missing alert id")
+	}
+	return response.Data.ID, nil
+}
+
+// AttachAlertsToIncidentCLI links existing alerts to an incident.
+func (c *Client) AttachAlertsToIncidentCLI(ctx context.Context, incidentID string, alertIDs []string) error {
+	bodyBytes, err := json.Marshal(map[string]interface{}{"alert_ids": alertIDs})
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+	path := fmt.Sprintf("/v1/incidents/%s/alerts", neturl.PathEscape(incidentID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+path, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	httpResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to attach alerts to incident: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+	return apiStatusError(httpResp.StatusCode, body)
 }
 
 // ResolveAlertCLI resolves an alert using raw HTTP POST.
