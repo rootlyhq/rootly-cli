@@ -153,6 +153,23 @@ func TestClientToolsReportsOmittedToolReferences(t *testing.T) {
 	if len(advertised) != MaxClientTools {
 		t.Fatalf("advertised %d tools, want %d", len(advertised), MaxClientTools)
 	}
+	refs := make(map[string]ToolRef, len(advertised))
+	for _, tool := range advertised {
+		ref, ok := manager.Lookup(tool.Name)
+		if !ok {
+			t.Fatalf("advertised tool %q has no lookup ref", tool.Name)
+		}
+		refs[tool.Name] = ref
+	}
+	omittedByRead := manager.OmittedClientTools()
+	if len(omittedByRead) != len(omitted) {
+		t.Fatalf("OmittedClientTools() returned %d refs, want %d", len(omittedByRead), len(omitted))
+	}
+	for name, want := range refs {
+		if got, ok := manager.Lookup(name); !ok || got != want {
+			t.Errorf("Lookup(%q) = %+v, %t after OmittedClientTools(), want %+v", name, got, ok, want)
+		}
+	}
 	if len(omitted) != 6 {
 		t.Fatalf("omitted %d tools, want 6: %+v", len(omitted), omitted)
 	}
@@ -161,6 +178,45 @@ func TestClientToolsReportsOmittedToolReferences(t *testing.T) {
 		if ref.ServerName != "second" || ref.Tool != wantName {
 			t.Errorf("omitted[%d] = %+v, want second · %s", index, ref, wantName)
 		}
+	}
+}
+
+func TestOmittedClientToolsDoesNotRemapAdvertisedNames(t *testing.T) {
+	manager, _ := newBuiltinManager(t, func(string) (string, error) { return "", fmt.Errorf("not installed") })
+	manager.builtins = nil
+	first := &runtimeServer{
+		server: Server{Name: "shared", Scope: ScopeUser, Path: "first.json"},
+		status: StatusConnected,
+		tools:  []*sdk.Tool{{Name: "lookup", InputSchema: map[string]any{"type": "object"}}},
+	}
+	second := &runtimeServer{
+		server: Server{Name: "shared", Scope: ScopeUser, Path: "second.json"},
+		status: StatusConnected,
+		tools:  []*sdk.Tool{{Name: "lookup", InputSchema: map[string]any{"type": "object"}}},
+	}
+	manager.mu.Lock()
+	manager.servers = []*runtimeServer{first, second}
+	manager.byID[first.server.ID()] = first
+	manager.byID[second.server.ID()] = second
+	manager.mu.Unlock()
+
+	advertised, _ := manager.ClientTools()
+	if len(advertised) != 2 {
+		t.Fatalf("advertised %d tools, want 2", len(advertised))
+	}
+	name := advertised[0].Name
+	before, ok := manager.Lookup(name)
+	if !ok {
+		t.Fatalf("advertised tool %q has no lookup ref", name)
+	}
+
+	manager.mu.Lock()
+	manager.servers[0], manager.servers[1] = manager.servers[1], manager.servers[0]
+	manager.mu.Unlock()
+	manager.OmittedClientTools()
+
+	if after, ok := manager.Lookup(name); !ok || after != before {
+		t.Errorf("Lookup(%q) = %+v, %t after OmittedClientTools(), want original ref %+v", name, after, ok, before)
 	}
 }
 

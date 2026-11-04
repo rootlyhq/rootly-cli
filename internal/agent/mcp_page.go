@@ -686,7 +686,7 @@ func (m *TUIModel) mcpSummary() string {
 	}
 	summary := fmt.Sprintf("%d servers · %d tools available to the agent", servers, tools)
 	if m.mcp != nil {
-		_, omitted := m.mcp.ClientTools()
+		omitted := m.mcp.OmittedClientTools()
 		if len(omitted) > 0 {
 			summary += fmt.Sprintf(" · %d left out (max %d)", len(omitted), mcp.MaxClientTools)
 		}

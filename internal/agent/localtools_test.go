@@ -38,6 +38,10 @@ func (f *fakeLocalTools) ClientTools() (tools []mcp.ClientTool, omitted []mcp.To
 	return out, f.omitted
 }
 
+func (f *fakeLocalTools) OmittedClientTools() []mcp.ToolRef {
+	return f.omitted
+}
+
 func (f *fakeLocalTools) Lookup(name string) (mcp.ToolRef, bool) {
 	ref, ok := f.tools[name]
 	return ref, ok

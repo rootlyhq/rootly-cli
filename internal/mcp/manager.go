@@ -743,8 +743,21 @@ func (m *Manager) Login(ctx context.Context, id string, options LoginOptions) er
 func (m *Manager) ClientTools() (advertised []ClientTool, omitted []ToolRef) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	advertised, refs, omitted := m.clientToolsLocked()
+	m.toolRefs = refs
+	return advertised, omitted
+}
+
+func (m *Manager) OmittedClientTools() []ToolRef {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, _, omitted := m.clientToolsLocked()
+	return omitted
+}
+
+func (m *Manager) clientToolsLocked() (advertised []ClientTool, refs map[string]ToolRef, omitted []ToolRef) {
 	namer := NewClientToolNamer()
-	refs := map[string]ToolRef{}
+	refs = map[string]ToolRef{}
 	var tools []ClientTool
 	total := 2
 	if m.builtins != nil {
@@ -820,8 +833,7 @@ func (m *Manager) ClientTools() (advertised []ClientTool, omitted []ToolRef) {
 			refs[candidate.Name] = ToolRef{ServerID: runtime.server.ID(), ServerName: runtime.server.Name, Tool: tool.Name, ReadOnly: candidate.ReadOnly}
 		}
 	}
-	m.toolRefs = refs
-	return tools, omitted
+	return tools, refs, omitted
 }
 
 func firstNonEmpty(values ...string) string {
