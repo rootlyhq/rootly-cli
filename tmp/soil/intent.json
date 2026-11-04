@@ -1,0 +1,97 @@
+{
+  "ticket": "IR-6588",
+  "title": "CLI: add workflows list and workflows run commands",
+  "summary": "The ticket asks for `rootly workflows list` (ID discovery) and `rootly workflows run <id-or-slug> --incident=<id>` so workflow triggering can be scripted or agent-driven instead of Slack-only. Both commands already exist on master, added by rootly-cli PR #56 (merged 2026-08-13, closes GH #51); this lane verified them and plans no code change.",
+  "change_kind": "feature",
+  "change_kind_reason": "Not a bug fix: the ticket is a feature request, and it is already delivered by PR #56.",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "text": "No code change is made in this lane: the workflows list and run commands already shipped in rootly-cli#56, so the diff against master is empty (mechanical check: git diff master --stat is empty)",
+      "kind": "change",
+      "cites": "Add `rootly workflows list` and `rootly workflows run <id-or-slug> --incident=<id>` to the CLI"
+    },
+    {
+      "id": "ac-2",
+      "text": "The close-as-done proposal (link PR #56, upgrade to v0.5.0+) is brought to the human as an ask; the lane does not close IR-6588 or comment on Linear or GitHub itself",
+      "kind": "human",
+      "cites": "Solve IR-6588",
+      "human_action": {
+        "kind": "decision",
+        "action": "Decide whether to close IR-6588 as done with a comment linking rootly-cli#56 and telling users to upgrade to v0.5.0+",
+        "target": "Linear issue IR-6588 (https://linear.app/rootly/issue/IR-6588), posted as the ticket owner",
+        "why": "The workflows list and run commands already shipped in rootly-cli#56 (first released in v0.5.0), so the ticket has nothing left to build",
+        "evidence": [
+          "https://github.com/rootlyhq/rootly-cli/pull/56",
+          "internal/cmd/workflows/run.go:28",
+          "internal/api/client.go:1534"
+        ],
+        "verifyBy": "IR-6588 shows the human's recorded decision: either closed with a comment linking PR #56, or left open on purpose (the answer so far: leave the ticket open, no comment)"
+      }
+    }
+  ],
+  "ask_stands": {
+    "verdict": "partly-done",
+    "confidence": 0.95,
+    "summary": "rootly-cli PR #56 already added workflows list and run on master; the built binary shows both commands and the workflows and api tests pass.",
+    "evidence": [
+      {
+        "kind": "pr",
+        "ref": "rootly-cli #56",
+        "url": "https://github.com/rootlyhq/rootly-cli/pull/56",
+        "quote": "Add workflow list and run commands (#56)"
+      },
+      {
+        "kind": "code",
+        "ref": "internal/cmd/workflows/workflows.go:17",
+        "quote": "Aliases: []string{\"workflow\"},"
+      },
+      {
+        "kind": "code",
+        "ref": "internal/cmd/workflows/run.go:28",
+        "quote": "_ = runCmd.MarkFlagRequired(\"incident\")"
+      },
+      {
+        "kind": "code",
+        "ref": "internal/api/client.go:1534",
+        "quote": "func (c *Client) ResolveWorkflowID(ctx context.Context, idOrSlug string) (string, error) {"
+      },
+      {
+        "kind": "comment",
+        "ref": "Devin, 2026-11-04 on IR-6588",
+        "quote": "in v0.5.0+ internal/cmd/workflows/{list.go,run.go} exist"
+      }
+    ],
+    "remaining": "Nothing to build. Narrowed scope: approved cut, no code change, since the workflows list and run commands already shipped in rootly-cli#56; the close-as-done proposal goes to the human as an ask (the lane does not close or comment on the ticket)."
+  },
+  "out_of_scope": [
+    {
+      "quote": "the same discovery problem `--severity` has today",
+      "reason": "The operator confirmed the --severity ID discovery gap is a separate problem and out of scope for this ticket."
+    },
+    {
+      "quote": "https://linear.app/rootly/issue/IR-6824/mcp-claude-desktop-and-claude-code-sdk-cannot-connect-the-mcp-server",
+      "reason": "Belongs to its own lane (IR-6824); this lane is IR-6588 only, and the operator pre-approved leaving it out."
+    },
+    {
+      "quote": "https://linear.app/rootly/issue/IR-6586/cli-add-status-page-commands-incidents-update-statusresolved-leaves",
+      "reason": "Belongs to its own lane (IR-6586); this lane is IR-6588 only, and the operator pre-approved leaving it out."
+    },
+    {
+      "quote": "https://linear.app/rootly/issue/IR-6584/cli-add-escalate-verb-for-incidents-and-alerts-to-page-a-team",
+      "reason": "Belongs to its own lane (IR-6584); this lane is IR-6588 only, and the operator pre-approved leaving it out."
+    },
+    {
+      "quote": "https://linear.app/rootly/issue/IR-5478/rootly-cli-incident-not-found",
+      "reason": "Belongs to its own lane (IR-5478); this lane is IR-6588 only, and the operator pre-approved leaving it out."
+    },
+    {
+      "quote": "https://linear.app/rootly/issue/IR-6585/cli-support-services-and-types-on-incidents-createupdate",
+      "reason": "Belongs to its own lane (IR-6585); this lane is IR-6588 only, and the operator pre-approved leaving it out."
+    },
+    {
+      "quote": "https://linear.app/rootly/issue/IR-5846/admin-general-organization-settings-checkboxes-toggle-when-clicking",
+      "reason": "Belongs to its own lane (IR-5846); this lane is IR-6588 only, and the operator pre-approved leaving it out."
+    }
+  ]
+}

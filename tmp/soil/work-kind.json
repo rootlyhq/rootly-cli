@@ -1,0 +1,6 @@
+{
+  "key": "feature|CLI: add workflows list and workflows run commands|The ticket asks for `rootly workflows list` (ID discovery) and `rootly workflows run <id-or-slug> --incident=<id>` so workflow triggering can be scripted or agent-driven instead of Slack-only. Both commands already exist on master, added by rootly-cli PR #56 (merged 2026-08-13, closes GH #51); this lane verified them and plans no code change.",
+  "perf": false,
+  "source": "classifier",
+  "probability": 0.05
+}

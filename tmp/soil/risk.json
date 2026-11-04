@@ -1,0 +1,10 @@
+{
+  "level": "low",
+  "rationale": "The lane changes no code: the requested workflows list and run commands already shipped in rootly-cli#56 (released in v0.5.0), and the plan keeps the diff against master empty. The only outward-facing action, closing or commenting on IR-6588, is left to the human, who has already chosen to leave the ticket open with no comment. Nothing ships, so nothing can break.",
+  "factors": [
+    "blast radius: none; no code, config or release changes, and CLI users are unaffected",
+    "reversibility: nothing to roll back; the lane makes no commits and posts nothing to Linear or GitHub",
+    "security/data surface: none touched; no auth, PII, payments or destructive writes",
+    "prod-critical path: not on any production path; the rootly-cli binary and the Rootly API are unchanged"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "skip": [],
+  "depth": {
+    "level": "medium",
+    "verifyStrictness": "standard",
+    "councilLenses": [
+      "idioms",
+      "security",
+      "performance",
+      "hygiene"
+    ]
+  },
+  "noCode": false,
+  "contextDepth": "full",
+  "rationale": "A standard CLI feature that adds two new commands and requires a code change and PR, so it needs the full pipeline with a deep context sweep.",
+  "confidence": 0.85,
+  "source": "haiku"
+}

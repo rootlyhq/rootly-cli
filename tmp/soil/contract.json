@@ -1,0 +1,169 @@
+{
+  "version": 1,
+  "frozenAt": "2026-11-04T21:00:02.247Z",
+  "step": "context",
+  "head": {
+    "ticket": "IR-6588",
+    "title": "CLI: add workflows list and workflows run commands",
+    "summary": "The ticket asks for `rootly workflows list` (ID discovery) and `rootly workflows run <id-or-slug> --incident=<id>` so workflow triggering can be scripted or agent-driven instead of Slack-only. Both commands already exist on master, added by rootly-cli PR #56 (merged 2026-08-13, closes GH #51); this lane verified them and plans no code change."
+  },
+  "ask": {
+    "text": "Solve\n\nhttps://linear.app/rootly/issue/IR-6824/mcp-claude-desktop-and-claude-code-sdk-cannot-connect-the-mcp-server\nhttps://linear.app/rootly/issue/IR-6586/cli-add-status-page-commands-incidents-update-statusresolved-leaves\nhttps://linear.app/rootly/issue/IR-6584/cli-add-escalate-verb-for-incidents-and-alerts-to-page-a-team\nhttps://linear.app/rootly/issue/IR-5478/rootly-cli-incident-not-found\nhttps://linear.app/rootly/issue/IR-6588/cli-add-workflows-list-and-workflows-run-commands\nhttps://linear.app/rootly/issue/IR-6585/cli-support-services-and-types-on-incidents-createupdate\nhttps://linear.app/rootly/issue/IR-5846/admin-general-organization-settings-checkboxes-toggle-when-clicking\n\n1 pr each",
+    "additions": [
+      {
+        "at": "2026-11-04T20:45:44.459Z",
+        "kind": "relay",
+        "role": "operator",
+        "text": "Solve IR-6588 — one PR. Add `rootly workflows list` and `rootly workflows run <id-or-slug> --incident=<id>` to the CLI. Ref https://github.com/rootlyhq/rootly-cli/issues/51",
+        "author": "operator"
+      }
+    ]
+  },
+  "criteria": [
+    {
+      "id": "ac-1",
+      "text": "No code change is made in this lane: the workflows list and run commands already shipped in rootly-cli#56, so the diff against master is empty (mechanical check: git diff master --stat is empty)",
+      "kind": "change",
+      "cites": "Add `rootly workflows list` and `rootly workflows run <id-or-slug> --incident=<id>` to the CLI"
+    },
+    {
+      "id": "ac-2",
+      "text": "The close-as-done proposal (link PR #56, upgrade to v0.5.0+) is brought to the human as an ask; the lane does not close IR-6588 or comment on Linear or GitHub itself",
+      "kind": "human",
+      "cites": "Solve IR-6588"
+    }
+  ],
+  "shipChecks": [
+    {
+      "kind": "body",
+      "value": "IR-6824",
+      "why": "the ask names IR-6824"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6586",
+      "why": "the ask names IR-6586"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6584",
+      "why": "the ask names IR-6584"
+    },
+    {
+      "kind": "body",
+      "value": "IR-5478",
+      "why": "the ask names IR-5478"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6588",
+      "why": "the ask names IR-6588"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6585",
+      "why": "the ask names IR-6585"
+    },
+    {
+      "kind": "body",
+      "value": "IR-5846",
+      "why": "the ask names IR-5846"
+    }
+  ],
+  "risk": {
+    "level": "medium",
+    "floor": "low",
+    "reasons": [],
+    "declared": null
+  },
+  "workKind": null,
+  "changeKind": "feature",
+  "changeKindReason": "Not a bug fix: the ticket is a feature request, and it is already delivered by PR #56.",
+  "scopeCuts": [
+    {
+      "kind": "out_of_scope",
+      "what": "the same discovery problem `--severity` has today",
+      "reason": "The operator confirmed the --severity ID discovery gap is a separate problem and out of scope for this ticket.",
+      "decidedBy": "the operator",
+      "answer": "approve: IR-6588 asks for `workflows list` and `workflows run`. The ticket mentions `--severity` ID discovery only as a comparison, so it's a separate gap for a separate ticket. Reminder: the workflow commands already shipped in rootly-cli#56, so make no code change. Don't close the ticket or comment on Linear/GitHub yourself; bring the close-as-done proposal to me as an ask for the human to approve.",
+      "at": "2026-11-04T20:59:27.459Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6824/mcp-claude-desktop-and-claude-code-sdk-cannot-connect-the-mcp-server",
+      "reason": "Belongs to its own lane (IR-6824); this lane is IR-6588 only, and the operator pre-approved leaving it out.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket, and each of the six other tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6586 → ir-6586-cb8ca4, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). `--severity` discovery is a separate gap. This is the complete cut list. The workflows commands already shipped in rootly-cli#56, so make no code change. Bring the close-as-done proposal to me as an ask; don't close or comment yourself.",
+      "at": "2026-11-04T20:59:39.943Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6586/cli-add-status-page-commands-incidents-update-statusresolved-leaves",
+      "reason": "Belongs to its own lane (IR-6586); this lane is IR-6588 only, and the operator pre-approved leaving it out.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket, and each of the six other tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6586 → ir-6586-cb8ca4, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). `--severity` discovery is a separate gap. This is the complete cut list. The workflows commands already shipped in rootly-cli#56, so make no code change. Bring the close-as-done proposal to me as an ask; don't close or comment yourself.",
+      "at": "2026-11-04T20:59:39.943Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6584/cli-add-escalate-verb-for-incidents-and-alerts-to-page-a-team",
+      "reason": "Belongs to its own lane (IR-6584); this lane is IR-6588 only, and the operator pre-approved leaving it out.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket, and each of the six other tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6586 → ir-6586-cb8ca4, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). `--severity` discovery is a separate gap. This is the complete cut list. The workflows commands already shipped in rootly-cli#56, so make no code change. Bring the close-as-done proposal to me as an ask; don't close or comment yourself.",
+      "at": "2026-11-04T20:59:39.943Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-5478/rootly-cli-incident-not-found",
+      "reason": "Belongs to its own lane (IR-5478); this lane is IR-6588 only, and the operator pre-approved leaving it out.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket, and each of the six other tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6586 → ir-6586-cb8ca4, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). `--severity` discovery is a separate gap. This is the complete cut list. The workflows commands already shipped in rootly-cli#56, so make no code change. Bring the close-as-done proposal to me as an ask; don't close or comment yourself.",
+      "at": "2026-11-04T20:59:39.943Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6585/cli-support-services-and-types-on-incidents-createupdate",
+      "reason": "Belongs to its own lane (IR-6585); this lane is IR-6588 only, and the operator pre-approved leaving it out.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket, and each of the six other tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6586 → ir-6586-cb8ca4, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). `--severity` discovery is a separate gap. This is the complete cut list. The workflows commands already shipped in rootly-cli#56, so make no code change. Bring the close-as-done proposal to me as an ask; don't close or comment yourself.",
+      "at": "2026-11-04T20:59:39.943Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-5846/admin-general-organization-settings-checkboxes-toggle-when-clicking",
+      "reason": "Belongs to its own lane (IR-5846); this lane is IR-6588 only, and the operator pre-approved leaving it out.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket, and each of the six other tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6586 → ir-6586-cb8ca4, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). `--severity` discovery is a separate gap. This is the complete cut list. The workflows commands already shipped in rootly-cli#56, so make no code change. Bring the close-as-done proposal to me as an ask; don't close or comment yourself.",
+      "at": "2026-11-04T20:59:39.943Z"
+    },
+    {
+      "kind": "ask_stands",
+      "what": "the part of IR-6588 judged already done: rootly-cli PR #56 already added workflows list and run on master; the built binary shows both commands and the workflows and api tests pass.",
+      "reason": "only what is left was planned: Narrow scope: approved cut, no code change, since the workflows list and run commands already shipped in rootly-cli#56. Do not close the ticket or comment on it yourself; bring the close-as-done proposal to the human as an ask.",
+      "decidedBy": "the ask ladder",
+      "at": "2026-11-04T20:59:44.560Z"
+    },
+    {
+      "kind": "ask_stands",
+      "what": "the part of IR-6588 judged already done: rootly-cli PR #56 already added workflows list and run on master; the built binary shows both commands and the workflows and api tests pass. (JEV reads it as \"already-done\"; the lane read \"partly-done\".)",
+      "reason": "only what is left was planned: Narrow scope: approved cut, no code change, since the workflows list and run commands already shipped in rootly-cli#56. Do not close the ticket or comment on it yourself; bring the close-as-done proposal to the human as an ask.",
+      "decidedBy": "the ask ladder",
+      "at": "2026-11-04T21:00:02.112Z"
+    }
+  ],
+  "answers": [],
+  "mergeable": [
+    {
+      "id": "merge-tests",
+      "text": "Changed code is covered by tests: the repo's coverage report on the changed lines when one is fresh, else a test that touches each changed file or function"
+    },
+    {
+      "id": "merge-lint",
+      "text": "Lint and type checks are clean on the touched files"
+    },
+    {
+      "id": "merge-docs",
+      "text": "Docs and the changelog are updated where the repo keeps them with its code changes"
+    }
+  ]
+}

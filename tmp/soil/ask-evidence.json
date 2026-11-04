@@ -1,0 +1,47 @@
+{
+  "ticketKey": "IR-6588",
+  "depth": "full",
+  "ticket": {
+    "key": "IR-6588",
+    "title": "[ CLI ]: Add workflows list and workflows run commands",
+    "url": "https://linear.app/rootly/issue/IR-6588/cli-add-workflows-list-and-workflows-run-commands",
+    "state": "Todo",
+    "stateType": "unstarted",
+    "createdAt": "2026-08-12T13:58:28.421Z",
+    "updatedAt": "2026-11-04T14:24:41.096Z",
+    "description": "**Product Surface:** CLI\n\n**Component:** Workflows\n\n**Summary:** There is no workflow command in the CLI, so triggering a workflow is Slack-only. Any workflow-driven automation — retrospectives, comms templates, escalation policies — is unreachable from a terminal or an agent.\n\n---\n\n## What is the customer attempting to do?\n\nThe reporter has written their incident-response runbook so each step can be driven either from Slack or from a terminal, letting the process be scripted or executed by an agent rather than requiring a human in Slack.\n\nOne step cannot be automated: triggering a workflow. Their retrospective is a Rootly workflow (`create-a-google-docs-retrospective`), normally fired automatically on resolution, but responders sometimes need it early. In Slack that is `/rootly workflow` plus picking from the drop-down.\n\n## What pain points are they running into?\n\nThere is no workflow command. `internal/cmd/` has packages for `incidents`, `alerts`, `services`, `teams`, `oncall`, `pulse`, `auth`, `completion` and `version` — nothing for workflows, and no verb elsewhere that triggers one.\n\n## Desired Behaviour\n\n```\nrootly workflows list\nrootly workflows run <workflow-id-or-slug> --incident=<incident-id>\n```\n\n`list` matters as much as `run` — without it there is no way to discover the ID to pass, which is the same discovery problem `--severity` has today.\n\n## Is there a workaround?\n\nSlack only. The reporter's runbook has to tell readers this step is Slack-only and warn them off looking for a `rootly workflows run` that does not exist.\n\n---\n\n**Who does this affect?**\n\n* Any customer running workflow-driven automation who wants a scripted or agent-driven response path\n* Reported publicly on GitHub by @minkimipt — internal vs. external UNKNOWN, please confirm\n\n**Why this matters:**\n\nWorkflows are the main automation primitive in Rootly. Leaving them entirely unreachable from the CLI caps how much of the incident lifecycle can be agent-driven, which is the whole premise of the CLI. The `list` half also generalises: ID discovery is a recurring CLI gap (`--severity` has the same problem).\n\n---\n\n**Links**\n\n* GitHub: [https://github.com/rootlyhq/rootly-cli/issues/51](<https://github.com/rootlyhq/rootly-cli/issues/51>)",
+    "comments": [
+      {
+        "author": "Linear",
+        "at": "2026-08-12T14:00:56.496Z",
+        "body": "### 1) Restated problem\n\n* Expected: the CLI should let operators discover and trigger workflows, e.g. `rootly workflows list` and `rootly workflows run <workflow-id-or-slug> --incident=<incident-id>`.\n* Actual: there is no workflow command in the CLI today, so workflow execution is effectively Slack-only.\n\n### 2) Scope\n\n* in-scope\n* likely owner area/team: Incident Response / CLI workflows\n* reason: the primary surface is workflows, which this team owns, and the gap is specifically in how that workflow capability is exposed in the CLI.\n\n### 3) Classification\n\n* feature-request\n* severity guess: medium\n* reason: this appears to be an unsupported capability gap rather than incorrect behavior in an existing general workflow.\n\n### 4) Evidence\n\n**Facts**\n\n* The issue asks for new CLI commands to list and run workflows.\n* The current workaround described in the ticket is Slack-only workflow triggering.\n* The CLI depends on `github.com/rootlyhq/rootly-go v0.12.0` (`go.mod:8`).\n\n**Findings**\n\n* The existing `run` command is for pulse only; there is no workflow command present in the CLI command surface (`internal/cmd/pulse/run.go:18-47`).\n* The CLI wrapper layer in `internal/api/client.go` contains resource wrappers for other surfaces but no workflow-specific wrapper methods/models.\n* The underlying generated API client already appears to expose workflow list/get/run primitives, including workflow-run creation (`/home/linear/go/pkg/mod/github.com/rootlyhq/rootly-go@v0.12.0/schema.gen.go:184430-184490`, `/home/linear/go/pkg/mod/github.com/rootlyhq/rootly-go@v0.12.0/schema.gen.go:184682-184697`).\n\n### 5) Root-cause hypothesis\n\nHypothesis: this is likely a product gap in the CLI layer, not an API limitation. The evidence suggests the generated client already supports workflow retrieval and workflow-run creation, but the CLI has not wired that functionality into command registration or its local API wrapper layer.\n\n### 6) Recommended next action\n\n* Route to Incident Response /"
+      },
+      {
+        "author": "Devin",
+        "at": "2026-11-04T14:24:41.151Z",
+        "body": "### 1) Restated problem\nExpected: the Rootly CLI can list workflows and start a workflow run for an incident (`rootly workflows list`, `rootly workflows run <workflow-id-or-slug> --incident=<incident-id>`). Reported as actual: the CLI had no workflow command, so starting a workflow by hand only worked from Slack.\n\n### 2) Scope\nIn scope: Incident Response / Workflows (incident-scoped workflow runs, not alert-triggered). The code lives in `rootlyhq/rootly-cli`, which calls the public API in `rootlyhq/rootly`.\n\n### 3) Classification\nfeature-request, severity low. It asked for a capability the CLI did not have, and that capability now appears to have shipped (see Evidence).\n\n### 4) Evidence\n**Facts**\n* rootly-cli commit `14c8081` \"Add workflow list and run commands (#56)\" is dated 2026-08-12, the day this ticket was filed. It is in tag `v0.5.0` and later tags (latest local tag `v0.6.1`).\n* The linked GitHub issue rootlyhq/rootly-cli#51 has been closed since 2026-08-13.\n* On rootly-cli `master` (local checkout at `57534c3`), `go run ./cmd/rootly workflows --help` lists the `list` and `run` subcommands, with the alias `workflow`. `go test ./internal/cmd/workflows/` passes.\n* I did not run the commands against a live Rootly API in this run.\n\n**Findings**\n* `rootly-cli/internal/cmd/workflows/run.go:15-31`: `run <workflow-id-or-slug>` with a required `--incident` flag, plus `--immediate` and `--check-conditions`. The help text uses the reporter's `create-a-google-docs-retrospective` as its example.\n* `rootly-cli/internal/cmd/workflows/list.go:16-29`: `list` with the flags `--page`, `--page-size`, `--sort`, `--name` and `--slug`.\n* `rootly-cli/internal/api/client.go:1534-1551`: `ResolveWorkflowID` turns a slug into an ID by filtering on `slug][eq`, and `RunWorkflowCLI` posts the run with `incident_id`.\n* `rootly/config/routes/api.rb:288-289`: the API serves `workflows/:id/workflow_runs` (index and create).\n* `rootly/app/controllers/api/v1/genius_workflow_runs_controller.rb:27"
+      }
+    ],
+    "relations": []
+  },
+  "prs": [],
+  "kb": [
+    {
+      "path": "repos/rootly-codeflow/commands.md",
+      "title": "Commands",
+      "snippet": "lint: `npm run lint`\n- typecheck: `npm run typecheck`\n- test: `npm run test`\n- build: `npm run build`\n\n_Moved from the rootly-codeflow app manifest._"
+    },
+    {
+      "path": "repos/rootly/wiki/testing-and-local-development.md",
+      "title": "Testing and local development",
+      "snippet": "Free\" workspace.\n4. Register with the Slack Router so webhooks reach your machine.\n\nThese steps are listed in the [README](https://github.com/rootlyhq/rootly/blob/5d980c6266a7994443a8136503d51de303298bcb/README.md#L113-L122). After you [sign in with Slack and add the Slack integration … github.com/r"
+    },
+    {
+      "path": "repos/rootly-wizard/test-and-run.md",
+      "title": "Test and run",
+      "snippet": "OAuth hosts default to\n  api.rootly.com with no env override.\n\n_Seeded from Devin's rootlyhq/rootly-wizard blueprint (test, run"
+    }
+  ],
+  "gaps": [],
+  "gatheredAt": "2026-11-04T20:45:47.107Z"
+}

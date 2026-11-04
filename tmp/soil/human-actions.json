@@ -1,0 +1,14 @@
+[
+  {
+    "kind": "decision",
+    "action": "Decide whether to close IR-6588 as done with a comment linking rootly-cli#56 and telling users to upgrade to v0.5.0+",
+    "target": "Linear issue IR-6588 (https://linear.app/rootly/issue/IR-6588), posted as the ticket owner",
+    "why": "The workflows list and run commands already shipped in rootly-cli#56 (first released in v0.5.0), so the ticket has nothing left to build",
+    "evidence": [
+      "https://github.com/rootlyhq/rootly-cli/pull/56",
+      "internal/cmd/workflows/run.go:28",
+      "internal/api/client.go:1534"
+    ],
+    "verifyBy": "IR-6588 shows the human's recorded decision: either closed with a comment linking PR #56, or left open on purpose (the answer so far: leave the ticket open, no comment)"
+  }
+]

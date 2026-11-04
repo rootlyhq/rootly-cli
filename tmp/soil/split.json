@@ -1,0 +1,12 @@
+{
+  "parts": [
+    {
+      "title": "IR-6588: workflows list/run already shipped in rootly-cli#56 (no code change)",
+      "criteria": ["ac-1", "ac-2"],
+      "files": [],
+      "why": "IR-6588 asks for `rootly workflows list` and `rootly workflows run`, and both already shipped in rootly-cli#56 (v0.5.0+). Nothing is left to build, and the close-as-done decision belongs to the human.",
+      "plan": "1) Keep the diff against master empty and confirm it with git diff master --stat (ac-1). 2) The human decides whether to close the ticket; the lane does not close or comment on IR-6588 itself (ac-2).",
+      "dependsOn": []
+    }
+  ]
+}
