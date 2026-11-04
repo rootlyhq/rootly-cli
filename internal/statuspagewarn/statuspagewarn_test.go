@@ -70,6 +70,42 @@ func TestIncidentListsOpenEvents(t *testing.T) {
 	}
 }
 
+func TestIncidentFollowsPagination(t *testing.T) {
+	client, requests := newClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page[number]") == "2" {
+			_, _ = w.Write([]byte(`{"data": [{"id": "ev-page2", "attributes": {"status": "investigating", "status_page_id": "page-9"}}],
+				"meta": {"current_page": 2, "total_pages": 2}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data": [{"id": "ev-old", "attributes": {"status": "resolved", "status_page_id": "page-1"}}],
+			"meta": {"current_page": 1, "next_page": 2, "total_pages": 2}}`))
+	})
+	var buf bytes.Buffer
+	Incident(context.Background(), client, "inc-1", "resolved", &buf)
+
+	if *requests != 2 || !strings.Contains(buf.String(), "events resolve ev-page2") {
+		t.Errorf("expected open event from page 2 after %d requests, got %q", *requests, buf.String())
+	}
+}
+
+func TestIncidentStopsAtPageLimit(t *testing.T) {
+	client, requests := newClient(t, eventsHandler(`{"data": [], "meta": {"current_page": 1, "next_page": 2, "total_pages": 99}}`, http.StatusOK))
+	var buf bytes.Buffer
+	Incident(context.Background(), client, "inc-1", "resolved", &buf)
+	if int(*requests) != maxEventPages {
+		t.Errorf("expected %d requests, got %d", maxEventPages, *requests)
+	}
+}
+
+func TestIncidentPrintsRequiredMessageFlag(t *testing.T) {
+	client, _ := newClient(t, eventsHandler(mixedEvents, http.StatusOK))
+	var buf bytes.Buffer
+	Incident(context.Background(), client, "inc-1", "resolved", &buf)
+	if !strings.Contains(buf.String(), `events resolve ev-open --message="<public resolution message>"`) {
+		t.Errorf("command must include --message, got %q", buf.String())
+	}
+}
+
 func TestIncidentSilentCases(t *testing.T) {
 	cases := map[string]string{
 		"no events": `{"data": [], "meta": {"current_page": 1, "total_pages": 1}}`,

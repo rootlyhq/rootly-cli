@@ -13,8 +13,11 @@ import (
 	"github.com/rootlyhq/rootly-cli/internal/api"
 )
 
-// eventsPageSize is enough for a warning; events past the first page are not listed.
-const eventsPageSize = 100
+const (
+	eventsPageSize = 100
+	// maxEventPages bounds the lookup so a misbehaving API cannot loop forever.
+	maxEventPages = 20
+)
 
 // IsResolved reports whether an incident status counts as resolved.
 func IsResolved(status string) bool {
@@ -31,15 +34,20 @@ func Incident(ctx context.Context, client *api.Client, incidentID, status string
 	if !IsResolved(status) {
 		return
 	}
-	result, err := client.ListStatusPageEventsCLI(ctx, incidentID, 1, eventsPageSize)
-	if err != nil {
-		debugf(w, "status page check skipped: %v", err)
-		return
-	}
 	var open []api.StatusPageEvent
-	for _, event := range result.Events {
-		if isOpen(event.Status) {
-			open = append(open, event)
+	for page := 1; page <= maxEventPages; page++ {
+		result, err := client.ListStatusPageEventsCLI(ctx, incidentID, page, eventsPageSize)
+		if err != nil {
+			debugf(w, "status page check skipped: %v", err)
+			break
+		}
+		for _, event := range result.Events {
+			if isOpen(event.Status) {
+				open = append(open, event)
+			}
+		}
+		if !result.Pagination.HasNext {
+			break
 		}
 	}
 	if len(open) == 0 {
@@ -47,8 +55,9 @@ func Incident(ctx context.Context, client *api.Client, incidentID, status string
 	}
 	_, _ = fmt.Fprintf(w, "Warning: incident %s is resolved but %d status page event(s) are still open:\n", incidentID, len(open))
 	for _, event := range open {
-		_, _ = fmt.Fprintf(w, "  status page %s, status %s: rootly status-pages events resolve %s\n", event.StatusPageID, event.Status, event.ID)
+		_, _ = fmt.Fprintf(w, "  status page %s, status %s: rootly status-pages events resolve %s --message=\"<public resolution message>\"\n", event.StatusPageID, event.Status, event.ID)
 	}
+	_, _ = fmt.Fprintln(w, "  --message is the public text shown on the status page; resolving may notify subscribers.")
 }
 
 // AlertIncidents runs Incident for each resolved or closed incident related to the alert.
