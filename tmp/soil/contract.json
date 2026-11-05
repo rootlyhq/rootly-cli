@@ -1,0 +1,169 @@
+{
+  "version": 2,
+  "frozenAt": "2026-11-05T04:30:20.161Z",
+  "step": "context",
+  "head": {
+    "ticket": "IR-5478",
+    "title": "Rootly CLI - Incident Not Found",
+    "summary": "`rootly incidents get INC-31` returned \"incident not found: INC-31\" because the CLI sent the display ID to /v1/incidents/{id}, which accepts a UUID, slug or bare sequential number. PR #32 (v0.3.2, merged 2026-06-04) added NormalizeIncidentID and wired it into incidents get/update/delete, workflows run and status-page events; master already behaves as the ticket asks, so the likely outcome is no code change and a recommendation that the customer upgrade."
+  },
+  "ask": {
+    "text": "Solve\n\nhttps://linear.app/rootly/issue/IR-6824/mcp-claude-desktop-and-claude-code-sdk-cannot-connect-the-mcp-server\nhttps://linear.app/rootly/issue/IR-6586/cli-add-status-page-commands-incidents-update-statusresolved-leaves\nhttps://linear.app/rootly/issue/IR-6584/cli-add-escalate-verb-for-incidents-and-alerts-to-page-a-team\nhttps://linear.app/rootly/issue/IR-5478/rootly-cli-incident-not-found\nhttps://linear.app/rootly/issue/IR-6588/cli-add-workflows-list-and-workflows-run-commands\nhttps://linear.app/rootly/issue/IR-6585/cli-support-services-and-types-on-incidents-createupdate\nhttps://linear.app/rootly/issue/IR-5846/admin-general-organization-settings-checkboxes-toggle-when-clicking\n\n1 pr each",
+    "additions": [
+      {
+        "at": "2026-11-04T20:45:36.273Z",
+        "kind": "relay",
+        "role": "operator",
+        "text": "Solve IR-5478 — one PR. `rootly incidents get INC-31` fails with \"incident not found\" though help says INC-123 format is accepted; resolve sequential IDs. Ref https://github.com/rootlyhq/rootly-cli/issues/28",
+        "author": "operator"
+      }
+    ]
+  },
+  "criteria": [
+    {
+      "id": "ac-1",
+      "text": "`incidents get` with INC-31, inc-31 and bare 31 requests /v1/incidents/31, and a UUID is passed through unchanged (TestNormalizeIncidentID, TestRunGetNormalizesSequentialID, TestRunGetAcceptsUUID pass)",
+      "kind": "change",
+      "cites": "`rootly incidents get INC-31` fails with \"incident not found\" though help says INC-123 format is accepted"
+    },
+    {
+      "id": "ac-2",
+      "text": "Every command that takes an incident ID (incidents update, incidents delete, workflows run --incident, status-pages events list/create) calls api.NormalizeIncidentID before the API call, each covered by a test",
+      "kind": "change",
+      "cites": "resolve sequential IDs"
+    },
+    {
+      "id": "ac-3",
+      "text": "Help text and README examples show INC-123 and match the behaviour; a real 404 reports \"failed to get incident <id-as-typed>: incident not found\"",
+      "kind": "change",
+      "cites": "help says INC-123 format is accepted"
+    }
+  ],
+  "shipChecks": [
+    {
+      "kind": "body",
+      "value": "IR-6824",
+      "why": "the ask names IR-6824"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6586",
+      "why": "the ask names IR-6586"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6584",
+      "why": "the ask names IR-6584"
+    },
+    {
+      "kind": "body",
+      "value": "IR-5478",
+      "why": "the ask names IR-5478"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6588",
+      "why": "the ask names IR-6588"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6585",
+      "why": "the ask names IR-6585"
+    },
+    {
+      "kind": "body",
+      "value": "IR-5846",
+      "why": "the ask names IR-5846"
+    },
+    {
+      "kind": "body",
+      "value": "INC-31",
+      "why": "the ask names INC-31"
+    },
+    {
+      "kind": "body",
+      "value": "INC-123",
+      "why": "the ask names INC-123"
+    }
+  ],
+  "risk": {
+    "level": "medium",
+    "floor": "low",
+    "reasons": [],
+    "declared": null
+  },
+  "workKind": null,
+  "changeKind": "bug",
+  "changeKindReason": "The ticket names the error \"incident not found: INC-31\", but the code on master already fixes it (PR #32), so this run only verifies the fix and makes no change unless the audit finds a gap.",
+  "scopeCuts": [
+    {
+      "at": "2026-11-04T20:47:30.232Z",
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6824/mcp-claude-desktop-and-claude-code-sdk-cannot-connect-the-mcp-server",
+      "answer": "approve: the human asked for one PR per ticket. Each of the other six tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-6586 → ir-6586-cb8ca4, IR-6588 → ir-6588-c99a1c; IR-6585 → ir-6585-694b70 and IR-6584 → ir-6584-304657 are held until your plan lands). Scope this PR to IR-5478 only. Keep the INC-123 → incident lookup in a reusable helper, because IR-6585 (incidents update) and IR-6584 (incidents escalate) will reuse it.",
+      "reason": "The ask says \"1 pr each\" and the operator scoped this lane to IR-5478 only; IR-6824 gets its own lane and PR.",
+      "decidedBy": "the operator"
+    },
+    {
+      "at": "2026-11-04T20:47:30.232Z",
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6586/cli-add-status-page-commands-incidents-update-statusresolved-leaves",
+      "answer": "approve: the human asked for one PR per ticket. Each of the other six tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-6586 → ir-6586-cb8ca4, IR-6588 → ir-6588-c99a1c; IR-6585 → ir-6585-694b70 and IR-6584 → ir-6584-304657 are held until your plan lands). Scope this PR to IR-5478 only. Keep the INC-123 → incident lookup in a reusable helper, because IR-6585 (incidents update) and IR-6584 (incidents escalate) will reuse it.",
+      "reason": "One PR per ticket; the operator scoped this lane to IR-5478. IR-6586 is handled in its own lane.",
+      "decidedBy": "the operator"
+    },
+    {
+      "at": "2026-11-04T20:47:30.232Z",
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6584/cli-add-escalate-verb-for-incidents-and-alerts-to-page-a-team",
+      "answer": "approve: the human asked for one PR per ticket. Each of the other six tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-6586 → ir-6586-cb8ca4, IR-6588 → ir-6588-c99a1c; IR-6585 → ir-6585-694b70 and IR-6584 → ir-6584-304657 are held until your plan lands). Scope this PR to IR-5478 only. Keep the INC-123 → incident lookup in a reusable helper, because IR-6585 (incidents update) and IR-6584 (incidents escalate) will reuse it.",
+      "reason": "One PR per ticket; the operator scoped this lane to IR-5478. IR-6584 is handled in its own lane.",
+      "decidedBy": "the operator"
+    },
+    {
+      "at": "2026-11-04T20:47:30.232Z",
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6588/cli-add-workflows-list-and-workflows-run-commands",
+      "answer": "approve: the human asked for one PR per ticket. Each of the other six tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-6586 → ir-6586-cb8ca4, IR-6588 → ir-6588-c99a1c; IR-6585 → ir-6585-694b70 and IR-6584 → ir-6584-304657 are held until your plan lands). Scope this PR to IR-5478 only. Keep the INC-123 → incident lookup in a reusable helper, because IR-6585 (incidents update) and IR-6584 (incidents escalate) will reuse it.",
+      "reason": "One PR per ticket; the operator scoped this lane to IR-5478. IR-6588 is handled in its own lane.",
+      "decidedBy": "the operator"
+    },
+    {
+      "at": "2026-11-04T20:47:30.232Z",
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6585/cli-support-services-and-types-on-incidents-createupdate",
+      "answer": "approve: the human asked for one PR per ticket. Each of the other six tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-6586 → ir-6586-cb8ca4, IR-6588 → ir-6588-c99a1c; IR-6585 → ir-6585-694b70 and IR-6584 → ir-6584-304657 are held until your plan lands). Scope this PR to IR-5478 only. Keep the INC-123 → incident lookup in a reusable helper, because IR-6585 (incidents update) and IR-6584 (incidents escalate) will reuse it.",
+      "reason": "One PR per ticket; the operator scoped this lane to IR-5478. IR-6585 is handled in its own lane.",
+      "decidedBy": "the operator"
+    },
+    {
+      "at": "2026-11-04T20:47:30.232Z",
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-5846/admin-general-organization-settings-checkboxes-toggle-when-clicking",
+      "answer": "approve: the human asked for one PR per ticket. Each of the other six tickets has its own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-6586 → ir-6586-cb8ca4, IR-6588 → ir-6588-c99a1c; IR-6585 → ir-6585-694b70 and IR-6584 → ir-6584-304657 are held until your plan lands). Scope this PR to IR-5478 only. Keep the INC-123 → incident lookup in a reusable helper, because IR-6585 (incidents update) and IR-6584 (incidents escalate) will reuse it.",
+      "reason": "One PR per ticket; the operator scoped this lane to IR-5478. IR-5846 is a Rootly web app issue handled in its own lane.",
+      "decidedBy": "the operator"
+    }
+  ],
+  "answers": [],
+  "mergeable": [
+    {
+      "id": "merge-tests",
+      "text": "Changed code is covered by tests: the repo's coverage report on the changed lines when one is fresh, else a test that touches each changed file or function"
+    },
+    {
+      "id": "merge-lint",
+      "text": "Lint and type checks are clean on the touched files"
+    },
+    {
+      "id": "merge-docs",
+      "text": "Docs and the changelog are updated where the repo keeps them with its code changes"
+    }
+  ],
+  "redProof": {
+    "verdict": "skipped",
+    "tests": [],
+    "reason": "The bug is already fixed on master by PR #32 (v0.3.2), so no test can fail on the current code for the bug's reason; TestRunGetNormalizesSequentialID, which asserts INC-42 requests /v1/incidents/42, already passes at HEAD.",
+    "at": "2026-11-05T05:02:45.040Z"
+  }
+}

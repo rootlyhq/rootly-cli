@@ -1,0 +1,3 @@
+{
+  "none": "The bug is already fixed on master by PR #32 (v0.3.2), so no test can fail on the current code for the bug's reason; TestRunGetNormalizesSequentialID, which asserts INC-42 requests /v1/incidents/42, already passes at HEAD."
+}

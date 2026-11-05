@@ -1,0 +1,35 @@
+{
+  "ac-1": {
+    "criterion": "ac-1",
+    "head": "6f400af47021f58e198a0802d9e481ce9ca81513",
+    "status": "unproven",
+    "reason": "tests passing at HEAD do not show the change: they also have to fail at the base — call prove_fix with tests internal/cmd/incidents/cmd_test.go",
+    "proofs": [
+      "tmp/soil/proofs/harness-go-test-6f400af470.txt"
+    ],
+    "textHash": "3e962b5f3a045a00",
+    "at": "2026-11-05T05:04:16.764Z"
+  },
+  "ac-2": {
+    "criterion": "ac-2",
+    "head": "6f400af47021f58e198a0802d9e481ce9ca81513",
+    "status": "unproven",
+    "reason": "tests passing at HEAD do not show the change: they also have to fail at the base — call prove_fix with tests internal/cmd/incidents/cmd_test.go",
+    "proofs": [
+      "tmp/soil/proofs/harness-go-test-6f400af470.txt"
+    ],
+    "textHash": "63bfad2e05e8cf19",
+    "at": "2026-11-05T05:04:16.764Z"
+  },
+  "ac-3": {
+    "criterion": "ac-3",
+    "head": "6f400af47021f58e198a0802d9e481ce9ca81513",
+    "status": "unproven",
+    "reason": "tests passing at HEAD do not show the change: they also have to fail at the base — call prove_fix with tests internal/cmd/incidents/cmd_test.go",
+    "proofs": [
+      "tmp/soil/proofs/harness-go-test-6f400af470.txt"
+    ],
+    "textHash": "bc6dc6b37efdc8c8",
+    "at": "2026-11-05T05:04:16.764Z"
+  }
+}

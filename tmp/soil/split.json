@@ -1,0 +1,12 @@
+{
+  "parts": [
+    {
+      "title": "test(incidents): pin INC-123 normalization on delete and the 404 message (IR-5478)",
+      "criteria": ["ac-1", "ac-2", "ac-3"],
+      "files": ["internal/cmd/incidents/cmd_test.go"],
+      "why": "IR-5478: `rootly incidents get INC-31` sent the display ID to /v1/incidents/{id}; PR #32 (v0.3.2) fixed it with api.NormalizeIncidentID. This part only pins the remaining unasserted paths (delete request path, 404 text with the ID as typed).",
+      "plan": "Piece 1: assert DELETE /v1/incidents/42 in TestRunDeleteWithYes. Piece 2: assert 'failed to get incident INC-999' and 'incident not found' in TestRunGetAPIError. Verify ac-1/ac-2 with the existing tests in internal/api/client_test.go, internal/cmd/incidents, workflows and statuspages cmd_test.go.",
+      "dependsOn": []
+    }
+  ]
+}

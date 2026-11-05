@@ -1,0 +1,66 @@
+{
+  "head_sha": "6f400af47021f58e198a0802d9e481ce9ca81513",
+  "tests": {
+    "passed": true,
+    "command": "rc=0; printf '== %s\\n' 'internal/cmd/incidents'; (cd 'internal/cmd/incidents' && go vet .) || rc=1; [ \"$rc\" = 0 ] && rc=0; printf '== %s\\n' 'internal/cmd/incidents'; (cd 'internal/cmd/incidents' && go test -count=1 -v .) || rc=1; [ \"$rc\" = 0 ]",
+    "by": "harness",
+    "proofs": [
+      "tmp/soil/proofs/harness-go-vet-6f400af470.txt",
+      "tmp/soil/proofs/harness-go-test-6f400af470.txt"
+    ]
+  },
+  "lint": {
+    "passed": true
+  },
+  "screenshots": [],
+  "screenshots_waived": "CLI-only change (two test assertions); no UI surface. The intent's wording triggered the user-facing classification.",
+  "root_cause": {
+    "summary": "The CLI sent the display ID (INC-31) to /v1/incidents/{id}, which accepts a UUID, slug or bare sequential number, so the lookup returned not found. PR #32 (v0.3.2) added api.NormalizeIncidentID and wired it into every incident-ID command. Master already contains the fix; this lane only adds assertions that pin it.",
+    "introduced_by": "https://github.com/rootlyhq/rootly-cli/pull/32"
+  },
+  "regression": {
+    "before": {
+      "description": "Reported on a pre-v0.3.2 CLI: incidents get INC-31 returned 'incident not found: INC-31'. Not reproducible on master, where the fix already exists.",
+      "evidence": "rootlyhq/rootly-cli#28"
+    },
+    "after": {
+      "description": "On HEAD, INC-31/inc-31/31 request /v1/incidents/31 (TestNormalizeIncidentID, TestRunGetNormalizesSequentialID). A 404 reports 'failed to get incident INC-999: incident not found'.",
+      "evidence": "tmp/soil/proofs/harness-go-test-6f400af470.txt"
+    }
+  },
+  "proofs": [
+    {
+      "description": "go vet on HEAD",
+      "content": "see file",
+      "file": "tmp/soil/proofs/harness-go-vet-6f400af470.txt"
+    },
+    {
+      "description": "gofmt on HEAD",
+      "content": "see file",
+      "file": "tmp/soil/proofs/harness-gofmt-6f400af470.txt"
+    }
+  ],
+  "attestations": [
+    {
+      "criterion_id": "ac-1",
+      "evidence": "Harness test run on HEAD includes the normalization tests for incidents get. Cannot fail at base: the fix (PR #32) already exists there, so prove_fix refuses. Needs operator override.",
+      "proofs": [
+        "tmp/soil/proofs/harness-go-test-6f400af470.txt"
+      ]
+    },
+    {
+      "criterion_id": "ac-2",
+      "evidence": "Harness test run on HEAD covers update, delete (path now asserted), workflows run and status-page events tests. Cannot fail at base: the fix (PR #32) already exists there, so prove_fix refuses. Needs operator override.",
+      "proofs": [
+        "tmp/soil/proofs/harness-go-test-6f400af470.txt"
+      ]
+    },
+    {
+      "criterion_id": "ac-3",
+      "evidence": "TestRunGetAPIError now asserts the exact 404 message; help and README examples were read and use INC-123. Cannot fail at base: the fix (PR #32) already exists there, so prove_fix refuses. Needs operator override.",
+      "proofs": [
+        "tmp/soil/proofs/harness-go-test-6f400af470.txt"
+      ]
+    }
+  ]
+}

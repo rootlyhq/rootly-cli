@@ -1,0 +1,72 @@
+{
+  "ticketKey": "IR-5478",
+  "depth": "full",
+  "ticket": {
+    "key": "IR-5478",
+    "title": "Rootly CLI - Incident Not Found",
+    "url": "https://linear.app/rootly/issue/IR-5478/rootly-cli-incident-not-found",
+    "state": "Todo",
+    "stateType": "unstarted",
+    "createdAt": "2026-05-20T17:22:33.478Z",
+    "updatedAt": "2026-10-26T13:24:08.632Z",
+    "description": "**Org ID:** [5822](<https://admin.rootly.com/teams/frayt>)\n\n**Customer: FRAYT**\n\n**What is the issue?**\n\nCustomer reported an issue fetching an incident using the command: `rootly incidents get INC-31`\n\nTheir example output is shared in a github issue: [https://github.com/rootlyhq/rootly-cli/issues/28](<https://github.com/rootlyhq/rootly-cli/issues/28>)\n\n```\nλ rootly incidents list INC-31\n╭────────┬──────────────────────────────────────────────────────────────┬───────────┬──────────┬───────────────────────────┬──────────╮\n│ ID     │ Title                                                        │ Status    │ Severity │ Started                   │ Duration │\n├────────┼──────────────────────────────────────────────────────────────┼───────────┼──────────┼───────────────────────────┼──────────┤\n│ INC-31 │ [redacted]                                                   │ resolved  │ SEV3     │ May 18, 2026 02:06 PM EDT │ 52m      │\n╰────────┴──────────────────────────────────────────────────────────────┴───────────┴──────────┴───────────────────────────┴──────────╯\n\nλ rootly incidents get INC-31\nError: failed to get incident: incident not found: INC-31\n```\n\nPer Claude, `rootly incidents get` is looking for a UUID to use with `/v1/incidents/{id}` even though the help text states that `INC-123` format is accepted.\n\n---\n\n**Who does this affect?**\n\nCLI users\n\n---\n\n**Steps to Reproduce**\n\n1. Run `rootly incident get INC-<sequential_id>` \n\n---\n\n**Customer Slack Thread**\n\n[https://rootly-workspace.slack.com/archives/C0AGU8VKMC0/p1779221196736479](<https://rootly-workspace.slack.com/archives/C0AGU8VKMC0/p1779221196736479>)\n\n**Reason for Priority (Please fill out for urgent)** \n\nMedium - CLI tool not widely used",
+    "comments": [
+      {
+        "author": "matt.macris@rootly.com",
+        "at": "2026-05-22T18:45:18.739Z",
+        "body": "Bumping to high because customer is fishing for updates. @quentin who own the CLI tool, is IR the right bucket for this? Should be an easy fix I think"
+      },
+      {
+        "author": "Devin",
+        "at": "2026-10-26T13:24:08.674Z",
+        "body": "### 1) Restated problem\n`rootly incidents get INC-31` should return incident #31, but returned `incident not found: INC-31` even though `rootly incidents list` shows INC-31 and the help text advertises the `INC-123` format.\n\n### 2) Scope\nUnclear / adjacent. The fault and fix live in the Rootly CLI (rootlyhq/rootly-cli), not the monolith. The monolith Incidents API behaves as designed. Matt's open question about who owns the CLI still stands.\n\n### 3) Classification\nbug, low severity (now). The CLI sent the display ID as is. It looks **already fixed upstream**, so no monolith change is needed.\n\n### 4) Evidence\n**Facts**\n- rootly-cli issue #28 (same repro) was closed 2026-06-04 by PR #32, \"Fix incidents get/update/delete with sequential IDs (INC-xxx)\": https://github.com/rootlyhq/rootly-cli/pull/32\n- The fix shipped in CLI **v0.3.2** (2026-06-04). The latest release is v0.6.1.\n- In the GH issue, another user reported that omitting the `INC-` prefix worked, and that the API returned `{\"title\":\"Not found or unauthorized\",\"status\":\"404\"}`.\n- On current rootly-cli master, `TestNormalizeIncidentID`, `TestRunGetNormalizesSequentialID` and `TestRunGetAcceptsUUID` pass locally.\n- The linked Pylon #26340 is still `waiting_on_you`. Its last Rootly update was 2026-05-22.\n\n**Findings**\n- config/initializers/cancan.rb:55-67: for Incident, the API splits the id on `-`. A numeric first part means a `sequential_id` lookup. Anything else (`INC-31` gives `INC`) falls through to a FriendlyId slug lookup, which misses.\n- app/controllers/api/v1/application_controller.rb:51: the miss renders the 404 \"Not found or unauthorized\".\n- rootly-cli internal/api/client.go:1151-1161: `NormalizeIncidentID` strips `INC-` (case-insensitive).\n- rootly-cli internal/cmd/incidents/get.go:41: `get` (also update, delete, workflows run, status-page events) now normalizes before calling `/v1/incidents/{id}`.\n\n### 5) Root-cause hypothesis\nThe customer was very likely on a CLI version older than v0.3.2. Those ver"
+      }
+    ],
+    "relations": []
+  },
+  "prs": [
+    {
+      "repo": "rootlyhq/rootly-cli",
+      "number": 68,
+      "title": "feat: scheduled maintenance, custom form fields, status-page templates, alert escalation",
+      "url": "https://github.com/rootlyhq/rootly-cli/pull/68",
+      "mergedAt": "2026-10-07T08:06:31Z",
+      "matched": "area"
+    },
+    {
+      "repo": "rootlyhq/rootly-cli",
+      "number": 57,
+      "title": "Add status page incident event commands",
+      "url": "https://github.com/rootlyhq/rootly-cli/pull/57",
+      "mergedAt": "2026-08-13T04:14:47Z",
+      "matched": "area"
+    },
+    {
+      "repo": "rootlyhq/rootly-cli",
+      "number": 32,
+      "title": "Fix incidents get/update/delete with sequential IDs (INC-xxx)",
+      "url": "https://github.com/rootlyhq/rootly-cli/pull/32",
+      "mergedAt": "2026-06-04T12:00:41Z",
+      "matched": "area"
+    }
+  ],
+  "kb": [
+    {
+      "path": "repos/rootly/wiki/overview.md",
+      "title": "Overview",
+      "snippet": "Signals (alert sources, webhooks)\" --> \"Alerts and routing\"\n  \"Alerts and routing\" --> \"Escalation policies / On-call\"\n  \"Alerts and routing\" --> \"Incidents lifecycle\"\n  \"Incidents lifecycle\" --> \"Workflows (Genius)\"\n  \"Incidents lifecycle\" --> \"Status pages / Stakeholder comms\"\n  \"Incidents lifecyc"
+    },
+    {
+      "path": "repos/rootly-notification-system/wiki/schedules-and-shift-reminders.md",
+      "title": "Schedules and shift reminders",
+      "snippet": "production and test Redis return different types.\n5. It logs an error when a member cannot be found or is not removed.\n\nThe script does not go through `ScheduleItemDuplicates#clean` or `destroy!`. It edits Redis … each item being removed\n\n[`print_stats`](https://github.com/rootlyhq/rootly-notificati"
+    },
+    {
+      "path": "repos/rootly/wiki/incidents-lifecycle.md",
+      "title": "Incidents lifecycle",
+      "snippet": "github.com/rootlyhq/rootly/blob/ce1efe268a86e5f5ab0fcd704808802dc0f06c27/app/models/incident.rb#L481-L499)).\n\n`invalidate_ability_cache` clears the cached `ability_cache` column ([incident.rb](https://github.com/rootlyhq/rootly/blob/ce1efe268a86e5f5ab0fcd704808802dc0f06c27/app/models/incident.rb#L71"
+    }
+  ],
+  "gaps": [],
+  "gatheredAt": "2026-11-04T20:45:37.601Z"
+}

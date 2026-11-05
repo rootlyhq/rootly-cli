@@ -1,0 +1,1 @@
+{"reproduced": false, "tried": ["TestRunGetNormalizesSequentialID, TestRunGetAcceptsUUID and TestNormalizeIncidentID pass on master"], "decision": "fix anyway with rationale", "rationale": "Bug already fixed by PR #32 (v0.3.2); only tighter regression assertions are added (delete path, 404 message)."}

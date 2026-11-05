@@ -1,0 +1,29 @@
+# soil-diff {"base":"57534c36cac6a220d788256f8d627b31784c9a68","head":"6f400af47021f58e198a0802d9e481ce9ca81513","bytes":1060,"tooLarge":false,"at":"2026-11-05T05:03:23.745Z"}
+diff --git a/internal/cmd/incidents/cmd_test.go b/internal/cmd/incidents/cmd_test.go
+index ee2e1eb..117f70f 100644
+--- a/internal/cmd/incidents/cmd_test.go
++++ b/internal/cmd/incidents/cmd_test.go
+@@ -806,8 +806,11 @@ func TestRunGetAPIError(t *testing.T) {
+ 	if err == nil {
+ 		t.Fatal("expected error for 404 response")
+ 	}
+-	if !strings.Contains(err.Error(), "failed to get incident") {
+-		t.Errorf("expected 'failed to get incident' error, got: %v", err)
++	if !strings.Contains(err.Error(), "failed to get incident INC-999") {
++		t.Errorf("expected 'failed to get incident INC-999' error, got: %v", err)
++	}
++	if !strings.Contains(err.Error(), "incident not found") {
++		t.Errorf("expected 'incident not found' error, got: %v", err)
+ 	}
+ }
+ 
+@@ -837,6 +840,9 @@ func TestRunDeleteWithYes(t *testing.T) {
+ 		if r.Method != http.MethodDelete {
+ 			t.Errorf("expected DELETE, got %s", r.Method)
+ 		}
++		if r.URL.Path != "/v1/incidents/42" {
++			t.Errorf("expected path /v1/incidents/42, got %s", r.URL.Path)
++		}
+ 		w.WriteHeader(http.StatusNoContent)
+ 	})
+ 

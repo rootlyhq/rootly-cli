@@ -1,0 +1,4 @@
+# Run by the Soil harness on HEAD 6f400af47021f58e198a0802d9e481ce9ca81513
+$ rc=0; printf '== %s\n' 'internal/cmd/incidents'; (cd 'internal/cmd/incidents' && go vet .) || rc=1; [ "$rc" = 0 ]
+== internal/cmd/incidents
+exit=0

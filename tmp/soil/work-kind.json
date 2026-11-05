@@ -1,0 +1,6 @@
+{
+  "key": "bug|Rootly CLI - Incident Not Found|`rootly incidents get INC-31` returned \"incident not found: INC-31\" because the CLI sent the display ID to /v1/incidents/{id}, which accepts a UUID, slug or bare sequential number. PR #32 (v0.3.2, merged 2026-06-04) added NormalizeIncidentID and wired it into incidents get/update/delete, workflows run and status-page events; master already behaves as the ticket asks, so the likely outcome is no code change and a recommendation that the customer upgrade.",
+  "perf": false,
+  "source": "classifier",
+  "probability": 0.05
+}

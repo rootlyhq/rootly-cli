@@ -1,0 +1,36 @@
+# Run by the Soil harness on HEAD 57534c36cac6a220d788256f8d627b31784c9a68
+$ rc=0; printf '== %s\n' 'internal/api'; (cd 'internal/api' && go vet .) || rc=1; printf '== %s\n' 'internal/cmd/incidents'; (cd 'internal/cmd/incidents' && go vet .) || rc=1; [ "$rc" = 0 ]
+== internal/api
+== internal/cmd/incidents
+
+go: downloading github.com/rootlyhq/rootly-go v0.14.0
+go: downloading golang.org/x/oauth2 v0.37.0
+go: downloading gopkg.in/yaml.v3 v3.0.1
+go: downloading github.com/oapi-codegen/runtime v1.7.0
+go: downloading github.com/google/uuid v1.6.0
+go: downloading github.com/oapi-codegen/nullable v1.2.0
+go: downloading github.com/getkin/kin-openapi v0.149.0
+go: downloading github.com/apapsch/go-jsonmerge/v2 v2.0.0
+go: downloading github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+go: downloading github.com/go-openapi/jsonpointer v0.22.5
+go: downloading github.com/oasdiff/yaml v0.1.1
+go: downloading github.com/oasdiff/yaml3 v0.0.14
+go: downloading github.com/go-openapi/swag/jsonname v0.25.5
+go: downloading golang.org/x/text v0.34.0
+go: downloading github.com/spf13/cobra v1.10.2
+go: downloading github.com/mattn/go-isatty v0.0.24
+go: downloading github.com/spf13/viper v1.21.0
+go: downloading github.com/jedib0t/go-pretty/v6 v6.8.3
+go: downloading golang.org/x/sys v0.41.0
+go: downloading github.com/fsnotify/fsnotify v1.9.0
+go: downloading github.com/go-viper/mapstructure/v2 v2.5.0
+go: downloading github.com/sagikazarmark/locafero v0.12.0
+go: downloading github.com/spf13/afero v1.15.0
+go: downloading github.com/spf13/cast v1.10.0
+go: downloading github.com/spf13/pflag v1.0.10
+go: downloading github.com/subosito/gotenv v1.6.0
+go: downloading github.com/pelletier/go-toml/v2 v2.2.4
+go: downloading go.yaml.in/yaml/v3 v3.0.4
+go: downloading github.com/mattn/go-runewidth v0.0.20
+go: downloading github.com/clipperhouse/uax29/v2 v2.7.0
+exit=0

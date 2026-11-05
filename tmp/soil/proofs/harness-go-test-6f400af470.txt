@@ -1,0 +1,68 @@
+# Run by the Soil harness on HEAD 6f400af47021f58e198a0802d9e481ce9ca81513
+$ rc=0; printf '== %s\n' 'internal/cmd/incidents'; (cd 'internal/cmd/incidents' && go test -count=1 -v .) || rc=1; [ "$rc" = 0 ]
+61 tests: 61 passed, 0 failed
+PASS TestRunListTable
+PASS TestRunListJSON
+PASS TestRunListWithFilters
+PASS TestRunCreateScheduledMaintenance
+PASS TestRunUpdateScheduledMaintenance
+PASS TestRunCreateWithFormFields
+PASS TestRunUpdateWithFormField
+PASS TestRunCreateUnknownFormFieldDoesNotCreateIncident
+PASS TestParseScheduledTimestamp
+PASS TestParseScheduledTimestamp/fractional_seconds
+PASS TestParseScheduledTimestamp/whole_seconds
+PASS TestParseScheduledTimestamp/offset
+PASS TestParseScheduledTimestamp/invalid_timestamp
+PASS TestIncidentKindHelpIsConsistent
+PASS TestRunListPagination
+PASS TestRunGetTable
+PASS TestRunGetJSON
+PASS TestRunCreateTable
+PASS TestRunCreateJSON
+PASS TestRunUpdateTable
+PASS TestRunUpdateNoFlags
+PASS TestRunUpdateCanClearAssociations
+PASS TestRunListNoToken
+PASS TestRunGetNormalizesSequentialID
+PASS TestRunGetAcceptsUUID
+PASS TestRunGetAPIError
+PASS TestConfirmDeleteSkip
+PASS TestConfirmDeleteNonInteractive
+PASS TestRunDeleteWithYes
+PASS TestRunDeleteNoConfirmNonInteractive
+PASS TestRunDeleteNoToken
+PASS TestRunDeleteAPIError
+PASS TestResolveFormFieldSelections
+PASS TestResolveFormFieldSelections/text_preserves_commas_in_value
+PASS TestResolveFormFieldSelections/select_resolves_option_case_insensitively
+PASS TestResolveFormFieldSelections/multi_select_accumulates_repeated_flags
+PASS TestResolveFormFieldSelections/unknown_slug
+PASS TestResolveFormFieldSelections/unknown_option
+PASS TestResolveFormFieldSelections/unsupported_value_kind
+PASS TestResolveFormFieldSelectionsRejectsMultipleSingleSelectValues
+PASS TestTruncateString
+PASS TestTruncateString/short_string
+PASS TestTruncateString/exact_length
+PASS TestTruncateString/needs_truncation
+PASS TestTruncateString/very_short_max
+PASS TestTruncateString/max_3
+PASS TestTruncateString/max_4
+PASS TestTruncateString/empty_string
+PASS TestIncidentDetailRows
+PASS TestIncidentDetailRowsFallbackID
+PASS TestFormatDuration
+PASS TestFormatDuration/zero
+PASS TestFormatDuration/seconds_only
+PASS TestFormatDuration/one_minute
+PASS TestFormatDuration/minutes_only
+PASS TestFormatDuration/hours_and_minutes
+PASS TestFormatDuration/hours_only
+PASS TestFormatDuration/days_and_hours
+PASS TestFormatDuration/days_only
+PASS TestFormatDuration/multiple_days
+PASS TestFormatDuration/complex_duration
+
+PASS
+ok  	github.com/rootlyhq/rootly-cli/internal/cmd/incidents	0.034s
+exit=0

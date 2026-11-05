@@ -1,0 +1,86 @@
+{
+  "ticket": "IR-5478",
+  "title": "Rootly CLI - Incident Not Found",
+  "summary": "`rootly incidents get INC-31` returned \"incident not found: INC-31\" because the CLI sent the display ID to /v1/incidents/{id}, which accepts a UUID, slug or bare sequential number. PR #32 (v0.3.2, merged 2026-06-04) added NormalizeIncidentID and wired it into incidents get/update/delete, workflows run and status-page events; master already behaves as the ticket asks, so the likely outcome is no code change and a recommendation that the customer upgrade.",
+  "change_kind": "bug",
+  "change_kind_reason": "The ticket names the error \"incident not found: INC-31\", but the code on master already fixes it (PR #32), so this run only verifies the fix and makes no change unless the audit finds a gap.",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "text": "`incidents get` with INC-31, inc-31 and bare 31 requests /v1/incidents/31, and a UUID is passed through unchanged (TestNormalizeIncidentID, TestRunGetNormalizesSequentialID, TestRunGetAcceptsUUID pass)",
+      "kind": "change",
+      "cites": "`rootly incidents get INC-31` fails with \"incident not found\" though help says INC-123 format is accepted"
+    },
+    {
+      "id": "ac-2",
+      "text": "Every command that takes an incident ID (incidents update, incidents delete, workflows run --incident, status-pages events list/create) calls api.NormalizeIncidentID before the API call, each covered by a test",
+      "kind": "change",
+      "cites": "resolve sequential IDs"
+    },
+    {
+      "id": "ac-3",
+      "text": "Help text and README examples show INC-123 and match the behaviour; a real 404 reports \"failed to get incident <id-as-typed>: incident not found\"",
+      "kind": "change",
+      "cites": "help says INC-123 format is accepted"
+    }
+  ],
+  "out_of_scope": [
+    {
+      "quote": "https://linear.app/rootly/issue/IR-6824/mcp-claude-desktop-and-claude-code-sdk-cannot-connect-the-mcp-server",
+      "reason": "The ask says \"1 pr each\" and the operator scoped this lane to IR-5478 only; IR-6824 gets its own lane and PR."
+    },
+    {
+      "quote": "https://linear.app/rootly/issue/IR-6586/cli-add-status-page-commands-incidents-update-statusresolved-leaves",
+      "reason": "One PR per ticket; the operator scoped this lane to IR-5478. IR-6586 is handled in its own lane."
+    },
+    {
+      "quote": "https://linear.app/rootly/issue/IR-6584/cli-add-escalate-verb-for-incidents-and-alerts-to-page-a-team",
+      "reason": "One PR per ticket; the operator scoped this lane to IR-5478. IR-6584 is handled in its own lane."
+    },
+    {
+      "quote": "https://linear.app/rootly/issue/IR-6588/cli-add-workflows-list-and-workflows-run-commands",
+      "reason": "One PR per ticket; the operator scoped this lane to IR-5478. IR-6588 is handled in its own lane."
+    },
+    {
+      "quote": "https://linear.app/rootly/issue/IR-6585/cli-support-services-and-types-on-incidents-createupdate",
+      "reason": "One PR per ticket; the operator scoped this lane to IR-5478. IR-6585 is handled in its own lane."
+    },
+    {
+      "quote": "https://linear.app/rootly/issue/IR-5846/admin-general-organization-settings-checkboxes-toggle-when-clicking",
+      "reason": "One PR per ticket; the operator scoped this lane to IR-5478. IR-5846 is a Rootly web app issue handled in its own lane."
+    }
+  ],
+  "ask_stands": {
+    "verdict": "already-done",
+    "confidence": 0.9,
+    "summary": "PR #32 (v0.3.2) already normalizes INC-xxx for incidents get/update/delete and the other incident-ID commands, with passing tests on master; the customer was most likely on an older CLI.",
+    "evidence": [
+      {
+        "kind": "pr",
+        "ref": "rootlyhq/rootly-cli#32",
+        "url": "https://github.com/rootlyhq/rootly-cli/pull/32",
+        "quote": "Fix incidents get/update/delete with sequential IDs (INC-xxx)"
+      },
+      {
+        "kind": "code",
+        "ref": "internal/api/client.go:1151-1160",
+        "quote": "var incidentSeqIDPattern = regexp.MustCompile(`(?i)^INC-(\\d+)$`) ... return m[1]"
+      },
+      {
+        "kind": "code",
+        "ref": "internal/cmd/incidents/get.go:41",
+        "quote": "id := api.NormalizeIncidentID(displayID)"
+      },
+      {
+        "kind": "code",
+        "ref": "internal/cmd/incidents/cmd_test.go:750",
+        "quote": "func TestRunGetNormalizesSequentialID(t *testing.T) { ... r.URL.Path != \"/v1/incidents/42\""
+      },
+      {
+        "kind": "comment",
+        "ref": "Devin, 2026-10-26 (Linear IR-5478)",
+        "quote": "bug is already fixed upstream in v0.3.2; latest release is v0.6.1"
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "level": "low",
+  "rationale": "The bug was fixed on master by PR #32 (v0.3.2) and this lane changes no production code: the only diff tightens two assertions in internal/cmd/incidents/cmd_test.go (the delete request path and the 404 error text), both of which already hold at HEAD. A CLI binary is not touched, nothing is released, and the coverage floor cannot fall. The one outward action, a comment and links on the Linear ticket, is already done and easy to edit; the ticket was not closed.",
+  "factors": [
+    "blast radius: none at runtime; a wrong assertion would only fail the CLI's own CI",
+    "reversibility: trivial; revert one test commit, or edit/delete the Linear comment",
+    "security/data surface: none; no auth, PII, payments or destructive writes touched (tests run against an httptest server)",
+    "prod-critical path: no; rootly-cli is a client tool and no release is cut from this change"
+  ]
+}

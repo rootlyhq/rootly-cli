@@ -1,0 +1,4 @@
+# Run by the Soil harness on HEAD 6f400af47021f58e198a0802d9e481ce9ca81513
+$ gofmt -l 'internal/cmd/incidents/cmd_test.go'
+
+exit=0
