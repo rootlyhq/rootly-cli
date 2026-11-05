@@ -141,16 +141,22 @@ func TestPageAlertTargetsCLITransportError(t *testing.T) {
 
 // attachServer mimics the replace-the-set endpoint. dropWrites makes that many
 // updates vanish, as if a concurrent writer replaced the set right after them.
-func attachServer(t *testing.T, linked []string, dropWrites int) (*httptest.Server, *[]string, *int) {
+type attachFake struct {
+	server *httptest.Server
+	linked []string
+	posts  int
+}
+
+func newAttachFake(t *testing.T, linked []string, dropWrites int) *attachFake {
 	t.Helper()
-	posts := 0
+	fake := &attachFake{linked: linked}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/incidents/inc-1/alerts" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
 		if r.Method == http.MethodGet {
-			items := make([]string, len(linked))
-			for i, id := range linked {
+			items := make([]string, len(fake.linked))
+			for i, id := range fake.linked {
 				items[i] = `{"id":"` + id + `"}`
 			}
 			_, _ = w.Write([]byte(`{"data":[` + strings.Join(items, ",") + `]}`))
@@ -166,51 +172,52 @@ func attachServer(t *testing.T, linked []string, dropWrites int) (*httptest.Serv
 		if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
 			t.Errorf("failed to decode request body: %v", err)
 		}
-		posts++
-		if posts > dropWrites {
-			linked = posted.Data.Attributes.AlertIDs
+		fake.posts++
+		if fake.posts > dropWrites {
+			fake.linked = posted.Data.Attributes.AlertIDs
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
+	fake.server = server
 	t.Cleanup(server.Close)
-	return server, &linked, &posts
+	return fake
 }
 
 func TestAttachAlertsToIncidentCLI(t *testing.T) {
-	server, linked, posts := attachServer(t, []string{"alert-old", "alert-1"}, 0)
-	if err := newTestClient(t, server.URL).AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-1", "alert-2"}); err != nil {
+	fake := newAttachFake(t, []string{"alert-old", "alert-1"}, 0)
+	if err := newTestClient(t, fake.server.URL).AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-1", "alert-2"}); err != nil {
 		t.Fatalf("AttachAlertsToIncidentCLI returned error: %v", err)
 	}
-	got := strings.Join(*linked, ",")
+	got := strings.Join(fake.linked, ",")
 	if got != "alert-old,alert-1,alert-2" {
 		t.Errorf("data.attributes.alert_ids = %s, want existing alerts kept, deduplicated, new appended", got)
 	}
-	if *posts != 1 {
-		t.Errorf("posts = %d, want 1 when the link is confirmed", *posts)
+	if fake.posts != 1 {
+		t.Errorf("posts = %d, want 1 when the link is confirmed", fake.posts)
 	}
 }
 
 func TestAttachAlertsToIncidentCLIRetriesWhenLinkIsLost(t *testing.T) {
-	server, linked, posts := attachServer(t, []string{"alert-old"}, 1)
-	if err := newTestClient(t, server.URL).AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-new"}); err != nil {
+	fake := newAttachFake(t, []string{"alert-old"}, 1)
+	if err := newTestClient(t, fake.server.URL).AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-new"}); err != nil {
 		t.Fatalf("AttachAlertsToIncidentCLI returned error: %v", err)
 	}
-	if *posts != 2 {
-		t.Errorf("posts = %d, want 2 (one retry)", *posts)
+	if fake.posts != 2 {
+		t.Errorf("posts = %d, want 2 (one retry)", fake.posts)
 	}
-	if got := strings.Join(*linked, ","); got != "alert-old,alert-new" {
+	if got := strings.Join(fake.linked, ","); got != "alert-old,alert-new" {
 		t.Errorf("linked = %s", got)
 	}
 }
 
 func TestAttachAlertsToIncidentCLIFailsWhenLinkKeepsGettingLost(t *testing.T) {
-	server, _, posts := attachServer(t, []string{"alert-old"}, 10)
-	err := newTestClient(t, server.URL).AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-new"})
+	fake := newAttachFake(t, []string{"alert-old"}, 10)
+	err := newTestClient(t, fake.server.URL).AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-new"})
 	if err == nil || !strings.Contains(err.Error(), "alert-new are not linked") {
 		t.Fatalf("error = %v", err)
 	}
-	if *posts != 2 {
-		t.Errorf("posts = %d, want 2", *posts)
+	if fake.posts != 2 {
+		t.Errorf("posts = %d, want 2", fake.posts)
 	}
 }
 
