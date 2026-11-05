@@ -90,6 +90,9 @@ rootly incidents create --title="API degradation" --field="customer_impact=Check
 rootly incidents update <id> --status=mitigated
 rootly incidents update <id> --scheduled-until=2025-06-20T13:00:00Z
 rootly incidents update <id> --field="customer_impact=Checkout restored"
+rootly incidents create --title="Checkout errors" --services=api-gateway,payments --types=customer-impacting
+rootly incidents update INC-123 --services=api-gateway --teams=platform
+rootly incidents update INC-123 --types=                # Clears the incident types
 rootly incidents delete <id>
 
 # Alerts
@@ -164,6 +167,26 @@ rootly incidents create --title="Release" \
   --field=priority=P1 \
   --field="regions=US East" \
   --field="regions=EU West"
+```
+
+### Incident Associations
+
+`incidents create` and `incidents update` can link an incident to other Rootly records. Each flag takes comma-separated slugs or IDs, like `rootly pulse create --services`:
+
+| Flag | Links | API attribute |
+|------|-------|---------------|
+| `--services` | Services | `service_ids` |
+| `--types` | Incident types | `incident_type_ids` |
+| `--functionalities` | Functionalities | `functionality_ids` |
+| `--environments` | Environments | `environment_ids` |
+| `--teams` | Teams | `group_ids` |
+| `--causes` | Causes | `cause_ids` |
+
+On `update`, only the flags you pass are sent. Each one replaces the incident's current list, and an empty value (`--services=`) clears it. `update` accepts a sequential ID such as `INC-123` as well as a UUID or slug.
+
+```bash
+rootly incidents create --title="Checkout errors" --services=api-gateway,payments --types=customer-impacting
+rootly incidents update INC-123 --services=api-gateway --teams=platform
 ```
 
 ### Status-Page Templates and Maintenance Statuses
