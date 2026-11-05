@@ -2835,7 +2835,7 @@ func (c *Client) replaceIncidentAlertsCLI(ctx context.Context, incidentID string
 	}
 	bodyBytes, err := json.Marshal(map[string]interface{}{
 		"data": map[string]interface{}{
-			"type":       "incidents",
+			"type":       "alerts",
 			"attributes": map[string]interface{}{"alert_ids": merged},
 		},
 	})

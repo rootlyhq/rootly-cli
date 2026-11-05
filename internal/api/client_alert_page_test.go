@@ -164,6 +164,7 @@ func newAttachFake(t *testing.T, linked []string, dropWrites int) *attachFake {
 		}
 		var posted struct {
 			Data struct {
+				Type       string `json:"type"`
 				Attributes struct {
 					AlertIDs []string `json:"alert_ids"`
 				} `json:"attributes"`
@@ -171,6 +172,9 @@ func newAttachFake(t *testing.T, linked []string, dropWrites int) *attachFake {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
 			t.Errorf("failed to decode request body: %v", err)
+		}
+		if posted.Data.Type != "alerts" {
+			t.Errorf("data.type = %q, want alerts", posted.Data.Type)
 		}
 		fake.posts++
 		if fake.posts > dropWrites {
