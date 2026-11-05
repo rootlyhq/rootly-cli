@@ -167,13 +167,14 @@ func TestIncidentTimesOutOnStalledEndpoint(t *testing.T) {
 	checkTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { checkTimeout = old })
 	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
 	client, _ := newClient(t, func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-release:
 		case <-r.Context().Done():
 		}
 	})
+	// Registered after newClient so it runs before server.Close and unblocks the handler.
+	t.Cleanup(func() { close(release) })
 	var buf bytes.Buffer
 	done := make(chan struct{})
 	go func() {
