@@ -60,6 +60,15 @@ func (rec *escalateRecorder) handler(t *testing.T, pageStatus, attachStatus int)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/incidents/inc-1/alerts":
 			_ = json.NewDecoder(r.Body).Decode(&rec.attached)
 			w.WriteHeader(attachStatus)
+			if attachStatus == http.StatusOK {
+				// The endpoint replaces the set, so later reads see what was written.
+				attrs := rec.attached["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+				items := []string{}
+				for _, id := range attrs["alert_ids"].([]interface{}) {
+					items = append(items, `{"id":"`+id.(string)+`"}`)
+				}
+				rec.existing = "[" + strings.Join(items, ",") + "]"
+			}
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}

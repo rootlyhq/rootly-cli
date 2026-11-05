@@ -2780,9 +2780,47 @@ func (c *Client) listIncidentAlertIDsCLI(ctx context.Context, incidentID string)
 	}
 }
 
+// attachAlertsMaxAttempts bounds how often the link is rewritten when a
+// concurrent writer drops it.
+const attachAlertsMaxAttempts = 2
+
 // AttachAlertsToIncidentCLI links alerts to an incident. The endpoint replaces
-// the incident's alert set, so the already linked alerts are sent along.
+// the incident's alert set, so the already linked alerts are sent along. A
+// concurrent writer can overwrite the set between our read and write, so the
+// links are read back afterwards and the write is repeated once if any are missing.
 func (c *Client) AttachAlertsToIncidentCLI(ctx context.Context, incidentID string, alertIDs []string) error {
+	for attempt := 1; ; attempt++ {
+		if err := c.replaceIncidentAlertsCLI(ctx, incidentID, alertIDs); err != nil {
+			return err
+		}
+		linked, err := c.listIncidentAlertIDsCLI(ctx, incidentID)
+		if err != nil {
+			return err
+		}
+		if containsAll(linked, alertIDs) {
+			return nil
+		}
+		if attempt == attachAlertsMaxAttempts {
+			return fmt.Errorf("alerts %s are not linked to the incident after %d attempts; another update may have replaced them", strings.Join(alertIDs, ", "), attempt)
+		}
+	}
+}
+
+func containsAll(have, want []string) bool {
+	set := make(map[string]bool, len(have))
+	for _, id := range have {
+		set[id] = true
+	}
+	for _, id := range want {
+		if !set[id] {
+			return false
+		}
+	}
+	return true
+}
+
+// replaceIncidentAlertsCLI reads the incident's linked alerts and writes them back with alertIDs added.
+func (c *Client) replaceIncidentAlertsCLI(ctx context.Context, incidentID string, alertIDs []string) error {
 	existing, err := c.listIncidentAlertIDsCLI(ctx, incidentID)
 	if err != nil {
 		return err

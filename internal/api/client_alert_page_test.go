@@ -139,36 +139,78 @@ func TestPageAlertTargetsCLITransportError(t *testing.T) {
 	}
 }
 
-func TestAttachAlertsToIncidentCLI(t *testing.T) {
-	var posted struct {
-		Data struct {
-			Attributes struct {
-				AlertIDs []string `json:"alert_ids"`
-			} `json:"attributes"`
-		} `json:"data"`
-	}
+// attachServer mimics the replace-the-set endpoint. dropWrites makes that many
+// updates vanish, as if a concurrent writer replaced the set right after them.
+func attachServer(t *testing.T, linked []string, dropWrites int) (*httptest.Server, *[]string, *int) {
+	t.Helper()
+	posts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/incidents/inc-1/alerts" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
 		if r.Method == http.MethodGet {
-			_, _ = w.Write([]byte(`{"data":[{"id":"alert-old"},{"id":"alert-1"}]}`))
+			items := make([]string, len(linked))
+			for i, id := range linked {
+				items[i] = `{"id":"` + id + `"}`
+			}
+			_, _ = w.Write([]byte(`{"data":[` + strings.Join(items, ",") + `]}`))
 			return
+		}
+		var posted struct {
+			Data struct {
+				Attributes struct {
+					AlertIDs []string `json:"alert_ids"`
+				} `json:"attributes"`
+			} `json:"data"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
 			t.Errorf("failed to decode request body: %v", err)
 		}
+		posts++
+		if posts > dropWrites {
+			linked = posted.Data.Attributes.AlertIDs
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
+	return server, &linked, &posts
+}
 
-	client := newTestClient(t, server.URL)
-	if err := client.AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-1", "alert-2"}); err != nil {
+func TestAttachAlertsToIncidentCLI(t *testing.T) {
+	server, linked, posts := attachServer(t, []string{"alert-old", "alert-1"}, 0)
+	if err := newTestClient(t, server.URL).AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-1", "alert-2"}); err != nil {
 		t.Fatalf("AttachAlertsToIncidentCLI returned error: %v", err)
 	}
-	got := strings.Join(posted.Data.Attributes.AlertIDs, ",")
+	got := strings.Join(*linked, ",")
 	if got != "alert-old,alert-1,alert-2" {
 		t.Errorf("data.attributes.alert_ids = %s, want existing alerts kept, deduplicated, new appended", got)
+	}
+	if *posts != 1 {
+		t.Errorf("posts = %d, want 1 when the link is confirmed", *posts)
+	}
+}
+
+func TestAttachAlertsToIncidentCLIRetriesWhenLinkIsLost(t *testing.T) {
+	server, linked, posts := attachServer(t, []string{"alert-old"}, 1)
+	if err := newTestClient(t, server.URL).AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-new"}); err != nil {
+		t.Fatalf("AttachAlertsToIncidentCLI returned error: %v", err)
+	}
+	if *posts != 2 {
+		t.Errorf("posts = %d, want 2 (one retry)", *posts)
+	}
+	if got := strings.Join(*linked, ","); got != "alert-old,alert-new" {
+		t.Errorf("linked = %s", got)
+	}
+}
+
+func TestAttachAlertsToIncidentCLIFailsWhenLinkKeepsGettingLost(t *testing.T) {
+	server, _, posts := attachServer(t, []string{"alert-old"}, 10)
+	err := newTestClient(t, server.URL).AttachAlertsToIncidentCLI(context.Background(), "inc-1", []string{"alert-new"})
+	if err == nil || !strings.Contains(err.Error(), "alert-new are not linked") {
+		t.Fatalf("error = %v", err)
+	}
+	if *posts != 2 {
+		t.Errorf("posts = %d, want 2", *posts)
 	}
 }
 
