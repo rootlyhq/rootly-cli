@@ -806,8 +806,11 @@ func TestRunGetAPIError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for 404 response")
 	}
-	if !strings.Contains(err.Error(), "failed to get incident") {
-		t.Errorf("expected 'failed to get incident' error, got: %v", err)
+	if !strings.Contains(err.Error(), "failed to get incident INC-999") {
+		t.Errorf("expected 'failed to get incident INC-999' error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "incident not found") {
+		t.Errorf("expected 'incident not found' error, got: %v", err)
 	}
 }
 
@@ -836,6 +839,9 @@ func TestRunDeleteWithYes(t *testing.T) {
 	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/incidents/42" {
+			t.Errorf("expected path /v1/incidents/42, got %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
