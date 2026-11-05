@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -138,6 +139,54 @@ func TestIncidentPrintsRequiredMessageFlag(t *testing.T) {
 	Incident(context.Background(), client, "inc-1", "resolved", &buf)
 	if !strings.Contains(buf.String(), `events resolve ev-open --message="<public resolution message>"`) {
 		t.Errorf("command must include --message, got %q", buf.String())
+	}
+}
+
+func TestIncidentMaintenanceCommandUsesCompleted(t *testing.T) {
+	body := `{"data": [
+		{"id": "m-sched", "attributes": {"status": "scheduled", "status_page_id": "p"}},
+		{"id": "m-prog", "attributes": {"status": "in_progress", "status_page_id": "p"}},
+		{"id": "i-open", "attributes": {"status": "monitoring", "status_page_id": "p"}}
+	], "meta": {"current_page": 1, "total_pages": 1}}`
+	client, _ := newClient(t, eventsHandler(body, http.StatusOK))
+	var buf bytes.Buffer
+	Incident(context.Background(), client, "inc-1", "resolved", &buf)
+	out := buf.String()
+	for _, id := range []string{"m-sched", "m-prog"} {
+		if !strings.Contains(out, "events resolve "+id+" --status=completed --message=") {
+			t.Errorf("maintenance event %s must use --status=completed, got %q", id, out)
+		}
+	}
+	if strings.Contains(out, "events resolve i-open --status") {
+		t.Errorf("incident event must not set --status, got %q", out)
+	}
+}
+
+func TestIncidentTimesOutOnStalledEndpoint(t *testing.T) {
+	old := checkTimeout
+	checkTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { checkTimeout = old })
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	client, _ := newClient(t, func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	})
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		Incident(context.Background(), client, "inc-1", "resolved", &buf)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("check did not time out")
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected no output on timeout, got %q", buf.String())
 	}
 }
 
