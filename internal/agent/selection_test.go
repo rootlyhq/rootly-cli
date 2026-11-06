@@ -40,7 +40,7 @@ func assertCopy(t *testing.T, cmd tea.Cmd, want string) {
 }
 
 func TestSelectionDrag(t *testing.T) {
-	m := selectionModel("zero\n\x1b[31mone  \x1b[0m\ntwo  \nthree\nfour", 10, 2)
+	m := selectionModel("zero\n\x1b[31mone \u00a0\x1b[0m\ntwo  \nthree\nfour", 10, 2)
 	m.viewport.SetYOffset(1)
 	click(m, 0, 0)
 	m.updateMouse(tea.MouseMotionMsg{X: 4, Y: 1, Button: tea.MouseLeft})

@@ -95,7 +95,7 @@ func (m *TUIModel) selectionText() string {
 			out.WriteByte('\n')
 		}
 		left, right := s.columns(i)
-		out.WriteString(strings.TrimRight(ansi.Strip(ansi.Cut(rows[i].text, left, right)), " \t"))
+		out.WriteString(strings.TrimRightFunc(ansi.Strip(ansi.Cut(rows[i].text, left, right)), unicode.IsSpace))
 	}
 	return out.String()
 }
