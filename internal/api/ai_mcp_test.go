@@ -11,15 +11,17 @@ import (
 
 	rootly "github.com/rootlyhq/rootly-go"
 
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 	"github.com/rootlyhq/rootly-cli/internal/config"
 	"github.com/rootlyhq/rootly-cli/internal/mcp"
 )
 
 func TestStreamAddsClientToolsBody(t *testing.T) {
 	var body map[string]any
-	var query, contentType string
+	var query, contentType, userAgent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		contentType = r.Header.Get("Content-Type")
+		userAgent = r.UserAgent()
 		data, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(data, &body)
 		query = r.URL.Query().Get("message")
@@ -39,9 +41,72 @@ func TestStreamAddsClientToolsBody(t *testing.T) {
 	}
 	for range events {
 	}
+	if userAgent != buildinfo.UserAgent() {
+		t.Fatalf("User-Agent = %q, want %q", userAgent, buildinfo.UserAgent())
+	}
 	sent, _ := body["client_tools"].([]any)
 	if query != "hi" || len(sent) != 1 || sent[0].(map[string]any)["read_only"] != true || contentType != "application/vnd.api+json" {
 		t.Fatalf("query=%q content-type=%q body=%v", query, contentType, body)
+	}
+}
+
+func TestRawRequestsSendUserAgent(t *testing.T) {
+	tests := []struct {
+		name, method, path, response string
+		call                         func(*Client) error
+	}{
+		{
+			name: "tool results", method: http.MethodPost, path: "/v1/ai/chat/tool_results",
+			call: func(c *Client) error {
+				return c.PostAiChatToolResult(context.Background(), ToolResult{SessionID: "s", CallID: "c", Output: "ok"})
+			},
+		},
+		{
+			name: "connectors", method: http.MethodGet, path: "/v1/ai/connectors", response: `{"data":[]}`,
+			call: func(c *Client) error {
+				_, err := c.ListAIConnectors(context.Background(), 1, 25)
+				return err
+			},
+		},
+		{
+			name: "legacy incidents", method: http.MethodGet, path: "/v1/incidents", response: `{"data":[]}`,
+			call: func(c *Client) error {
+				_, err := c.ListIncidentsCLI(context.Background(), 1, 25, "", nil)
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != tt.method || r.URL.Path != tt.path {
+					t.Errorf("request = %s %s, want %s %s", r.Method, r.URL.Path, tt.method, tt.path)
+				}
+				if got := r.UserAgent(); got != "rootly-cli/"+buildinfo.Version {
+					t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+				}
+				if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+					t.Errorf("Authorization = %q", got)
+				}
+				_, _ = io.WriteString(w, tt.response)
+			}))
+			defer server.Close()
+			client, err := NewClient(&config.Config{APIKey: "test-token", Endpoint: server.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := tt.call(client); err != nil {
+				t.Fatal(err)
+			}
+			if tt.name != "legacy incidents" {
+				t.Run("injected HTTP client", func(t *testing.T) {
+					client.httpClient = server.Client()
+					if err := tt.call(client); err != nil {
+						t.Fatal(err)
+					}
+				})
+			}
+		})
 	}
 }
 

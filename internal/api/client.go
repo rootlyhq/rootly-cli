@@ -16,12 +16,10 @@ import (
 
 	rootly "github.com/rootlyhq/rootly-go"
 
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 	"github.com/rootlyhq/rootly-cli/internal/config"
 	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
-
-// Version is set by the main package to include in User-Agent
-var Version = "dev"
 
 type Client struct {
 	client     *rootly.ClientWithResponses
@@ -913,12 +911,12 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		clientID, scopes := oauth.LoadCachedRegistration()
 		oauthCfg := oauth.NewConfig(authBaseURL, clientID, scopes)
 		var err error
-		httpClient, err = oauth.NewHTTPClient(oauthCfg, transport, "rootly-cli/"+Version)
+		httpClient, err = oauth.NewHTTPClient(oauthCfg, transport, buildinfo.UserAgent())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create OAuth client: %w", err)
 		}
 	} else {
-		httpClient = &http.Client{Transport: transport}
+		httpClient = &http.Client{Transport: oauth.NewUserAgentTransport(transport, buildinfo.UserAgent())}
 	}
 
 	var reqEditorFn rootly.RequestEditorFn
@@ -926,14 +924,14 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		// OAuth transport handles Authorization header
 		reqEditorFn = func(ctx context.Context, req *http.Request) error {
 			req.Header.Set("Content-Type", "application/vnd.api+json")
-			req.Header.Set("User-Agent", "rootly-cli/"+Version)
+			req.Header.Set("User-Agent", buildinfo.UserAgent())
 			return nil
 		}
 	} else {
 		reqEditorFn = func(ctx context.Context, req *http.Request) error {
 			req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 			req.Header.Set("Content-Type", "application/vnd.api+json")
-			req.Header.Set("User-Agent", "rootly-cli/"+Version)
+			req.Header.Set("User-Agent", buildinfo.UserAgent())
 			return nil
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 	"github.com/rootlyhq/rootly-cli/internal/config"
 )
 
@@ -85,7 +86,9 @@ func TestNormalizeIncidentID(t *testing.T) {
 }
 
 func TestUserAgentHeader(t *testing.T) {
-	Version = "1.2.3"
+	previous := buildinfo.Version
+	t.Cleanup(func() { buildinfo.Version = previous })
+	buildinfo.Version = "1.2.3"
 
 	var receivedUserAgent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

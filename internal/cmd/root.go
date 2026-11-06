@@ -7,6 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 )
 
 var (
@@ -132,6 +134,7 @@ func init() {
 // SetVersionInfo sets the version information from main package ldflags
 func SetVersionInfo(v, c, d string) {
 	version = v
+	buildinfo.Version = v
 	commit = c
 	date = d
 	rootCmd.Version = v

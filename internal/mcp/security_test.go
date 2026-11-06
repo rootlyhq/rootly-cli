@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 )
 
 func TestOriginMasksSecretArgs(t *testing.T) {
@@ -102,12 +104,18 @@ func TestMaskApprovalArgumentsPreservesShellCodeAtAnyDepth(t *testing.T) {
 func TestServerHTTPClientKeepsCredentialsOnOrigin(t *testing.T) {
 	var leaked []string
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
 		leaked = append(leaked, r.Header.Get("X-Api-Key")+"|"+r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer other.Close()
 	var seen string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
 		if r.URL.Path == "/redirect" {
 			http.Redirect(w, r, other.URL+"/steal", http.StatusFound)
 			return
@@ -117,7 +125,7 @@ func TestServerHTTPClientKeepsCredentialsOnOrigin(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newServerHTTPClient(ServerConfig{Type: TransportHTTP, URL: server.URL + "/mcp", Headers: map[string]string{"X-Api-Key": "k"}}, func(context.Context) string { return "tok" }, nil)
+	client := newServerHTTPClient(ServerConfig{Type: TransportHTTP, URL: server.URL + "/mcp", Headers: map[string]string{"X-Api-Key": "k", "User-Agent": "custom"}}, func(context.Context) string { return "tok" }, nil)
 	get := func(target string) error {
 		request, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
 		response, err := client.Do(request)

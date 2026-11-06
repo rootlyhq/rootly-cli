@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 )
 
 func TestServerTimeoutConfig(t *testing.T) {
@@ -43,6 +45,9 @@ func refreshFixture(t *testing.T, refreshToken string) (*httptest.Server, *Token
 	var refreshes atomic.Int32
 	mux := http.NewServeMux()
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != buildinfo.UserAgent() {
+			t.Errorf("refresh User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
 		refreshes.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"access_token":"fresh","refresh_token":"r2","token_type":"Bearer","expires_in":3600}`)

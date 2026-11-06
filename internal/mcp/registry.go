@@ -14,7 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 	"github.com/rootlyhq/rootly-cli/internal/config"
+	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
 
 const (
@@ -170,6 +172,7 @@ func FetchRegistry(ctx context.Context, client *http.Client, baseURL string, pro
 	if client == nil {
 		client = &http.Client{Timeout: 20 * time.Second}
 	}
+	client = oauth.WithUserAgent(client, buildinfo.UserAgent())
 	var entries []MarketEntry
 	seen := map[string]bool{}
 	cursor := ""

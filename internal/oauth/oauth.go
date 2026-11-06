@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 	"github.com/rootlyhq/rootly-cli/internal/config"
 )
 
@@ -70,7 +71,7 @@ func RegisterClient(ctx context.Context, authBaseURL string) (clientID string, s
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := WithUserAgent(nil, buildinfo.UserAgent()).Do(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to register OAuth client: %w", err)
 	}
@@ -136,6 +137,8 @@ func GenerateState() (string, error) {
 
 // ExchangeCode exchanges an authorization code for tokens using PKCE.
 func ExchangeCode(ctx context.Context, cfg *oauth2.Config, code, codeVerifier string) (*oauth2.Token, error) {
+	client, _ := ctx.Value(oauth2.HTTPClient).(*http.Client)
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, WithUserAgent(client, buildinfo.UserAgent()))
 	return cfg.Exchange(ctx, code, oauth2.VerifierOption(codeVerifier))
 }
 
@@ -174,10 +177,15 @@ func DeriveAuthBaseURL(apiHost string) string {
 
 // TokenSourceFromStored creates a token source that auto-refreshes using stored tokens.
 func TokenSourceFromStored(cfg *oauth2.Config) (oauth2.TokenSource, error) {
+	return tokenSourceFromStored(cfg, WithUserAgent(nil, buildinfo.UserAgent()))
+}
+
+func tokenSourceFromStored(cfg *oauth2.Config, client *http.Client) (oauth2.TokenSource, error) {
 	stored, err := LoadTokens()
 	if err != nil {
 		return nil, err
 	}
 	tok := ToOAuth2Token(stored)
-	return cfg.TokenSource(context.Background(), tok), nil
+	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, client)
+	return cfg.TokenSource(ctx, tok), nil
 }

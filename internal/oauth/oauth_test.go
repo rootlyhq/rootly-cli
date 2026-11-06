@@ -7,6 +7,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"golang.org/x/oauth2"
+
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 )
 
 func TestNewConfig(t *testing.T) {
@@ -70,6 +74,9 @@ func TestDeriveAuthBaseURL(t *testing.T) {
 
 func TestRegisterClient(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
 		if r.URL.Path != "/oauth/register" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
@@ -102,6 +109,25 @@ func TestRegisterClient(t *testing.T) {
 	}
 	if len(scopes) != 3 || scopes[0] != "openid" {
 		t.Errorf("scopes = %v", scopes)
+	}
+}
+
+func TestExchangeCodeSendsUserAgent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"test-token","token_type":"Bearer"}`))
+	}))
+	defer server.Close()
+	ctx := context.WithValue(t.Context(), oauth2.HTTPClient, server.Client())
+	token, err := ExchangeCode(ctx, NewConfig(server.URL, "test-client", nil), "code", "verifier")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token.AccessToken != "test-token" {
+		t.Fatalf("AccessToken = %q", token.AccessToken)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	rootly "github.com/rootlyhq/rootly-go"
 
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 	"github.com/rootlyhq/rootly-cli/internal/mcp"
 )
 
@@ -162,6 +163,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body []byte) (
 		request.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 	request.Header.Set("Accept", "application/vnd.api+json, application/json")
+	request.Header.Set("User-Agent", buildinfo.UserAgent())
 	if body != nil {
 		request.Header.Set("Content-Type", "application/vnd.api+json")
 	}

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 )
 
 const registryPage1 = `{"servers":[
@@ -27,6 +29,9 @@ const registryPage2 = `{"servers":[
 func TestFetchRegistryPagesAndMapsInstalls(t *testing.T) {
 	var queries []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
 		queries = append(queries, r.URL.RawQuery)
 		if r.URL.Query().Get("cursor") == "c2" {
 			_, _ = w.Write([]byte(registryPage2))

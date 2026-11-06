@@ -21,7 +21,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 	"github.com/rootlyhq/rootly-cli/internal/config"
+	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
 
 const tokenFile = "mcp-oauth.json"
@@ -180,9 +182,7 @@ func (s *TokenStore) tokenSourceWithContext(ctx context.Context, serverURL strin
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if client != nil {
-		ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
-	}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, oauth.WithUserAgent(client, buildinfo.UserAgent()))
 	return &persistingTokenSource{store: s, serverURL: serverURL, base: credential, source: cfg.TokenSource(ctx, token), last: token.AccessToken}
 }
 
@@ -233,10 +233,7 @@ func (s *TokenStore) Login(ctx context.Context, server ServerConfig, options Log
 	go func() { _ = httpServer.Serve(listener) }()
 	defer func() { _ = httpServer.Close() }()
 
-	client := options.Client
-	if client == nil {
-		client = http.DefaultClient
-	}
+	client := oauth.WithUserAgent(options.Client, buildinfo.UserAgent())
 	var saveErr error
 	handler, err := auth.NewAuthorizationCodeHandler(&auth.AuthorizationCodeHandlerConfig{
 		DynamicClientRegistrationConfig: &auth.DynamicClientRegistrationConfig{Metadata: &oauthex.ClientRegistrationMetadata{
@@ -307,7 +304,7 @@ func probe(ctx context.Context, client *http.Client, server ServerConfig) (*http
 	for key, value := range server.Headers {
 		request.Header.Set(key, value)
 	}
-	guarded := *client
+	guarded := *oauth.WithUserAgent(client, buildinfo.UserAgent())
 	guarded.CheckRedirect = rejectCrossOriginRedirect
 	response, err := guarded.Do(request)
 	if err != nil {

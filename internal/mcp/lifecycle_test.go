@@ -12,6 +12,8 @@ import (
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 )
 
 const stdioHelperEnv = "ROOTLY_MCP_TEST_STDIO_SERVER"
@@ -206,13 +208,20 @@ func TestMarketAddStaysOffUntilEnabledThenConnects(t *testing.T) {
 }
 
 func TestProbeStatusReportsUnauthenticatedStatus(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
 		writer.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer server.Close()
 	status, err := ProbeStatus(context.Background(), nil, ServerConfig{Type: TransportHTTP, URL: server.URL})
 	if err != nil || status != http.StatusUnauthorized {
 		t.Fatalf("ProbeStatus = %d, %v", status, err)
+	}
+	status, err = ProbeStatus(context.Background(), server.Client(), ServerConfig{Type: TransportSSE, URL: server.URL, Headers: map[string]string{"User-Agent": "custom"}})
+	if err != nil || status != http.StatusUnauthorized {
+		t.Fatalf("SSE ProbeStatus = %d, %v", status, err)
 	}
 	if _, err := ProbeStatus(context.Background(), server.Client(), ServerConfig{Type: TransportHTTP, URL: "http://127.0.0.1:1"}); err == nil {
 		t.Fatal("unreachable server must error")

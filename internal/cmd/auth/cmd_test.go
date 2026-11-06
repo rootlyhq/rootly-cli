@@ -2,13 +2,32 @@ package auth
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 	"github.com/rootlyhq/rootly-cli/internal/config"
 	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
+
+func TestOAuthPreflightSendsUserAgent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
+		if r.Method != http.MethodHead || r.URL.Path != "/oauth/authorize" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	if _, err := doOAuthFlow(t.Context(), LoginCmd, server.URL, "stale-client", nil); !isAuthorize404(err) {
+		t.Fatalf("expected authorize 404, got %v", err)
+	}
+}
 
 func TestLogoutCmd(t *testing.T) {
 	tmpDir := t.TempDir()

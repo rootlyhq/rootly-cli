@@ -20,7 +20,9 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 	"github.com/rootlyhq/rootly-cli/internal/mcp/builtin"
+	"github.com/rootlyhq/rootly-cli/internal/oauth"
 )
 
 type Status string
@@ -473,7 +475,7 @@ func (m *Manager) bearerFuncs(config ServerConfig) (bearer, refresh func(context
 		expired := credential.token()
 		expired.Expiry = time.Now().Add(-time.Minute)
 		source = nil
-		refreshing := &persistingTokenSource{store: tokens, serverURL: serverURL, base: credential, source: credential.oauthConfig().TokenSource(ctx, expired), last: expired.AccessToken}
+		refreshing := tokens.tokenSourceWithContext(ctx, serverURL, credential, credential.oauthConfig(), expired, nil)
 		token, err := refreshing.Token()
 		if err != nil || token.AccessToken == "" || token.AccessToken == credential.AccessToken {
 			return ""
@@ -527,7 +529,7 @@ func newServerHTTPClient(config ServerConfig, bearer func(context.Context) strin
 func newServerHTTPClientWithRefresh(config ServerConfig, bearer, refresh func(context.Context) string, probe *authProbe) *http.Client {
 	return &http.Client{
 		Transport: &headerTransport{
-			base:    http.DefaultTransport,
+			base:    oauth.NewUserAgentTransport(http.DefaultTransport, buildinfo.UserAgent()),
 			origin:  originOf(config.URL),
 			headers: config.Headers,
 			bearer:  bearer,
