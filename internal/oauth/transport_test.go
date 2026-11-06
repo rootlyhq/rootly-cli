@@ -12,6 +12,65 @@ import (
 	"golang.org/x/oauth2"
 )
 
+func TestNewUserAgentTransport(t *testing.T) {
+	for _, original := range []string{"", "Go-http-client/1.1", "custom-agent"} {
+		t.Run(original, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.UserAgent(); got != "rootly-cli/test" {
+					t.Errorf("User-Agent = %q", got)
+				}
+				if got := r.Header.Get("X-Test"); got != "preserved" {
+					t.Errorf("X-Test = %q", got)
+				}
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			defer server.Close()
+			for _, base := range []http.RoundTripper{nil, server.Client().Transport} {
+				client := &http.Client{Transport: NewUserAgentTransport(base, "rootly-cli/test")}
+				request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, http.NoBody)
+				if err != nil {
+					t.Fatal(err)
+				}
+				request.Header.Set("User-Agent", original)
+				request.Header.Set("X-Test", "preserved")
+				response, err := client.Do(request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response.Body.Close()
+				if got := request.UserAgent(); got != original {
+					t.Fatalf("original request mutated: User-Agent = %q, want %q", got, original)
+				}
+			}
+		})
+	}
+}
+
+func TestWithUserAgent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != "rootly-cli/test" {
+			t.Errorf("User-Agent = %q", got)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	for _, original := range []*http.Client{nil, {Timeout: time.Second, Transport: server.Client().Transport}} {
+		client := WithUserAgent(original, "rootly-cli/test")
+		if original != nil && (client == original || client.Timeout != original.Timeout || client.Transport == original.Transport) {
+			t.Fatal("expected a copy preserving timeout with a wrapped transport")
+		}
+		request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+	}
+}
+
 func TestNewHTTPClient_SetsAuthAndUserAgent(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -86,6 +145,9 @@ func TestNewHTTPClient_RefreshesExpiredToken(t *testing.T) {
 
 	// Token server for refresh
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != "rootly-cli/test" {
+			t.Errorf("refresh User-Agent = %q", got)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"access_token":  "fresh-token",
@@ -113,7 +175,7 @@ func TestNewHTTPClient_RefreshesExpiredToken(t *testing.T) {
 		},
 	}
 
-	client, err := NewHTTPClient(cfg, http.DefaultTransport, "")
+	client, err := NewHTTPClient(cfg, http.DefaultTransport, "rootly-cli/test")
 	if err != nil {
 		t.Fatalf("NewHTTPClient: %v", err)
 	}

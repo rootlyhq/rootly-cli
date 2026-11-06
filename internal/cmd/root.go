@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 )
 
 var (
@@ -131,14 +134,24 @@ func init() {
 // SetVersionInfo sets the version information from main package ldflags
 func SetVersionInfo(v, c, d string) {
 	version = v
+	buildinfo.Version = v
 	commit = c
 	date = d
+	rootCmd.Version = v
 }
 
 // Execute runs the root command
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
+}
+
+func exitCode(err error) int {
+	var coder interface{ ExitCode() int }
+	if errors.As(err, &coder) && coder.ExitCode() > 0 {
+		return coder.ExitCode()
+	}
+	return 1
 }

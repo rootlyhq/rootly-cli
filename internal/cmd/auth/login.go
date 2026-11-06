@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/oauth2"
 
+	"github.com/rootlyhq/rootly-cli/internal/buildinfo"
 	"github.com/rootlyhq/rootly-cli/internal/config"
 	xoauth "github.com/rootlyhq/rootly-cli/internal/oauth"
 )
@@ -133,7 +134,7 @@ func doOAuthFlow(ctx context.Context, cmd *cobra.Command, authBaseURL, clientID 
 	// Done before starting the callback server to avoid binding a port unnecessarily.
 	headReq, headReqErr := http.NewRequestWithContext(ctx, http.MethodHead, authURL, http.NoBody)
 	if headReqErr == nil {
-		if headResp, headErr := httpClientWithTimeout.Do(headReq); headErr == nil {
+		if headResp, headErr := xoauth.WithUserAgent(httpClientWithTimeout, buildinfo.UserAgent()).Do(headReq); headErr == nil {
 			_ = headResp.Body.Close()
 			if headResp.StatusCode == http.StatusNotFound {
 				return nil, errAuthorize404

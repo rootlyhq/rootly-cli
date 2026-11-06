@@ -1,6 +1,6 @@
 .PHONY: build build-all run clean test lint deps coverage coverage-html coverage-check version bump-patch bump-minor bump-major push-tag release-patch release-minor release-major
 
-COVERAGE_MIN ?= 80
+COVERAGE_MIN ?= 82
 
 # Build variables
 BINARY_NAME := rootly

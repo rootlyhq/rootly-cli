@@ -1,0 +1,707 @@
+package agent
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"iter"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/charmbracelet/x/ansi"
+
+	tea "charm.land/bubbletea/v2"
+	rootly "github.com/rootlyhq/rootly-go"
+
+	"github.com/rootlyhq/rootly-cli/internal/api"
+	"github.com/rootlyhq/rootly-cli/internal/mcp"
+)
+
+func TestMCPSummaryShowsOmittedToolCount(t *testing.T) {
+	model := &TUIModel{
+		mcp: &fakeMCPManager{
+			fakeLocalTools: fakeLocalTools{
+				omitted: []mcp.ToolRef{
+					{ServerName: "braintrust", Tool: "list_datasets"},
+					{ServerName: "braintrust", Tool: "query_logs"},
+				},
+			},
+		},
+	}
+
+	if got := model.mcpSummary(); !strings.HasSuffix(got, " · 2 left out (max 64)") {
+		t.Fatalf("mcpSummary() = %q", got)
+	}
+}
+
+func TestMCPSummaryExcludesOmittedToolsFromAvailableCount(t *testing.T) {
+	model := &TUIModel{
+		mcp: &fakeMCPManager{
+			fakeLocalTools: fakeLocalTools{
+				omitted: make([]mcp.ToolRef, 6),
+			},
+			views: []mcp.ServerView{
+				{
+					Server: mcp.Server{Name: "workspace", Scope: mcp.ScopeUser},
+					Status: mcp.StatusConnected,
+					Tools:  make([]mcp.ToolInfo, 70),
+				},
+			},
+		},
+	}
+
+	model.refreshMCPViews()
+	got := model.mcpSummary()
+	for _, want := range []string{"64 tools available", "6 left out"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("mcpSummary() = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
+type fakeMCPManager struct {
+	fakeLocalTools
+	views          []mcp.ServerView
+	builtins       []mcp.BuiltinToolInfo
+	toggled        []string
+	approved       []string
+	builtinToggles []string
+	problems       []string
+	changes        chan struct{}
+	resources      map[string]string
+	readLimits     []int
+	added          []mcp.MarketEntry
+	promptText     string
+}
+
+func (f *fakeMCPManager) Views() []mcp.ServerView             { return f.views }
+func (f *fakeMCPManager) BuiltinTools() []mcp.BuiltinToolInfo { return f.builtins }
+func (f *fakeMCPManager) SetBuiltinEnabled(name string, enabled bool) error {
+	f.builtinToggles = append(f.builtinToggles, fmt.Sprintf("%s:%t", name, enabled))
+	for index := range f.builtins {
+		if f.builtins[index].Name == name {
+			f.builtins[index].Enabled = enabled
+		}
+	}
+	return nil
+}
+func (f *fakeMCPManager) Changes() <-chan struct{} { return f.changes }
+func (f *fakeMCPManager) Problems() []string       { return f.problems }
+func (f *fakeMCPManager) Connecting() int          { return 0 }
+func (f *fakeMCPManager) Enable(string) error      { return nil }
+func (f *fakeMCPManager) Reconnect(string) error   { return nil }
+func (f *fakeMCPManager) ToggleSession(id string) error {
+	f.toggled = append(f.toggled, id)
+	return nil
+}
+func (f *fakeMCPManager) Approve(id string) error                               { f.approved = append(f.approved, id); return nil }
+func (f *fakeMCPManager) Login(context.Context, string, mcp.LoginOptions) error { return nil }
+
+func (f *fakeMCPManager) AddFromMarket(entry mcp.MarketEntry) (mcp.Server, error) {
+	for _, view := range f.views {
+		if view.Server.Name == entry.Name {
+			return mcp.Server{}, errors.New("an MCP server named " + entry.Name + " already exists")
+		}
+	}
+	server := mcp.Server{Name: entry.Name, Scope: mcp.ScopeUser, Config: entry.Config}
+	f.added = append(f.added, entry)
+	f.views = append(f.views, mcp.ServerView{Server: server, Status: mcp.StatusOff})
+	return server, nil
+}
+
+func (f *fakeMCPManager) GetPrompt(_ context.Context, serverID, name string, arguments map[string]string) (string, error) {
+	if !strings.HasSuffix(serverID, ":docs") {
+		return "", errors.New("not connected")
+	}
+	if f.promptText != "" {
+		return f.promptText, nil
+	}
+	return fmt.Sprintf("prompt %s %v", name, arguments), nil
+}
+
+func (f *fakeMCPManager) ReadResource(_ context.Context, serverID, uri string, limit int) (text string, truncated bool, err error) {
+	f.mu.Lock()
+	f.readLimits = append(f.readLimits, limit)
+	f.mu.Unlock()
+	text, ok := f.resources[serverID[strings.LastIndex(serverID, ":")+1:]+":"+uri]
+	if !ok {
+		return "", false, errors.New("no text content")
+	}
+	if len(text) > limit {
+		return text[:limit], true, nil
+	}
+	return text, false, nil
+}
+
+type fakeConnectorAPI struct {
+	fakeTUIAPI
+	pages []int
+}
+
+func (f *fakeConnectorAPI) ListAIConnectors(_ context.Context, page, _ int) (*api.AIConnectorPage, error) {
+	f.pages = append(f.pages, page)
+	count := 12
+	if page == 1 {
+		return &api.AIConnectorPage{Connectors: []api.AIConnector{{ID: "c1", Name: "Datadog", ProviderType: "datadog", AvailableToAgent: true, ToolCount: &count}}, NextPage: 2}, nil
+	}
+	return &api.AIConnectorPage{Connectors: []api.AIConnector{{ID: "c2", Name: "Sentry", ProviderType: "sentry"}}}, nil
+}
+
+func newMCPTestModel(t *testing.T, manager *fakeMCPManager, connectors *fakeConnectorAPI) *TUIModel {
+	t.Helper()
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true, API: connectors, MCP: manager})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	return model
+}
+
+func runCmd(model *TUIModel, cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if msg := cmd(); msg != nil {
+		model.Update(msg)
+	}
+}
+
+func testViews() []mcp.ServerView {
+	tools := make([]mcp.ToolInfo, 1000)
+	for index := range tools {
+		tools[index] = mcp.ToolInfo{Name: "tool_" + strings.Repeat("x", index%5) + string(rune('a'+index%26)), ReadOnly: index%2 == 0}
+	}
+	tools[999] = mcp.ToolInfo{Name: "write_file", Description: "Write a file"}
+	return []mcp.ServerView{
+		{Server: mcp.Server{Name: "maestro", Scope: mcp.ScopeProject, Path: "/repo/.mcp.json", Config: mcp.ServerConfig{Command: "maestro", Args: []string{"mcp"}}}, Status: mcp.StatusPending},
+		{Server: mcp.Server{Name: "fs", Scope: mcp.ScopeUser, Config: mcp.ServerConfig{Command: "npx", Env: map[string]string{"TOKEN": "secret-value"}}}, Status: mcp.StatusConnected, Tools: tools},
+		{Server: mcp.Server{Name: "braintrust", Scope: mcp.ScopeUser, Config: mcp.ServerConfig{Type: "http", URL: "https://api.braintrust.dev/mcp", Headers: map[string]string{"Authorization": "Bearer hidden"}}}, Status: mcp.StatusNeedsAuth},
+		{Server: mcp.Server{Name: "sentry", Scope: mcp.ScopeImported, SourceLabel: "Claude Code", Config: mcp.ServerConfig{Type: "http", URL: "https://mcp.sentry.dev/mcp"}}, Status: mcp.StatusOff},
+	}
+}
+
+func TestMCPPageOpensGroupsAndEscRestoresChat(t *testing.T) {
+	manager := &fakeMCPManager{views: testViews(), changes: make(chan struct{})}
+	connectors := &fakeConnectorAPI{}
+	model := newMCPTestModel(t, manager, connectors)
+	model.composer.SetValue("draft question")
+	before := model.View().Content
+
+	for _, command := range []string{"/connectors", "/mcp"} {
+		model.composer.SetValue(command)
+		_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		runCmd(model, cmd)
+		if !model.mcpPage.open {
+			t.Fatalf("%s did not open the MCP page", command)
+		}
+		view := model.View().Content
+		for _, want := range []string{"Manage MCP servers", "Rootly cloud", "Datadog", "✔ 12 tools", "Load more", "Project MCPs", "‖ pending approval", "User MCPs (~/.rootly-cli/mcp.json)", "✔ 1000 tools", "▲ needs authentication", "Imported (read-only)", "○ off", "Esc back to chat"} {
+			if !strings.Contains(view, want) {
+				t.Errorf("%s view missing %q:\n%s", command, want, view)
+			}
+		}
+		if strings.Contains(view, "secret-value") || strings.Contains(view, "hidden") {
+			t.Fatal("MCP page leaks a secret")
+		}
+		model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+		if model.mcpPage.open {
+			t.Fatal("Esc should close the MCP page")
+		}
+	}
+	model.composer.SetValue("draft question")
+	if after := model.View().Content; after != before {
+		t.Fatalf("chat changed after Esc:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+	if len(connectors.pages) != 2 || connectors.pages[1] != 1 {
+		t.Fatalf("each /mcp visit should refetch page 1, pages = %v", connectors.pages)
+	}
+}
+
+func TestMCPPageLoadMoreDetailFilterAndActions(t *testing.T) {
+	manager := &fakeMCPManager{views: testViews(), changes: make(chan struct{})}
+	connectors := &fakeConnectorAPI{}
+	model := newMCPTestModel(t, manager, connectors)
+	runCmd(model, model.openMCPPage())
+
+	press := func(keys ...tea.KeyPressMsg) {
+		for _, key := range keys {
+			_, cmd := model.Update(key)
+			runCmd(model, cmd)
+		}
+	}
+	down := tea.KeyPressMsg{Code: tea.KeyDown}
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	press(down, enter)
+	if len(connectors.pages) != 2 || !strings.Contains(model.View().Content, "Sentry") {
+		t.Fatalf("Load more did not fetch page 2: %v", connectors.pages)
+	}
+
+	model.mcpPage.cursor = 0
+	press(enter)
+	if view := model.View().Content; !strings.Contains(view, "permissions come from Tool access on rootly.com") {
+		t.Fatalf("cloud detail:\n%s", view)
+	}
+	press(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	press(down, down)
+	row, _ := model.selectedMCPRow()
+	if row.view == nil || row.view.Server.Name != "maestro" {
+		t.Fatalf("expected maestro row, got %+v", row)
+	}
+	press(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	if len(manager.approved) != 1 {
+		t.Fatal("a should approve")
+	}
+	press(down, enter)
+	view := model.View().Content
+	if !strings.Contains(view, "Tools (1000)") || !strings.Contains(view, "[space] on/off for this session") || strings.Contains(view, "secret-value") {
+		t.Fatalf("detail view:\n%s", view)
+	}
+	if lines := strings.Count(view, "\n"); lines > 40 {
+		t.Fatalf("detail list not virtualized: %d lines", lines)
+	}
+	press(tea.KeyPressMsg{Code: '/', Text: "/"})
+	for _, r := range "write" {
+		press(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	press(enter)
+	if view := model.View().Content; !strings.Contains(view, "write_file") || !strings.Contains(view, "1 match") {
+		t.Fatalf("filtered detail:\n%s", view)
+	}
+	press(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	if len(manager.toggled) != 1 || manager.toggled[0] != testViews()[1].Server.ID() {
+		t.Fatalf("space should toggle fs, got %v", manager.toggled)
+	}
+}
+
+func TestTUIClientToolWriteNeedsApproval(t *testing.T) {
+	manager := &fakeMCPManager{changes: make(chan struct{})}
+	manager.tools = map[string]mcp.ToolRef{"local_fs_write_file": {ServerID: "user:fs", ServerName: "fs", Tool: "write_file"}}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.state = tuiStreaming
+	model.turn = 1
+	_, cmd := model.Update(streamMessage{turn: 1, event: Event{Type: EventClientToolCall, ClientToolCall: &ClientToolCall{CallID: "c1", Name: "local_fs_write_file", Arguments: map[string]any{"path": "/tmp/x"}}}})
+	_ = cmd
+	if model.localConfirm == nil || !strings.Contains(model.View().Content, "write_file") {
+		t.Fatalf("expected a confirm card:\n%s", model.View().Content)
+	}
+	_, cmd = model.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	if model.localConfirm != nil || cmd == nil {
+		t.Fatal("n should decline and post a result")
+	}
+	if msg, ok := cmd().(localToolDoneMsg); !ok || msg.err != nil {
+		t.Fatalf("decline result = %#v", msg)
+	}
+	if len(manager.calls) != 0 {
+		t.Fatal("declined tool must not run")
+	}
+}
+
+func TestTUIFailedLocalToolPrintsCross(t *testing.T) {
+	manager := &fakeMCPManager{changes: make(chan struct{})}
+	manager.tools = map[string]mcp.ToolRef{"local_fs_read_text_file": {ServerID: "user:fs", ServerName: "fs", Tool: "read_text_file", ReadOnly: true}}
+	call := &ClientToolCall{CallID: "c1", Name: "local_fs_read_text_file"}
+	line := localToolFailure(manager, call, "ENOENT: no such file or directory, open '/tmp/x'\nstack")
+	if line != "✗ local · fs · read_text_file failed: ENOENT: no such file or directory, open '/tmp/x'" {
+		t.Fatalf("failure line = %q", line)
+	}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.turn = 1
+	model.activities.Handle(activityStatusEvent("Local read file..."))
+	activity := model.activities.pending
+	model.Update(localToolDoneMsg{turn: 1, isError: true, activity: activity, failure: line})
+	model.handleEvent(activityDoneEvent("complete"))
+	if !strings.Contains(transcriptText(model), "read_text_file failed: ENOENT") {
+		t.Fatalf("transcript = %v", model.transcript)
+	}
+	if got := strings.Count(transcriptText(model), "✗"); got != 1 {
+		t.Errorf("failure markers = %d, want exactly one:\n%s", got, transcriptText(model))
+	}
+	if got := strings.Count(transcriptText(model), "✓"); got != 0 {
+		t.Errorf("success markers after failure = %d, want none:\n%s", got, transcriptText(model))
+	}
+	model.Update(localToolDoneMsg{turn: 0, failure: "✗ stale"})
+	if strings.Contains(transcriptText(model), "stale") {
+		t.Fatal("results from an earlier turn must not print")
+	}
+
+	successModel := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	successModel.turn = 1
+	successModel.activities.Handle(activityStatusEvent("Local read file..."))
+	successModel.Update(localToolDoneMsg{turn: 1})
+	successModel.handleEvent(activityDoneEvent("complete"))
+	if got := strings.Count(transcriptText(successModel), "✓"); got != 1 {
+		t.Errorf("success markers = %d, want one:\n%s", got, transcriptText(successModel))
+	}
+}
+
+func TestTUIFailedLocalToolPreservesNewerActivity(t *testing.T) {
+	manager := &fakeMCPManager{
+		fakeLocalTools: fakeLocalTools{
+			tools: map[string]mcp.ToolRef{
+				"local_fs_read_text_file": {ServerID: "user:fs", ServerName: "fs", Tool: "read_text_file", ReadOnly: true},
+			},
+			output: "path is denied",
+		},
+		changes: make(chan struct{}),
+	}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.turn = 1
+	model.handleEvent(activityStatusEvent("Local read file..."))
+	originalActivity := model.activities.pending
+	cmd := model.handleClientToolCall(&ClientToolCall{CallID: "c1", Name: "local_fs_read_text_file"})
+	if cmd == nil {
+		t.Fatal("local tool command = nil")
+	}
+	message := cmd()
+	done, ok := message.(localToolDoneMsg)
+	if !ok {
+		t.Fatalf("local tool result message = %T, want localToolDoneMsg", message)
+	}
+	if done.activity != originalActivity {
+		t.Fatal("local tool completion did not retain the activity captured when dispatched")
+	}
+
+	model.handleEvent(activityStatusEvent("Search incidents..."))
+	newerActivity := model.activities.pending
+	if newerActivity == nil || newerActivity == originalActivity {
+		t.Fatal("new activity was not made pending before the tool completion")
+	}
+	model.Update(done)
+	if model.activities.pending != newerActivity {
+		t.Fatal("failed local tool discarded the newer pending activity")
+	}
+	model.handleEvent(activityDoneEvent("complete"))
+	if !strings.Contains(transcriptText(model), "✓ Search incidents") {
+		t.Fatalf("newer activity completion was dropped:\n%s", transcriptText(model))
+	}
+}
+
+func transcriptText(model *TUIModel) string {
+	lines := make([]string, 0, len(model.transcript))
+	for _, block := range model.transcript {
+		lines = append(lines, block.text)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func TestBuiltinMCPPageTogglesOnlyWithSpace(t *testing.T) {
+	manager := &fakeMCPManager{
+		builtins: []mcp.BuiltinToolInfo{
+			{Name: "local_read_file", Description: "Read a file", ReadOnly: true, Enabled: true},
+			{Name: "local_bash", Description: "Run bash", Enabled: false},
+		},
+		changes: make(chan struct{}),
+	}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.refreshMCPViews()
+	view := &model.mcpPage.views[0]
+	model.mcpAction(view, "a")
+	if len(manager.builtinToggles) != 0 {
+		t.Fatal("built-in tools should not expose the MCP approve action")
+	}
+	rows := model.mcpRows()
+	builtinRow := -1
+	for index, row := range rows {
+		if row.kind == mcpRowServer && row.view.Server.Scope == mcp.ScopeBuiltin {
+			builtinRow = index
+			break
+		}
+	}
+	if builtinRow < 0 {
+		t.Fatal("built-in group row was not present in the MCP list")
+	}
+	model.mcpPage.open = true
+	model.mcpPage.cursor = builtinRow
+	before := append([]mcp.BuiltinToolInfo(nil), manager.builtins...)
+	model.handleMCPPageKey(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	if len(manager.builtinToggles) != 0 {
+		t.Fatalf("space on the built-in list row toggled tools: %v", manager.builtinToggles)
+	}
+	for index, tool := range manager.builtins {
+		if tool.Enabled != before[index].Enabled {
+			t.Fatalf("space on the built-in list row changed %s", tool.Name)
+		}
+	}
+	model.handleMCPPageKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model.handleMCPPageKey(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	if got := strings.Join(manager.builtinToggles, ","); got != "local_read_file:false" {
+		t.Fatalf("space toggle calls = %s", got)
+	}
+	if got := mcpStatusLabel(model.mcpPage.views[0]); got != "0/2 enabled" {
+		t.Fatalf("built-in summary status = %q", got)
+	}
+}
+
+func TestTUILocalToolDispatchSerializesWritesWithReadOnlyCalls(t *testing.T) {
+	manager := &fakeMCPManager{changes: make(chan struct{})}
+	manager.tools = map[string]mcp.ToolRef{
+		"local_read_one":  {ServerID: "builtin", ServerName: "Built-in", Tool: "read_one", ReadOnly: true},
+		"local_write_one": {ServerID: "builtin", ServerName: "Built-in", Tool: "write_one"},
+		"local_read_two":  {ServerID: "builtin", ServerName: "Built-in", Tool: "read_two", ReadOnly: true},
+	}
+	model := newMCPTestModel(t, manager, &fakeConnectorAPI{})
+	model.turn = 1
+
+	readCommand := model.handleClientToolCall(&ClientToolCall{CallID: "read-1", Name: "local_read_one"})
+	if readCommand == nil || model.localReadOnlyRunning != 1 {
+		t.Fatal("read-only tool should start concurrently")
+	}
+	readDone, ok := readCommand().(localToolDoneMsg)
+	if !ok || !readDone.readOnly {
+		t.Fatalf("read-only completion = %#v", readDone)
+	}
+	_ = model.handleClientToolCall(&ClientToolCall{CallID: "write-1", Name: "local_write_one"})
+	_ = model.handleClientToolCall(&ClientToolCall{CallID: "read-2", Name: "local_read_two"})
+	if model.localConfirm != nil || len(model.localToolQueue) != 2 {
+		t.Fatal("write and subsequent read should wait behind the active read")
+	}
+	if cmd := model.handleLocalToolDone(readDone); cmd != nil {
+		t.Fatal("write confirmation should be presented before starting queued calls")
+	}
+	if model.localConfirm == nil || model.localConfirm.call.Name != "local_write_one" {
+		t.Fatal("queued write was not presented for approval after the read completed")
+	}
+	writeCommand := model.resolveLocalConfirmation(true)
+	writeDone, ok := writeCommand().(localToolDoneMsg)
+	if !ok || !writeDone.approval {
+		t.Fatalf("approved write completion = %#v", writeDone)
+	}
+	next := model.handleLocalToolDone(writeDone)
+	if next == nil {
+		t.Fatal("queued read-only call did not start after the approved write completed")
+	}
+	runCmd(model, next)
+	if got := strings.Join(manager.calls, ","); got != "local_read_one,local_write_one,local_read_two" {
+		t.Fatalf("local tool order = %s", got)
+	}
+	if model.localReadOnlyRunning != 0 || model.localApprovalRunning {
+		t.Fatal("local tool scheduler did not return to idle")
+	}
+}
+
+type fakeApprovalMemory struct {
+	fakeMCPManager
+	options    mcp.ApprovalOptions
+	remembered []string
+	allowed    map[string]bool
+}
+
+func (f *fakeApprovalMemory) NeedsApproval(name string, args map[string]any) bool {
+	return !f.allowed[name] && f.fakeMCPManager.NeedsApproval(name, args)
+}
+
+func (f *fakeApprovalMemory) ApprovalOptions(string, map[string]any) mcp.ApprovalOptions {
+	return f.options
+}
+
+func (f *fakeApprovalMemory) RememberApproval(name string, _ map[string]any, persist bool) error {
+	f.remembered = append(f.remembered, fmt.Sprintf("%s:%t", name, persist))
+	f.allowed[name] = true
+	return nil
+}
+
+func TestTUILocalApprovalKeysRememberOnlyWhenOffered(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		options    mcp.ApprovalOptions
+		key        string
+		remembered string
+		footer     string
+		transcript string
+	}{
+		{name: "once", options: mcp.ApprovalOptions{Session: true, Persist: true, Prefix: []string{"kubectl", "rollout"}}, key: "y",
+			footer: "a allow `kubectl rollout` this session · p always allow `kubectl rollout`"},
+		{name: "session prefix", options: mcp.ApprovalOptions{Session: true, Persist: true, Prefix: []string{"kubectl", "rollout"}}, key: "a",
+			remembered: "local_kubectl:false", transcript: "Allowing `kubectl rollout` for this session"},
+		{name: "permanent prefix", options: mcp.ApprovalOptions{Session: true, Persist: true, Prefix: []string{"kubectl", "rollout"}}, key: "p",
+			remembered: "local_kubectl:true", transcript: "Always allowing `kubectl rollout` (saved to ~/.rootly-cli/rules/default.rules)"},
+		{name: "mcp tool session", options: mcp.ApprovalOptions{Session: true}, key: "a",
+			remembered: "local_kubectl:false", footer: "y once · a allow this tool this session · n/Esc cancel", transcript: "Allowing this tool for this session"},
+		{name: "mcp tool cannot persist", options: mcp.ApprovalOptions{Session: true}, key: "p"},
+		{name: "complex bash is once only", key: "a", footer: "y approve · n/Esc cancel"},
+		{name: "complex bash cannot persist", key: "p"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager := &fakeApprovalMemory{options: test.options, allowed: map[string]bool{}}
+			manager.changes = make(chan struct{})
+			manager.tools = map[string]mcp.ToolRef{"local_kubectl": {ServerID: "builtin", ServerName: "Built-in", Tool: "kubectl"}}
+			model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true, API: &fakeConnectorAPI{}, MCP: manager})
+			model.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+			model.turn = 1
+			model.state = tuiStreaming
+			call := &ClientToolCall{CallID: "c1", Name: "local_kubectl", Arguments: map[string]any{"args": []any{"rollout", "undo"}}}
+			if cmd := model.handleClientToolCall(call); cmd != nil || model.localConfirm == nil {
+				t.Fatal("approval card was not shown")
+			}
+			if view := strings.Join(strings.Fields(ansi.Strip(model.View().Content)), " "); test.footer != "" && !strings.Contains(view, test.footer) {
+				t.Errorf("card footer missing %q in %q", test.footer, view)
+			}
+			_, cmd := model.Update(tea.KeyPressMsg{Code: rune(test.key[0]), Text: test.key})
+			ran := test.key == "y" || test.remembered != ""
+			if (cmd != nil) != ran || (model.localConfirm == nil) != ran {
+				t.Fatalf("key %q: ran=%v cmd=%v confirm=%v", test.key, ran, cmd != nil, model.localConfirm != nil)
+			}
+			if got := strings.Join(manager.remembered, ","); got != test.remembered {
+				t.Errorf("remembered = %q, want %q", got, test.remembered)
+			}
+			if test.transcript != "" && !strings.Contains(ansi.Strip(model.Transcript()), test.transcript) {
+				t.Errorf("transcript missing %q: %q", test.transcript, ansi.Strip(model.Transcript()))
+			}
+			if !ran {
+				return
+			}
+			runCmd(model, cmd)
+			model.turn = 1
+			second := model.handleClientToolCall(&ClientToolCall{CallID: "c2", Name: "local_kubectl"})
+			if remembered := test.remembered != ""; (second != nil) != remembered {
+				t.Errorf("second call auto-ran=%v, want %v", second != nil, remembered)
+			}
+		})
+	}
+}
+
+func TestTUIRememberedWritesStillRunOneAtATime(t *testing.T) {
+	manager := &fakeApprovalMemory{allowed: map[string]bool{"local_apply": true}}
+	manager.changes = make(chan struct{})
+	manager.tools = map[string]mcp.ToolRef{
+		"local_apply": {ServerID: "builtin", ServerName: "Built-in", Tool: "apply"},
+		"local_read":  {ServerID: "builtin", ServerName: "Built-in", Tool: "read", ReadOnly: true},
+	}
+	model := NewTUIModel(context.Background(), &fakeStreamer{}, TUIOptions{NoColor: true, API: &fakeConnectorAPI{}, MCP: manager})
+	model.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	model.turn = 1
+
+	first := model.handleClientToolCall(&ClientToolCall{CallID: "apply-1", Name: "local_apply"})
+	if first == nil || !model.localApprovalRunning || model.localReadOnlyRunning != 0 || model.localConfirm != nil {
+		t.Fatal("a remembered write should start alone without a card")
+	}
+	if cmd := model.handleClientToolCall(&ClientToolCall{CallID: "apply-2", Name: "local_apply"}); cmd != nil {
+		t.Fatal("a second remembered write started while the first ran")
+	}
+	if cmd := model.handleClientToolCall(&ClientToolCall{CallID: "read-1", Name: "local_read"}); cmd != nil {
+		t.Fatal("a read started while a write ran")
+	}
+	firstDone := first().(localToolDoneMsg)
+	second := model.handleLocalToolDone(firstDone)
+	if second == nil || !model.localApprovalRunning || model.localReadOnlyRunning != 0 || len(model.localToolQueue) != 1 {
+		t.Fatal("the queued write should run next, alone")
+	}
+	secondDone, ok := second().(localToolDoneMsg)
+	if !ok || !secondDone.approval {
+		t.Fatalf("second write was batched: %#v", secondDone)
+	}
+	third := model.handleLocalToolDone(secondDone)
+	if third == nil || model.localApprovalRunning || model.localReadOnlyRunning != 1 {
+		t.Fatal("the read should start after the writes")
+	}
+	runCmd(model, third)
+	if got := strings.Join(manager.calls, ","); got != "local_apply,local_apply,local_read" {
+		t.Fatalf("local tool order = %s", got)
+	}
+}
+
+func TestTUIFailedToolResultDeliveryEndsTheTurn(t *testing.T) {
+	for _, test := range []struct {
+		name, toolOutput, wantActivity string
+	}{
+		{name: "tool ran", wantActivity: "✓ Local read one"},
+		{name: "tool failed", toolOutput: "boom", wantActivity: "✗ local · Built-in · read_one failed: boom"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager := &fakeMCPManager{changes: make(chan struct{})}
+			manager.output = test.toolOutput
+			manager.tools = map[string]mcp.ToolRef{
+				"local_read_one":  {ServerID: "builtin", ServerName: "Built-in", Tool: "read_one", ReadOnly: true},
+				"local_write_one": {ServerID: "builtin", ServerName: "Built-in", Tool: "write_one"},
+			}
+			streamer := &twoTurnStreamer{firstStopped: make(chan struct{})}
+			poster := &switchableToolResultPoster{err: errors.New("post failed \x1b]52;c;bad\x07")}
+			model := NewTUIModel(context.Background(), streamer, TUIOptions{NoColor: true, API: &fakeConnectorAPI{}, MCP: manager, ToolResults: poster})
+			model.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+			model.submitPrompt("first")
+			streamCtx := model.streamCtx
+
+			model.activities.Handle(activityStatusEvent("Local read one..."))
+			read := model.handleClientToolCall(&ClientToolCall{CallID: "read-1", Name: "local_read_one"})
+			model.handleClientToolCall(&ClientToolCall{CallID: "write-1", Name: "local_write_one"})
+			if read == nil || len(model.localToolQueue) != 1 {
+				t.Fatal("expected the read to run and the write to queue")
+			}
+			runCmd(model, read)
+			if model.state != tuiIdle || model.stream != nil || streamCtx.Err() == nil {
+				t.Fatal("a failed result delivery should cancel the stream and end the turn")
+			}
+			select {
+			case <-streamer.firstStopped:
+			case <-time.After(2 * time.Second):
+				t.Fatal("the first stream kept running after the failed delivery")
+			}
+			if model.localConfirm != nil || len(model.localToolQueue) != 0 || model.localApprovalRunning || model.localReadOnlyRunning != 0 {
+				t.Fatal("local tool state was not reset")
+			}
+			if got := strings.Join(manager.calls, ","); got != "local_read_one" {
+				t.Fatalf("queued tool ran after the failed delivery: %s", got)
+			}
+			transcript := transcriptText(model)
+			if strings.Count(transcript, "result not delivered") != 1 || !strings.Contains(transcript, "✗ local · Built-in · read_one: result not delivered") || strings.Contains(transcript, "\x1b") {
+				t.Fatalf("want one sanitized error line naming the tool:\n%s", transcript)
+			}
+			if !strings.Contains(transcript, test.wantActivity) {
+				t.Fatalf("the tool's own outcome %q is missing:\n%s", test.wantActivity, transcript)
+			}
+			wantCrosses := 1
+			if test.toolOutput != "" {
+				wantCrosses = 2
+			}
+			if got := strings.Count(transcript, "✗"); got != wantCrosses {
+				t.Fatalf("red ✗ lines = %d, want %d:\n%s", got, wantCrosses, transcript)
+			}
+
+			poster.err = nil
+			model.submitPrompt("second")
+			for range 10 {
+				if model.state != tuiStreaming {
+					break
+				}
+				runCmd(model, model.waitForStream())
+			}
+			if model.state != tuiIdle || model.lastAnswer != "second answer" || model.status != "" {
+				t.Fatalf("the next prompt did not stream normally:\n%s", transcriptText(model))
+			}
+		})
+	}
+}
+
+type switchableToolResultPoster struct {
+	err error
+}
+
+func (p *switchableToolResultPoster) PostAiChatToolResult(context.Context, api.ToolResult) error {
+	return p.err
+}
+
+// twoTurnStreamer holds its first turn open, as Rails does while it waits for
+// a local tool result, and answers the second.
+type twoTurnStreamer struct {
+	mu           sync.Mutex
+	calls        int
+	firstStopped chan struct{}
+}
+
+func (s *twoTurnStreamer) StreamAiChatEvents(ctx context.Context, _ *rootly.StreamAiChatParams) (iter.Seq2[rootly.AiChatStreamEvent, error], error) {
+	s.mu.Lock()
+	s.calls++
+	first := s.calls == 1
+	s.mu.Unlock()
+	if first {
+		return func(func(rootly.AiChatStreamEvent, error) bool) {
+			<-ctx.Done()
+			close(s.firstStopped)
+		}, nil
+	}
+	return func(yield func(rootly.AiChatStreamEvent, error) bool) {
+		if yield(eventOf(rootly.AiChatStreamEventText, `{"content":"second answer"}`), nil) {
+			yield(eventOf(rootly.AiChatStreamEventDone, `{"status":"complete"}`), nil)
+		}
+	}, nil
+}

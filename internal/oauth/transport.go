@@ -12,7 +12,8 @@ import (
 // NewHTTPClient creates an http.Client that uses stored OAuth tokens with auto-refresh.
 // The userAgent is set on all requests. The base transport is used for underlying HTTP calls.
 func NewHTTPClient(cfg *oauth2.Config, base http.RoundTripper, userAgent string) (*http.Client, error) {
-	ts, err := TokenSourceFromStored(cfg)
+	// Keep token responses out of the API's optional debug transport.
+	ts, err := tokenSourceFromStored(cfg, WithUserAgent(nil, userAgent))
 	if err != nil {
 		return nil, err
 	}
@@ -29,11 +30,28 @@ func NewHTTPClient(cfg *oauth2.Config, base http.RoundTripper, userAgent string)
 
 	// Wrap with user-agent transport
 	return &http.Client{
-		Transport: &userAgentTransport{
-			base:      transport,
-			userAgent: userAgent,
-		},
+		Transport: NewUserAgentTransport(transport, userAgent),
 	}, nil
+}
+
+// NewUserAgentTransport sets userAgent on a clone of every request sent to base.
+// A nil base uses http.DefaultTransport.
+func NewUserAgentTransport(base http.RoundTripper, userAgent string) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return &userAgentTransport{base: base, userAgent: userAgent}
+}
+
+// WithUserAgent copies client and wraps its transport without changing client.
+// A nil client uses http.DefaultClient.
+func WithUserAgent(client *http.Client, userAgent string) *http.Client {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	wrapped := *client
+	wrapped.Transport = NewUserAgentTransport(client.Transport, userAgent)
+	return &wrapped
 }
 
 // persistingTokenSource wraps a TokenSource and saves refreshed tokens to disk.
