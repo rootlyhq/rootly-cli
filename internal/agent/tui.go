@@ -45,6 +45,7 @@ type streamMessage struct {
 }
 
 type TUIOptions struct {
+	NoMouse      bool
 	NoColor      bool
 	Version      string
 	API          TUIAPI
@@ -117,6 +118,8 @@ type bindingResolvedMsg struct {
 }
 
 type TUIModel struct {
+	selection            transcriptSelection
+	noMouse              bool
 	streamer             Streamer
 	state                tuiState
 	composer             textarea.Model
@@ -280,6 +283,7 @@ func NewTUIModel(ctx context.Context, streamer Streamer, options TUIOptions) *TU
 		width:                80,
 		height:               24,
 		noColor:              options.NoColor,
+		noMouse:              options.NoMouse,
 		version:              options.Version,
 		verbIndex:            rand.IntN,
 		now:                  time.Now,
@@ -809,6 +813,10 @@ func (m *TUIModel) scrollback(message string, style lipgloss.Style) tea.Cmd {
 }
 
 func (m *TUIModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.clearSelectionKey(msg) {
+		m.selection.active, m.selection.dragging = false, false
+		return m, nil
+	}
 	if m.commandMenuOpen {
 		if handled, cmd := m.handleCommandMenuKey(msg); handled {
 			return m, cmd
@@ -1271,6 +1279,9 @@ func (m *TUIModel) View() tea.View {
 	view := tea.NewView(content)
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
+	if m.noMouse {
+		view.MouseMode = tea.MouseModeNone
+	}
 	view.ReportFocus = true
 	return view
 }
@@ -1282,8 +1293,12 @@ func (m *TUIModel) blocksTranscriptMouseInput() bool {
 
 func (m *TUIModel) updateMouse(message tea.MouseMsg) (tea.Model, tea.Cmd) {
 	wheel, ok := message.(tea.MouseWheelMsg)
-	if !ok || m.blocksTranscriptMouseInput() {
+	if m.noMouse || m.blocksTranscriptMouseInput() {
 		return m, nil
+	}
+	if !ok {
+		cmd := m.selectMouse(message)
+		return m, cmd
 	}
 	switch wheel.Button {
 	case tea.MouseWheelUp:
@@ -1343,10 +1358,11 @@ func (m *TUIModel) viewContent() string {
 	}
 	m.updateNewOutputIndicator()
 	footer := m.footerContent()
+	m.selectionRows()
 
 	sections := make([]string, 0, 3)
 	if bodyHeight > 0 {
-		sections = append(sections, m.viewport.View())
+		sections = append(sections, m.highlightSelection(m.viewport.View()))
 	}
 	if overlayRows > 0 {
 		sections = append(sections, clipViewRows(overlay, overlayRows, max(1, m.width-1)))
@@ -1500,6 +1516,9 @@ func (m *TUIModel) overlayContent() string {
 func (m *TUIModel) footerContent() string {
 	rule := faint(m.noColor, strings.Repeat("─", max(1, m.width-1)))
 	hint := "/ for commands · exit to quit"
+	if m.selection.notice != "" {
+		hint = m.selection.notice
+	}
 	if m.newOutputAvailable {
 		hint += " · " + faint(m.noColor, "↓ new output · ctrl+end to jump")
 	}

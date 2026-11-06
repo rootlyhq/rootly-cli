@@ -1047,6 +1047,12 @@ func (m *TUIModel) handleLocalToolDone(msg localToolDoneMsg) tea.Cmd {
 }
 
 func (m *TUIModel) updateOtherMessage(message tea.Msg) (tea.Model, tea.Cmd) {
+	if tick, ok := message.(selectionNoticeTick); ok {
+		if int(tick) == m.selection.generation {
+			m.selection.notice = ""
+		}
+		return m, nil
+	}
 	if mouse, ok := message.(tea.MouseMsg); ok {
 		return m.updateMouse(mouse)
 	}

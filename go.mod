@@ -17,6 +17,7 @@ require (
 	github.com/oapi-codegen/nullable v1.2.0
 	github.com/oapi-codegen/runtime v1.8.0
 	github.com/pelletier/go-toml/v2 v2.2.4
+	github.com/rivo/uniseg v0.4.7
 	github.com/rootlyhq/rootly-go v0.16.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -55,7 +56,6 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/oasdiff/yaml v0.1.1 // indirect
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/sahilm/fuzzy v0.1.3 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect

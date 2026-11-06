@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -138,7 +140,9 @@ func runAgent(cmd *cobra.Command) error {
 	}
 
 	noColor := viper.GetBool("no-color")
+	noMouse, _ := cmd.Flags().GetBool("no-mouse")
 	model := aiagent.NewTUIModel(cmd.Context(), client, aiagent.TUIOptions{
+		NoMouse: agentMouseDisabled(noMouse, os.Getenv("ROOTLY_AGENT_NO_MOUSE"), os.Getenv("TMUX")),
 		NoColor: noColor, Version: cmd.Root().Version, API: client, SessionID: sessionID, SessionTitle: sessionTitle,
 		APIHost: client.APIHost(), CurrentUser: currentUser, WorkingDir: agentWorkingDir(),
 		Incident: incident, Alert: boundAlert,
@@ -161,6 +165,7 @@ func runAgent(cmd *cobra.Command) error {
 }
 
 func init() {
+	AgentCmd.Flags().Bool("no-mouse", false, "Disable mouse capture (native terminal selection); also ROOTLY_AGENT_NO_MOUSE=1")
 	AgentCmd.Flags().StringP("print", "p", "", "Send a prompt and print the response")
 	AgentCmd.Flags().StringP("resume", "r", "", "Resume an AI chat session by UUID")
 	AgentCmd.Flags().BoolP("continue", "c", false, "Continue the most recent AI chat session (incident/alert chats: use --resume <id>)")
@@ -169,6 +174,12 @@ func init() {
 	AgentCmd.Flags().String("output-format", "text", "Print output format: text, json, or stream-json")
 	AgentCmd.Flags().Bool("no-clear", false, "Don't clear the terminal and scrollback on start")
 	AgentCmd.MarkFlagsMutuallyExclusive("resume", "continue", "incident", "alert")
+}
+
+func agentMouseDisabled(flag bool, env, tmux string) bool {
+	value := strings.ToLower(strings.TrimSpace(env))
+	truthy, _ := strconv.ParseBool(value)
+	return flag || truthy || value == "yes" || tmux != ""
 }
 
 func latestSession(ctx context.Context, client *api.Client) (uuid.UUID, string, error) {
