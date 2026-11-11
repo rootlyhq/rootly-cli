@@ -1,0 +1,84 @@
+package incidents
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+
+	"github.com/rootlyhq/rootly-cli/internal/api"
+)
+
+var escalateCmd = &cobra.Command{
+	Use:   "escalate <incident-id>",
+	Short: "Page a team for an incident",
+	Long: `Page a team for an incident.
+
+Creates an alert that pages the team (and the escalation policy, if given) and links it to the incident.
+The incident can be a UUID, slug, or sequential ID such as INC-123.`,
+	Example: `  # Page a team
+  rootly incidents escalate INC-123 --team=platform
+
+  # Also page an escalation policy, with a note for the responders
+  rootly incidents escalate INC-123 --team=platform --escalation-policy=<uuid> --note="Database is down"`,
+	Args: cobra.ExactArgs(1),
+	RunE: runEscalate,
+}
+
+func init() {
+	escalateCmd.Flags().String("team", "", "Team slug or ID to page")
+	escalateCmd.Flags().String("escalation-policy", "", "Escalation policy UUID to page as well")
+	escalateCmd.Flags().String("note", "", "Note for the responders")
+	escalateCmd.Flags().String("link-alert", "", "Only link this already created alert to the incident, without paging again (retry after a failed link)")
+	IncidentsCmd.AddCommand(escalateCmd)
+}
+
+func runEscalate(cmd *cobra.Command, args []string) error {
+	teamRef, _ := cmd.Flags().GetString("team")
+	linkAlertID, _ := cmd.Flags().GetString("link-alert")
+	if teamRef == "" && linkAlertID == "" {
+		return fmt.Errorf("--team must not be empty")
+	}
+	policyID, _ := cmd.Flags().GetString("escalation-policy")
+	note, _ := cmd.Flags().GetString("note")
+
+	apiClient, err := getAPIClient()
+	if err != nil {
+		return err
+	}
+	incident, err := apiClient.GetIncidentByID(cmd.Context(), api.NormalizeIncidentID(args[0]))
+	if err != nil {
+		return err
+	}
+	label := incident.ID
+	if incident.SequentialID != "" {
+		label = incident.SequentialID
+	}
+	alertID := linkAlertID
+	teamName := teamRef
+	if alertID == "" {
+		team, err := apiClient.GetTeamByID(cmd.Context(), teamRef)
+		if err != nil {
+			return fmt.Errorf("unknown team %q: %w", teamRef, err)
+		}
+		teamName = team.Name
+		targets := []api.NotificationTarget{{Type: api.NotificationTargetGroup, ID: team.ID}}
+		if policyID != "" {
+			targets = append(targets, api.NotificationTarget{Type: api.NotificationTargetEscalationPolicy, ID: policyID})
+		}
+		summary := fmt.Sprintf("Escalation for %s: %s", label, incident.Title)
+		alertID, err = apiClient.PageAlertTargetsCLI(cmd.Context(), "", summary, note, targets)
+		if err != nil {
+			return fmt.Errorf("failed to page team: %w", err)
+		}
+	}
+	if err := apiClient.AttachAlertsToIncidentCLI(cmd.Context(), incident.ID, []string{alertID}); err != nil {
+		return fmt.Errorf("alert %s was created but linking it to %s failed; retry the link without paging again with --link-alert=%s: %w", alertID, label, alertID, err)
+	}
+	if linkAlertID != "" {
+		_, err = fmt.Fprintf(os.Stdout, "Linked alert %s to incident %s\n", alertID, label)
+		return err
+	}
+	_, err = fmt.Fprintf(os.Stdout, "Paged team %s for incident %s (alert %s)\n", teamName, label, alertID)
+	return err
+}
