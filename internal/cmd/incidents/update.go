@@ -9,12 +9,13 @@ import (
 
 	"github.com/rootlyhq/rootly-cli/internal/api"
 	"github.com/rootlyhq/rootly-cli/internal/printer"
+	"github.com/rootlyhq/rootly-cli/internal/statuspagewarn"
 )
 
 var updateCmd = &cobra.Command{
 	Use:   "update <incident-id>",
 	Short: "Update an incident",
-	Long:  "Update an existing Rootly incident's attributes.",
+	Long:  "Update an existing Rootly incident's attributes.\n\nResolving an incident does not resolve its status page events. If any are still open, a warning on stderr lists them with the `rootly status-pages events resolve` command.",
 	Example: `  # Update status
   rootly incidents update INC-123 --status=mitigated
 
@@ -165,6 +166,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Print success message to stderr
 	fmt.Fprintf(os.Stderr, "Updated incident %s\n", displayID)
+	statuspagewarn.Incident(cmd.Context(), apiClient, incident.ID, incident.Status, os.Stderr)
 
 	// Print incident to stdout using configured format
 	format := viper.GetString("format")

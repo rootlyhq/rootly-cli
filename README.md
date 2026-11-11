@@ -195,6 +195,8 @@ List a status page's templates with `rootly status-pages templates list --status
 
 `status-pages events create` and `status-pages events update` accept incident statuses `investigating`, `identified`, `monitoring`, and `resolved`, plus scheduled-maintenance statuses `scheduled`, `in_progress`, and `completed`. For `status-pages events resolve`, `--status` defaults to `resolved`; use `--status=completed` to complete scheduled maintenance.
 
+Resolving an incident does not resolve its status-page events. After `incidents update`, `incidents create` or `alerts resolve --resolve-incidents` leaves an incident resolved, the CLI warns on stderr about any events still open and prints the `rootly status-pages events resolve <event-id>` command to run. The check is best-effort and never changes the command's output or exit code.
+
 ### Escalation
 
 `rootly alerts escalate <alert-id>` escalates an alert using its current policy. Optionally pass `--escalation-policy=<uuid>` and/or `--level=<n>` to select a policy or escalation level; levels must be at least 1. The API's error title is shown when escalation cannot proceed.
