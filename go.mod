@@ -3,7 +3,7 @@ module github.com/rootlyhq/rootly-cli
 go 1.26.11
 
 require (
-	github.com/jedib0t/go-pretty/v6 v6.8.3
+	github.com/jedib0t/go-pretty/v6 v6.9.2
 	github.com/mattn/go-isatty v0.0.24
 	github.com/rootlyhq/rootly-go v0.16.0
 	github.com/spf13/cobra v1.10.2
@@ -29,6 +29,7 @@ require (
 	github.com/oasdiff/yaml v0.1.1 // indirect
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
