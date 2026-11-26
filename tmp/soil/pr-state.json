@@ -1,0 +1,63 @@
+{
+  "pr": "https://github.com/rootlyhq/rootly-cli/pull/83",
+  "head": "3b03ae9aeac821647e671855e9a2aab11f2c40a7",
+  "branch": "soil/ir-6586-cb8ca4",
+  "base": "master",
+  "mergeable": "clean",
+  "behindBase": 0,
+  "ci": {
+    "state": "pending",
+    "failing": [],
+    "pending": [
+      "Greptile Review"
+    ]
+  },
+  "review": null,
+  "approvals": [],
+  "feedback": [],
+  "bots": [
+    {
+      "login": "greptile-apps[bot]",
+      "kind": "inline",
+      "at": "internal/statuspagewarn/statuspagewarn.go:51",
+      "body": "<a href=\"#\"><img alt=\"P1\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p1.svg?v=9\" align=\"top\"></a> **Optional check hangs the command**\n\nIf the events endpoint accepts a request but stops responding, this optional check can wait indefinitely. It uses the command's context without a deadline, and the shared HTTP client has no timeout. `incidents create` and `incidents update` then never print the saved incident to stdout, even though the write succeeded. The alert check can also hang after printing success.\n\nGive the entire warning check a short timeout, shared across its pages and related incidents, and ignore timeout errors.\n\n<details><summary>Prompt To Fix With AI</summary>\n\n`````markdown\nThis is a comment left during a code review.\nPath: internal/statuspagewarn/statuspagewarn.go\nLine: 35\n\nComment:\n**Optional check hangs the command**\n\nIf the events endpoint accepts a request but stops responding, this optional check can wait indefinitely. It uses the command's context without a deadline, and the shared HTTP client has no timeout. `incidents create` and `incidents update` then never print the saved incident to stdout, even though the write succeeded. The alert check can also hang after printing success.\n\nGive the entire warning check a short timeout, shared across its pages and related incidents, and ignore timeout errors.\n\n---\n\nFor each issue above, determine whether it is valid and should be fixed. If so, fix it directly.\n`````\n</details>"
+    },
+    {
+      "login": "soil-cloud[bot]",
+      "kind": "inline",
+      "at": "internal/statuspagewarn/statuspagewarn.go:51",
+      "body": "Fixed in 3b03ae9. `Incident` and `AlertIncidents` now run under one 10s deadline that covers all pages and related incidents. A timeout is treated like any other lookup error and the command's exit code and stdout are unchanged. `TestIncidentTimesOutOnStalledEndpoint` uses a stalled server to cover it."
+    },
+    {
+      "login": "greptile-apps[bot]",
+      "kind": "inline",
+      "at": "internal/statuspagewarn/statuspagewarn_test.go:170",
+      "body": "<a href=\"#\"><img alt=\"P2\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p2.svg?v=9\" align=\"top\"></a> **Timeout test hangs on failure**\n\n`TestIncidentTimesOutOnStalledEndpoint` can hang when it catches the regression it tests for. Cleanups run in reverse order, so `server.Close` runs before `close(release)`. If the request never times out, the server waits for the blocked handler and never reaches the cleanup that releases it.\n\nRegister the release cleanup after `newClient`, or close the channel before reporting the timeout failure.\n\n<details><summary>Prompt To Fix With AI</summary>\n\n`````markdown\nThis is a comment left during a code review.\nPath: internal/statuspagewarn/statuspagewarn_test.go\nLine: 170\n\nComment:\n**Timeout test hangs on failure**\n\n`TestIncidentTimesOutOnStalledEndpoint` can hang when it catches the regression it tests for. Cleanups run in reverse order, so `server.Close` runs before `close(release)`. If the request never times out, the server waits for the blocked handler and never reaches the cleanup that releases it.\n\nRegister the release cleanup after `newClient`, or close the channel before reporting the timeout failure.\n\n---\n\nFor each issue above, determine whether it is valid and should be fixed. If so, fix it directly.\n`````\n</details>"
+    },
+    {
+      "login": "soil-cloud[bot]",
+      "kind": "comment",
+      "body": "Pushed 57d34a8: named the results of the `newClient` test helper to clear a gocritic `unnamedResult` finding. golangci-lint v2 now reports 0 issues, and total coverage is 80.45% (floor 80%). As noted for the council, the idioms, standards and criteria seats did not run; the general and deep seats did."
+    },
+    {
+      "login": "soil-cloud[bot]",
+      "kind": "comment",
+      "body": "<!-- soil-pr-monitoring-controls -->\nSoil is watching this PR. It acts on CodeFlow's review of the latest commit, review comments and change requests, red CI (after checking `master` and re-running once for flakes) and merge conflicts: one commit per fix, with a reply in each thread it handles. It skips comments containing \"(aside)\".\nThe PR's owner can comment `stop` (or `stop: <reason>`) to have Soil close this PR.\n\n- [ ] Disable Soil's automatic review, CI and merge-conflict monitoring"
+    },
+    {
+      "login": "greptile-apps[bot]",
+      "kind": "comment",
+      "body": "<!-- greptile_summary -->\n\n<h2><a href=\"https://app.greptile.com/api/retrigger?id=96168695\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://greptile-static-assets.s3.amazonaws.com/badges/RetriggerDark.svg?v=2\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://greptile-static-assets.s3.amazonaws.com/badges/Retrigger.svg?v=2\"><img alt=\"Retrigger\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/Retrigger.svg?v=2\" align=\"right\"></picture></a><a href=\"https://app.greptile.com/-/switch-tenant?tenant=rootly&amp;next=%2Frootlyhq%2Frootly-cli%2Fpull%2F83&amp;utm_source=greptile_review&amp;utm_medium=github&amp;utm_campaign=view_in_greptile\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://greptile-static-assets.s3.amazonaws.com/badges/ViewInGreptileDark.svg?v=2\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://greptile-static-assets.s3.amazonaws.com/badges/ViewInGreptile.svg?v=2\"><img alt=\"View in Greptile\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/ViewInGreptile.svg?v=2\" align=\"right\"></picture></a>Confidence Score: 5/5</h2>\n\n<!-- greptile-impact-verdict --> The PR appears safe to merge, with a non-blocking cleanup fix recommended for the timeout test.\n\n<h2>Findings</h2>\n\n1. <img alt=\"P2\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p2.svg?v=9\" align=\"top\">&nbsp;**Timeout test hangs on failure** <a href=\"https://github.com/rootlyhq/rootly-cli/pull/83/files#diff-1bfe74339581b769e7d540a1a18efd324dda125041930448dbbe751da81bba2eR170\">▶</a>\n\n<details><summary>Fix with agent prompt</summary>\n\n`````markdown\n### Issue 1\ninternal/statuspagewarn/statuspagewarn_test.go:170\n`TestIncidentTimesOutOnStalledEndpoint` can hang when it catches the regression it tests for. Cleanups run in reverse order, so `server.Close` runs before `close(release)`. If the request never times out, the server waits for the blocked handler and never reaches the cleanup that releases it.\n\nRegister th…"
+    },
+    {
+      "login": "soil-cloud[bot]",
+      "kind": "comment",
+      "body": "@greptileai"
+    },
+    {
+      "login": "soil-cloud[bot]",
+      "kind": "comment",
+      "body": "@greptileai"
+    }
+  ]
+}

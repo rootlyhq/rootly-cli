@@ -1,0 +1,45 @@
+{
+  "at": "2026-11-05T01:37:14.813Z",
+  "ticket": "IR-6586",
+  "rows": [
+    {
+      "id": "general-1",
+      "lens": "general",
+      "file": "internal/cmd/incidents/update.go",
+      "severity": "suggest",
+      "selfConfidence": 60,
+      "jevConfidence": 77,
+      "jevSeverity": 1.64,
+      "jevIntroduced": 0.71,
+      "wouldDrop": false,
+      "wouldDemote": true,
+      "sawDiff": true
+    },
+    {
+      "id": "general-3",
+      "lens": "general",
+      "file": "internal/statuspagewarn/statuspagewarn.go",
+      "severity": "suggest",
+      "selfConfidence": 35,
+      "jevConfidence": 72,
+      "jevSeverity": 1.62,
+      "jevIntroduced": 0.88,
+      "wouldDrop": false,
+      "wouldDemote": true,
+      "sawDiff": true
+    },
+    {
+      "id": "checking-1",
+      "lens": "checking",
+      "file": "internal/statuspagewarn/statuspagewarn.go",
+      "severity": "suggest",
+      "selfConfidence": 40,
+      "jevConfidence": 87,
+      "jevSeverity": 1.89,
+      "jevIntroduced": 0.82,
+      "wouldDrop": false,
+      "wouldDemote": true,
+      "sawDiff": true
+    }
+  ]
+}

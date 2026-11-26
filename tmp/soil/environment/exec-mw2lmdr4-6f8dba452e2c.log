@@ -1,0 +1,174 @@
+--- PASS: TestIsResolved (0.00s)
+--- PASS: TestIncidentListsOpenEvents (0.00s)
+--- PASS: TestIncidentSilentCases (0.00s)
+--- PASS: TestIncidentNotResolvedMakesNoRequest (0.00s)
+--- PASS: TestIncidentLookupFailureIsSilent (0.00s)
+--- PASS: TestIncidentLookupFailureDebugNote (0.00s)
+--- PASS: TestAlertIncidentsWarnsOnlyForResolved (0.00s)
+--- PASS: TestAlertIncidentsLookupFailure (0.00s)
+PASS
+ok  	github.com/rootlyhq/rootly-cli/internal/statuspagewarn	0.016s
+--- PASS: TestRunListTable (0.00s)
+--- PASS: TestRunListJSON (0.00s)
+--- PASS: TestRunListWithFilters (0.00s)
+--- PASS: TestRunCreateScheduledMaintenance (0.00s)
+--- PASS: TestRunUpdateScheduledMaintenance (0.00s)
+--- PASS: TestRunCreateWithFormFields (0.00s)
+--- PASS: TestRunUpdateWithFormField (0.00s)
+--- PASS: TestRunCreateUnknownFormFieldDoesNotCreateIncident (0.00s)
+--- PASS: TestParseScheduledTimestamp (0.00s)
+--- PASS: TestIncidentKindHelpIsConsistent (0.00s)
+--- PASS: TestRunListPagination (0.00s)
+--- PASS: TestRunGetTable (0.00s)
+--- PASS: TestRunGetJSON (0.00s)
+--- PASS: TestRunCreateTable (0.00s)
+--- PASS: TestRunCreateJSON (0.00s)
+--- PASS: TestRunUpdateTable (0.00s)
+--- PASS: TestRunUpdateNoFlags (0.00s)
+--- PASS: TestRunUpdateCanClearAssociations (0.00s)
+--- PASS: TestRunListNoToken (0.00s)
+--- PASS: TestRunGetNormalizesSequentialID (0.00s)
+--- PASS: TestRunGetAcceptsUUID (0.00s)
+--- PASS: TestRunGetAPIError (0.00s)
+--- PASS: TestConfirmDeleteSkip (0.00s)
+--- PASS: TestConfirmDeleteNonInteractive (0.00s)
+--- PASS: TestRunDeleteWithYes (0.00s)
+--- PASS: TestRunDeleteNoConfirmNonInteractive (0.00s)
+--- PASS: TestRunDeleteNoToken (0.00s)
+--- PASS: TestRunDeleteAPIError (0.00s)
+--- PASS: TestResolveFormFieldSelections (0.00s)
+--- PASS: TestResolveFormFieldSelectionsRejectsMultipleSingleSelectValues (0.00s)
+--- PASS: TestTruncateString (0.00s)
+--- PASS: TestIncidentDetailRows (0.00s)
+--- PASS: TestIncidentDetailRowsFallbackID (0.00s)
+--- PASS: TestFormatDuration (0.00s)
+--- PASS: TestRunUpdateResolvedWarnsAboutOpenStatusPageEvents (0.00s)
+--- PASS: TestRunUpdateNotResolvedDoesNotCheckStatusPages (0.00s)
+--- PASS: TestRunUpdateStatusPageLookupFailureIsIgnored (0.00s)
+--- PASS: TestRunCreateResolvedWarnsAboutOpenStatusPageEvents (0.00s)
+PASS
+ok  	github.com/rootlyhq/rootly-cli/internal/cmd/incidents	0.027s
+--- PASS: TestTruncateString (0.00s)
+--- PASS: TestAlertDetailRows (0.00s)
+--- PASS: TestAlertDetailRowsFallbackID (0.00s)
+--- PASS: TestAlertDetailRowsWithNotifiedUsers (0.00s)
+--- PASS: TestAlertDetailRowsWithRelatedIncidents (0.00s)
+--- PASS: TestRunListTable (0.00s)
+--- PASS: TestRunListJSON (0.00s)
+--- PASS: TestRunListNoToken (0.00s)
+--- PASS: TestRunGetTable (0.00s)
+--- PASS: TestRunGetJSON (0.00s)
+--- PASS: TestRunCreateTable (0.00s)
+--- PASS: TestRunCreateJSON (0.00s)
+--- PASS: TestRunUpdateTable (0.00s)
+--- PASS: TestRunUpdateNoFlags (0.00s)
+--- PASS: TestRunAckSuccess (0.00s)
+--- PASS: TestRunAckNoToken (0.00s)
+--- PASS: TestRunAckAPIError (0.00s)
+--- PASS: TestRunEscalateSuccess (0.00s)
+--- PASS: TestRunEscalateRejectsInvalidLevel (0.00s)
+--- PASS: TestRunEscalateSurfacesAPIError (0.00s)
+--- PASS: TestRunResolveSuccess (0.00s)
+--- PASS: TestRunResolveWithMessage (0.00s)
+--- PASS: TestRunResolveWithIncidents (0.00s)
+--- PASS: TestRunResolveNoToken (0.00s)
+--- PASS: TestRunResolveAPIError (0.00s)
+--- PASS: TestRunResolveWithIncidentsWarnsAboutOpenStatusPageEvents (0.00s)
+--- PASS: TestRunResolveWithoutIncidentsDoesNotCheckStatusPages (0.00s)
+PASS
+ok  	github.com/rootlyhq/rootly-cli/internal/cmd/alerts	0.022s
+======E2E
+##### resolved (events lookup: ok, API returns status: resolved)
+exit=0
+--- stdout:
+{
+  "data": {
+    "attributes": {
+      "created_at": "2025-06-15T10:00:00Z",
+      "kind": "normal",
+      "sequential_id": 42,
+      "status": "resolved",
+      "title": "DB outage"
+    },
+    "id": "inc-1"
+  }
+}
+--- stderr:
+Updated incident inc-1
+Warning: incident inc-1 is resolved but 1 status page event(s) are still open:
+  status page page-1, status investigating: rootly status-pages events resolve ev-1
+--- requests made:
+REQ PUT /v1/incidents/1
+REQ GET /v1/incidents/inc-1/status-page-events?page[number]=1&page[size]=100
+##### lookup-fails (events lookup: fail, API returns status: resolved)
+exit=0
+--- stdout:
+{
+  "data": {
+    "attributes": {
+      "created_at": "2025-06-15T10:00:00Z",
+      "kind": "normal",
+      "sequential_id": 42,
+      "status": "resolved",
+      "title": "DB outage"
+    },
+    "id": "inc-1"
+  }
+}
+--- stderr:
+Updated incident inc-1
+--- requests made:
+REQ PUT /v1/incidents/1
+REQ GET /v1/incidents/inc-1/status-page-events?page[number]=1&page[size]=100
+##### not-resolved (events lookup: ok, API returns status: mitigated)
+exit=0
+--- stdout:
+{
+  "data": {
+    "attributes": {
+      "created_at": "2025-06-15T10:00:00Z",
+      "kind": "normal",
+      "sequential_id": 42,
+      "status": "mitigated",
+      "title": "DB outage"
+    },
+    "id": "inc-1"
+  }
+}
+--- stderr:
+Updated incident inc-1
+--- requests made:
+REQ PUT /v1/incidents/1
+======AC5
+$ git diff --stat <base>...HEAD
+ README.md                                      |   2 +
+ internal/cmd/alerts/resolve.go                 |   7 +-
+ internal/cmd/alerts/statuspagewarn_test.go     |  85 +++++++++++++
+ internal/cmd/incidents/create.go               |   2 +
+ internal/cmd/incidents/statuspagewarn_test.go  | 148 ++++++++++++++++++++++
+ internal/cmd/incidents/update.go               |   4 +-
+ internal/statuspagewarn/statuspagewarn.go      |  70 ++++++++++
+ internal/statuspagewarn/statuspagewarn_test.go | 169 +++++++++++++++++++++++++
+ 8 files changed, 485 insertions(+), 2 deletions(-)
+
+$ call sites of statuspagewarn in non-test code
+internal/cmd/incidents/update.go:169:	statuspagewarn.Incident(cmd.Context(), apiClient, incident.ID, incident.Status, os.Stderr)
+internal/cmd/incidents/create.go:152:	statuspagewarn.Incident(cmd.Context(), apiClient, incident.ID, incident.Status, os.Stderr)
+internal/cmd/alerts/resolve.go:58:		statuspagewarn.AlertIncidents(cmd.Context(), apiClient, alertID, os.Stderr)
+
+$ added lines in cmd files that add flags or change Use/Aliases (expect none)
++	cmd.Flags().String("message", "", "")
++	cmd.Flags().Bool("resolve-incidents", false, "")
++		_ = cmd.Flags().Set("resolve-incidents", "true")
++		cmd.Flags().String(name, "", "")
++	cmd.Flags().String("title", title, "")
++	cmd.Flags().StringArray("field", nil, "")
++		cmd.Flags().StringSlice(name, nil, "")
++	_ = cmd.Flags().Set("status", status)
+
+$ HTTP methods used by the new package (expect no PUT/PATCH/POST/Delete/Update/Resolve)
+none
+
+$ api calls in statuspagewarn.go
+34:	result, err := client.ListStatusPageEventsCLI(ctx, incidentID, 1, eventsPageSize)
+56:	alert, err := client.GetAlertByID(ctx, alertID)

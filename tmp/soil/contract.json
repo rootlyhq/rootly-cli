@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "frozenAt": "2026-11-04T20:51:28.609Z",
+  "step": "context",
+  "head": {
+    "ticket": "IR-6586",
+    "title": "Warn when resolving an incident from the CLI leaves status page events open",
+    "summary": "The status page commands in the ask already shipped in rootly-cli#57 (v0.6.1) as `status-pages list` and `status-pages events list/create/update/resolve`. What remains is the footgun in the title: resolving an incident from the CLI says nothing about public status-page entries still open. Add a best-effort, stderr-only warning, in its own helper package, that lists each open event with its status page and the exact `rootly status-pages events resolve <id>` command. No auto-resolve, no renames."
+  },
+  "ask": {
+    "text": "Solve\n\nhttps://linear.app/rootly/issue/IR-6824/mcp-claude-desktop-and-claude-code-sdk-cannot-connect-the-mcp-server\nhttps://linear.app/rootly/issue/IR-6586/cli-add-status-page-commands-incidents-update-statusresolved-leaves\nhttps://linear.app/rootly/issue/IR-6584/cli-add-escalate-verb-for-incidents-and-alerts-to-page-a-team\nhttps://linear.app/rootly/issue/IR-5478/rootly-cli-incident-not-found\nhttps://linear.app/rootly/issue/IR-6588/cli-add-workflows-list-and-workflows-run-commands\nhttps://linear.app/rootly/issue/IR-6585/cli-support-services-and-types-on-incidents-createupdate\nhttps://linear.app/rootly/issue/IR-5846/admin-general-organization-settings-checkboxes-toggle-when-clicking\n\n1 pr each",
+    "additions": [
+      {
+        "at": "2026-11-04T20:45:40.355Z",
+        "kind": "relay",
+        "role": "operator",
+        "text": "Solve IR-6586 — one PR. Add status page commands to the CLI (status-pages list, status-pages incidents create/update/resolve). Ref https://github.com/rootlyhq/rootly-cli/issues/52",
+        "author": "operator"
+      },
+      {
+        "author": "the operator",
+        "role": "operator",
+        "kind": "answer",
+        "text": "Should incident resolution ever resolve open status page entries automatically (or via an opt-in flag)? → go with: No: warn only, default behaviour unchanged. Resolving a public status page entry is a customer-visible write that can notify subscribers. The ticket asks for the mismatch to be visible, not for automatic resolves. Don't add an opt-in flag in this PR either. The warning already prints the exact `status-pages events resolve <id>` command to run. Mention an opt-in flag as a possible follow-up in the PR.",
+        "at": "2026-11-04T20:50:56.692Z"
+      }
+    ]
+  },
+  "criteria": [
+    {
+      "id": "ac-1",
+      "text": "After a successful `incidents update` that sets --status to resolved or closed, stderr lists each status-page event for that incident whose status is not resolved/completed, giving its status page ID, its status and the exact `rootly status-pages events resolve <event-id>` command (unit test with a mock HTTP server).",
+      "kind": "change",
+      "cites": "The read check should let a script refuse to report"
+    },
+    {
+      "id": "ac-2",
+      "text": "The same warning fires after `incidents create --status=resolved` and after `alerts resolve --resolve-incidents` for each related incident that is resolved or closed (tests).",
+      "kind": "change",
+      "cites": "The read check should let a script refuse to report"
+    },
+    {
+      "id": "ac-3",
+      "text": "No warning is printed when the incident has no events, all events are resolved/completed, or the command does not leave the incident resolved (tests).",
+      "kind": "change",
+      "cites": "The read check should let a script refuse to report"
+    },
+    {
+      "id": "ac-4",
+      "text": "The check is best-effort: if the events lookup fails, the command still succeeds with the same exit code, and the warning goes to stderr only, so JSON/YAML stdout is unchanged (tests).",
+      "kind": "change",
+      "cites": "Read-only support was called an acceptable fast partial fix"
+    },
+    {
+      "id": "ac-5",
+      "text": "The check lives in its own new package (internal/statuspagewarn) and each command calls it with one line; it only warns: no event is auto-resolved, no opt-in flag is added and no existing command or flag is renamed (operator answer: warn only, default behaviour unchanged).",
+      "kind": "change",
+      "cites": "No: warn only, default behaviour unchanged. Resolving a public status page entry is a customer-visible write that can notify subscribers."
+    },
+    {
+      "id": "ac-6",
+      "text": "go test, golangci-lint and go vet pass and total coverage stays at or above COVERAGE_MIN (make coverage && make coverage-check).",
+      "kind": "change",
+      "cites": "Add status page commands"
+    },
+    {
+      "id": "ac-7",
+      "text": "The PR is opened and its body links rootly-cli#57 and issue #52 and mentions an opt-in resolve flag as a possible follow-up.",
+      "kind": "ship",
+      "cites": "Ref https://github.com/rootlyhq/rootly-cli/issues/52"
+    }
+  ],
+  "shipChecks": [
+    {
+      "kind": "body",
+      "value": "IR-6824",
+      "why": "the ask names IR-6824"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6586",
+      "why": "the ask names IR-6586"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6584",
+      "why": "the ask names IR-6584"
+    },
+    {
+      "kind": "body",
+      "value": "IR-5478",
+      "why": "the ask names IR-5478"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6588",
+      "why": "the ask names IR-6588"
+    },
+    {
+      "kind": "body",
+      "value": "IR-6585",
+      "why": "the ask names IR-6585"
+    },
+    {
+      "kind": "body",
+      "value": "IR-5846",
+      "why": "the ask names IR-5846"
+    }
+  ],
+  "risk": {
+    "level": "medium",
+    "floor": "low",
+    "reasons": [],
+    "declared": null
+  },
+  "workKind": null,
+  "changeKind": "feature",
+  "changeKindReason": "Not a bug fix: the incident update works as designed; the ticket asks for visibility into a separate public action.",
+  "scopeCuts": [
+    {
+      "kind": "out_of_scope",
+      "what": "status-pages incidents create/update/resolve",
+      "reason": "Already shipped as `status-pages events create/update/resolve` in rootly-cli#57 (v0.6.1); renaming would break released users.",
+      "decidedBy": "the operator",
+      "answer": "approve: both cuts match what I already decided. (1) The requested write commands already shipped as `status-pages events create/update/resolve` in rootly-cli#57 (v0.6.1). Renaming them or adding an `incidents` alias would break released users, so no rename. (2) Resolving public status page entries automatically is a customer-visible product decision. This PR makes the mismatch visible with a warning to stderr that lists open events and the exact resolve command, and it does not resolve anything. Mention an opt-in flag as a possible follow-up.",
+      "at": "2026-11-04T20:51:14.105Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "incidents update --status=resolved leaves the public page open",
+      "reason": "Automatically resolving public entries when an incident is resolved is a product decision (Devin triage comment, 2026-11-04); this PR only warns.",
+      "decidedBy": "the operator",
+      "answer": "approve: both cuts match what I already decided. (1) The requested write commands already shipped as `status-pages events create/update/resolve` in rootly-cli#57 (v0.6.1). Renaming them or adding an `incidents` alias would break released users, so no rename. (2) Resolving public status page entries automatically is a customer-visible product decision. This PR makes the mismatch visible with a warning to stderr that lists open events and the exact resolve command, and it does not resolve anything. Mention an opt-in flag as a possible follow-up.",
+      "at": "2026-11-04T20:51:14.105Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6824/mcp-claude-desktop-and-claude-code-sdk-cannot-connect-the-mcp-server",
+      "reason": "Separate ticket with its own lane; the operator pre-approved leaving it out of IR-6586.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket. The six other tickets each have their own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6588 → ir-6588-c99a1c, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). The two IR-6586 cuts were already approved: the write commands shipped as `status-pages events` in rootly-cli#57, so no rename, and automatic resolving is a customer-visible product decision, so this PR only warns. This is the complete approved cut list; go ahead to the build.",
+      "at": "2026-11-04T20:51:28.443Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6584/cli-add-escalate-verb-for-incidents-and-alerts-to-page-a-team",
+      "reason": "Separate ticket with its own lane; the operator pre-approved leaving it out of IR-6586.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket. The six other tickets each have their own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6588 → ir-6588-c99a1c, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). The two IR-6586 cuts were already approved: the write commands shipped as `status-pages events` in rootly-cli#57, so no rename, and automatic resolving is a customer-visible product decision, so this PR only warns. This is the complete approved cut list; go ahead to the build.",
+      "at": "2026-11-04T20:51:28.443Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-5478/rootly-cli-incident-not-found",
+      "reason": "Separate ticket with its own lane; the operator pre-approved leaving it out of IR-6586.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket. The six other tickets each have their own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6588 → ir-6588-c99a1c, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). The two IR-6586 cuts were already approved: the write commands shipped as `status-pages events` in rootly-cli#57, so no rename, and automatic resolving is a customer-visible product decision, so this PR only warns. This is the complete approved cut list; go ahead to the build.",
+      "at": "2026-11-04T20:51:28.443Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6588/cli-add-workflows-list-and-workflows-run-commands",
+      "reason": "Separate ticket with its own lane; the operator pre-approved leaving it out of IR-6586.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket. The six other tickets each have their own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6588 → ir-6588-c99a1c, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). The two IR-6586 cuts were already approved: the write commands shipped as `status-pages events` in rootly-cli#57, so no rename, and automatic resolving is a customer-visible product decision, so this PR only warns. This is the complete approved cut list; go ahead to the build.",
+      "at": "2026-11-04T20:51:28.443Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-6585/cli-support-services-and-types-on-incidents-createupdate",
+      "reason": "Separate ticket with its own lane (ir-6585-694b70); the operator pre-approved leaving it out of IR-6586.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket. The six other tickets each have their own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6588 → ir-6588-c99a1c, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). The two IR-6586 cuts were already approved: the write commands shipped as `status-pages events` in rootly-cli#57, so no rename, and automatic resolving is a customer-visible product decision, so this PR only warns. This is the complete approved cut list; go ahead to the build.",
+      "at": "2026-11-04T20:51:28.443Z"
+    },
+    {
+      "kind": "out_of_scope",
+      "what": "https://linear.app/rootly/issue/IR-5846/admin-general-organization-settings-checkboxes-toggle-when-clicking",
+      "reason": "Separate ticket with its own lane; the operator pre-approved leaving it out of IR-6586.",
+      "decidedBy": "the operator",
+      "answer": "approve: the human asked for one PR per ticket. The six other tickets each have their own lane (IR-6824 → ir-6824-7cf140, IR-5846 → ir-5846-67d8cb, IR-5478 → ir-5478-993533, IR-6588 → ir-6588-c99a1c, IR-6585 → ir-6585-694b70, IR-6584 → ir-6584-304657). The two IR-6586 cuts were already approved: the write commands shipped as `status-pages events` in rootly-cli#57, so no rename, and automatic resolving is a customer-visible product decision, so this PR only warns. This is the complete approved cut list; go ahead to the build.",
+      "at": "2026-11-04T20:51:28.443Z"
+    },
+    {
+      "kind": "ask_stands",
+      "what": "the part of IR-6586 judged already done: The requested status-page commands already shipped in rootly-cli#57 under `status-pages events`; only the missing signal when an incident is resolved remains.",
+      "reason": "only what is left was planned: Resolving an incident from the CLI (incidents update --status=resolved, incidents create --status=resolved, alerts resolve --resolve-incidents) still prints no hint that public status-page events remain open.",
+      "decidedBy": "JEV, agreeing with the lane",
+      "at": "2026-11-04T20:51:28.545Z"
+    }
+  ],
+  "answers": [
+    {
+      "question": "Should incident resolution ever resolve open status page entries automatically (or via an opt-in flag)?",
+      "answer": "go with: No: warn only, default behaviour unchanged. Resolving a public status page entry is a customer-visible write that can notify subscribers. The ticket asks for the mismatch to be visible, not for automatic resolves. Don't add an opt-in flag in this PR either. The warning already prints the exact `status-pages events resolve <id>` command to run. Mention an opt-in flag as a possible follow-up in the PR.",
+      "at": "2026-11-04T20:50:56.692Z"
+    }
+  ],
+  "mergeable": [
+    {
+      "id": "merge-tests",
+      "text": "Changed code is covered by tests: the repo's coverage report on the changed lines when one is fresh, else a test that touches each changed file or function"
+    },
+    {
+      "id": "merge-lint",
+      "text": "Lint and type checks are clean on the touched files"
+    },
+    {
+      "id": "merge-docs",
+      "text": "Docs and the changelog are updated where the repo keeps them with its code changes"
+    }
+  ]
+}

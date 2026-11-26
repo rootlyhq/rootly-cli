@@ -1,0 +1,15 @@
+{
+  "url": "https://github.com/rootlyhq/rootly-cli/pull/83",
+  "number": 83,
+  "repo": "rootlyhq/rootly-cli",
+  "branch": "soil/ir-6586-cb8ca4",
+  "base": "master",
+  "headSha": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e",
+  "openedAt": "2026-11-04T21:08:13.301Z",
+  "council": {
+    "approved": true,
+    "summary": "6 raised · 2 kept",
+    "mustFix": 2,
+    "suggest": 0
+  }
+}

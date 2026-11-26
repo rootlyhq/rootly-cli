@@ -1,0 +1,67 @@
+{
+  "verdict": "proven",
+  "head": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e",
+  "base": "57534c36cac6a220d788256f8d627b31784c9a68",
+  "tests": [
+    "internal/cmd/alerts/statuspagewarn_test.go",
+    "internal/cmd/incidents/statuspagewarn_test.go",
+    "internal/statuspagewarn/statuspagewarn_test.go",
+    "internal/cmd/alerts/alerts_test.go",
+    "internal/cmd/alerts/cmd_test.go",
+    "internal/cmd/incidents/cmd_test.go",
+    "internal/cmd/incidents/form_fields_test.go",
+    "internal/cmd/incidents/list_test.go"
+  ],
+  "fixPaths": [
+    "README.md",
+    "internal/cmd/alerts/resolve.go",
+    "internal/cmd/incidents/create.go",
+    "internal/cmd/incidents/update.go",
+    "internal/statuspagewarn/statuspagewarn.go"
+  ],
+  "before": {
+    "pass": false,
+    "runs": [
+      {
+        "gate": "go-vet",
+        "command": "go vet . 'internal/cmd/alerts/statuspagewarn_test.go' 'internal/cmd/incidents/statuspagewarn_test.go' 'internal/statuspagewarn/statuspagewarn_test.go' 'internal/cmd/alerts/alerts_test.go' 'internal/cmd/alerts/cmd_test.go' 'internal/cmd/incidents/cmd_test.go' 'internal/cmd/incidents/form_fields_test.go' 'internal/cmd/incidents/list_test.go'",
+        "files": [
+          "internal/cmd/alerts/statuspagewarn_test.go",
+          "internal/cmd/incidents/statuspagewarn_test.go",
+          "internal/statuspagewarn/statuspagewarn_test.go",
+          "internal/cmd/alerts/alerts_test.go",
+          "internal/cmd/alerts/cmd_test.go",
+          "internal/cmd/incidents/cmd_test.go",
+          "internal/cmd/incidents/form_fields_test.go",
+          "internal/cmd/incidents/list_test.go"
+        ],
+        "pass": false,
+        "timedOut": false,
+        "detail": "== internal/cmd/alerts\n== internal/cmd/incidents\n== internal/statuspagewarn\n\n# github.com/rootlyhq/rootly-cli/internal/statuspagewarn\n# [github.com/rootlyhq/rootly-cli/internal/statuspagewarn]\nvet: ./statuspagewarn_test.go:51:13: undefined: IsResolved"
+      }
+    ]
+  },
+  "after": {
+    "pass": true,
+    "runs": [
+      {
+        "gate": "go-vet",
+        "command": "go vet . 'internal/cmd/alerts/statuspagewarn_test.go' 'internal/cmd/incidents/statuspagewarn_test.go' 'internal/statuspagewarn/statuspagewarn_test.go' 'internal/cmd/alerts/alerts_test.go' 'internal/cmd/alerts/cmd_test.go' 'internal/cmd/incidents/cmd_test.go' 'internal/cmd/incidents/form_fields_test.go' 'internal/cmd/incidents/list_test.go'",
+        "files": [
+          "internal/cmd/alerts/statuspagewarn_test.go",
+          "internal/cmd/incidents/statuspagewarn_test.go",
+          "internal/statuspagewarn/statuspagewarn_test.go",
+          "internal/cmd/alerts/alerts_test.go",
+          "internal/cmd/alerts/cmd_test.go",
+          "internal/cmd/incidents/cmd_test.go",
+          "internal/cmd/incidents/form_fields_test.go",
+          "internal/cmd/incidents/list_test.go"
+        ],
+        "pass": true,
+        "timedOut": false,
+        "detail": "== internal/cmd/alerts\n== internal/cmd/incidents\n== internal/statuspagewarn"
+      }
+    ]
+  },
+  "at": "2026-11-04T21:06:09.118Z"
+}

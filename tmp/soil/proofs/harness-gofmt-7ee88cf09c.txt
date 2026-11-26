@@ -1,0 +1,4 @@
+# Run by the Soil harness on HEAD 7ee88cf09c1f0474a4391237adafe5ca9d772a94
+$ gofmt -l 'internal/cmd/alerts/resolve.go' 'internal/cmd/alerts/statuspagewarn_test.go' 'internal/cmd/incidents/create.go' 'internal/cmd/incidents/statuspagewarn_test.go' 'internal/cmd/incidents/update.go' 'internal/statuspagewarn/statuspagewarn.go' 'internal/statuspagewarn/statuspagewarn_test.go'
+
+exit=0

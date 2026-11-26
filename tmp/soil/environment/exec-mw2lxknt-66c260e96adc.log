@@ -1,0 +1,30 @@
+d2081cefcd770fdaa7b9d18354f5e49ec018dd7e
+--- PASS: TestIsResolved (0.00s)
+--- PASS: TestIncidentListsOpenEvents (0.00s)
+--- PASS: TestIncidentFollowsPagination (0.00s)
+--- PASS: TestIncidentFollowsManyPages (0.00s)
+--- PASS: TestIncidentStopsWhenPageIgnored (0.00s)
+--- PASS: TestIncidentFollowsTotalPagesWithoutNextPage (0.00s)
+--- PASS: TestIncidentPrintsRequiredMessageFlag (0.00s)
+--- PASS: TestIncidentSilentCases (0.00s)
+--- PASS: TestIncidentNotResolvedMakesNoRequest (0.00s)
+--- PASS: TestIncidentLookupFailureIsSilent (0.00s)
+--- PASS: TestIncidentLookupFailureDebugNote (0.00s)
+--- PASS: TestAlertIncidentsWarnsOnlyForResolved (0.00s)
+--- PASS: TestAlertIncidentsLookupFailure (0.00s)
+ok  	github.com/rootlyhq/rootly-cli/internal/statuspagewarn	0.020s
+--- PASS: TestRunCreateUnknownFormFieldDoesNotCreateIncident (0.00s)
+--- PASS: TestIncidentKindHelpIsConsistent (0.00s)
+--- PASS: TestIncidentDetailRows (0.00s)
+--- PASS: TestIncidentDetailRowsFallbackID (0.00s)
+--- PASS: TestRunUpdateResolvedWarnsAboutOpenStatusPageEvents (0.00s)
+--- PASS: TestRunUpdateNotResolvedDoesNotCheckStatusPages (0.00s)
+--- PASS: TestRunUpdateStatusPageLookupFailureIsIgnored (0.00s)
+--- PASS: TestRunCreateResolvedWarnsAboutOpenStatusPageEvents (0.00s)
+ok  	github.com/rootlyhq/rootly-cli/internal/cmd/incidents	0.029s
+--- PASS: TestAlertDetailRowsWithRelatedIncidents (0.00s)
+--- PASS: TestRunResolveWithIncidents (0.00s)
+--- PASS: TestRunResolveWithIncidentsWarnsAboutOpenStatusPageEvents (0.00s)
+--- PASS: TestRunResolveWithoutIncidentsDoesNotCheckStatusPages (0.00s)
+ok  	github.com/rootlyhq/rootly-cli/internal/cmd/alerts	0.024s
+exit=0

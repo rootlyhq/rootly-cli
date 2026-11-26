@@ -1,0 +1,777 @@
+# soil-diff {"base":"57534c36cac6a220d788256f8d627b31784c9a68","head":"7ee88cf09c1f0474a4391237adafe5ca9d772a94","bytes":29916,"tooLarge":false,"at":"2026-11-05T01:37:40.930Z"}
+diff --git a/README.md b/README.md
+index e8c9854..c6dff89 100644
+--- a/README.md
++++ b/README.md
+@@ -90,6 +90,9 @@ rootly incidents create --title="API degradation" --field="customer_impact=Check
+ rootly incidents update <id> --status=mitigated
+ rootly incidents update <id> --scheduled-until=2025-06-20T13:00:00Z
+ rootly incidents update <id> --field="customer_impact=Checkout restored"
++rootly incidents create --title="Checkout errors" --services=api-gateway,payments --types=customer-impacting
++rootly incidents update INC-123 --services=api-gateway --teams=platform
++rootly incidents update INC-123 --types=                # Clears the incident types
+ rootly incidents delete <id>
+ 
+ # Alerts
+@@ -161,12 +164,34 @@ rootly incidents create --title="Release" \
+   --field="regions=EU West"
+ ```
+ 
++### Incident Associations
++
++`incidents create` and `incidents update` can link an incident to other Rootly records. Each flag takes comma-separated slugs or IDs, like `rootly pulse create --services`:
++
++| Flag | Links | API attribute |
++|------|-------|---------------|
++| `--services` | Services | `service_ids` |
++| `--types` | Incident types | `incident_type_ids` |
++| `--functionalities` | Functionalities | `functionality_ids` |
++| `--environments` | Environments | `environment_ids` |
++| `--teams` | Teams | `group_ids` |
++| `--causes` | Causes | `cause_ids` |
++
++On `update`, only the flags you pass are sent. Each one replaces the incident's current list, and an empty value (`--services=`) clears it. `update` accepts a sequential ID such as `INC-123` as well as a UUID or slug.
++
++```bash
++rootly incidents create --title="Checkout errors" --services=api-gateway,payments --types=customer-impacting
++rootly incidents update INC-123 --services=api-gateway --teams=platform
++```
++
+ ### Status-Page Templates and Maintenance Statuses
+ 
+ List a status page's templates with `rootly status-pages templates list --status-page=<id>`. The command supports `--page`, `--page-size`, and the standard `--format` output flag.
+ 
+ `status-pages events create` and `status-pages events update` accept incident statuses `investigating`, `identified`, `monitoring`, and `resolved`, plus scheduled-maintenance statuses `scheduled`, `in_progress`, and `completed`. For `status-pages events resolve`, `--status` defaults to `resolved`; use `--status=completed` to complete scheduled maintenance.
+ 
++Resolving an incident does not resolve its status-page events. After `incidents update`, `incidents create` or `alerts resolve --resolve-incidents` leaves an incident resolved, the CLI warns on stderr about any events still open and prints the `rootly status-pages events resolve <event-id>` command to run. The check is best-effort and never changes the command's output or exit code.
++
+ ### Alert Escalation
+ 
+ `rootly alerts escalate <alert-id>` escalates an alert using its current policy. Optionally pass `--escalation-policy=<uuid>` and/or `--level=<n>` to select a policy or escalation level; levels must be at least 1. The API's error title is shown when escalation cannot proceed.
+diff --git a/internal/cmd/alerts/resolve.go b/internal/cmd/alerts/resolve.go
+index 21cd909..7345f4b 100644
+--- a/internal/cmd/alerts/resolve.go
++++ b/internal/cmd/alerts/resolve.go
+@@ -5,12 +5,14 @@ import (
+ 	"os"
+ 
+ 	"github.com/spf13/cobra"
++
++	"github.com/rootlyhq/rootly-cli/internal/statuspagewarn"
+ )
+ 
+ var resolveCmd = &cobra.Command{
+ 	Use:   "resolve <alert-id>",
+ 	Short: "Resolve an alert",
+-	Long:  "Mark an alert as resolved with optional resolution message.\n\nThis calls the dedicated resolve action endpoint. Optionally resolves related incidents.",
++	Long:  "Mark an alert as resolved with optional resolution message.\n\nThis calls the dedicated resolve action endpoint. Optionally resolves related incidents.\n\nResolving incidents does not resolve their status page events. If any are still open, a warning on stderr lists them with the `rootly status-pages events resolve` command.",
+ 	Example: `  # Basic resolve
+   rootly alerts resolve ALR-123
+ 
+@@ -52,5 +54,8 @@ func runResolve(cmd *cobra.Command, args []string) error {
+ 
+ 	// Print success message to stdout
+ 	_, _ = fmt.Fprintf(os.Stdout, "Resolved alert %s\n", alertID)
++	if resolveIncidents {
++		statuspagewarn.AlertIncidents(cmd.Context(), apiClient, alertID, os.Stderr)
++	}
+ 	return nil
+ }
+diff --git a/internal/cmd/alerts/statuspagewarn_test.go b/internal/cmd/alerts/statuspagewarn_test.go
+new file mode 100644
+index 0000000..f9244b8
+--- /dev/null
++++ b/internal/cmd/alerts/statuspagewarn_test.go
+@@ -0,0 +1,85 @@
++package alerts
++
++import (
++	"net/http"
++	"os"
++	"strings"
++	"testing"
++)
++
++// captureStderr redirects os.Stderr for the duration of fn, returning captured output.
++func captureStderr(t *testing.T, fn func()) string {
++	t.Helper()
++	origStderr := os.Stderr
++	r, w, err := os.Pipe()
++	if err != nil {
++		t.Fatalf("failed to create pipe: %v", err)
++	}
++	os.Stderr = w
++
++	fn()
++
++	w.Close()
++	os.Stderr = origStderr
++
++	buf := make([]byte, 65536)
++	n, _ := r.Read(buf)
++	r.Close()
++	return string(buf[:n])
++}
++
++func resolveWithStatusPageServer(t *testing.T, resolveIncidents bool) (stdout, stderr string, alertGets int) {
++	t.Helper()
++	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/vnd.api+json")
++		switch {
++		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/alerts/"):
++			alertGets++
++			_, _ = w.Write([]byte(`{"data": {"id": "alert-1", "attributes": {"short_id": "ALR-42", "incidents": [
++				{"id": "inc-resolved", "attributes": {"status": "resolved"}},
++				{"id": "inc-started", "attributes": {"status": "started"}}
++			]}}}`))
++		case strings.Contains(r.URL.Path, "/inc-resolved/status-page-events"):
++			_, _ = w.Write([]byte(`{"data": [{"id": "ev-1", "attributes": {"status": "investigating", "status_page_id": "page-1"}}], "meta": {"current_page": 1, "total_pages": 1}}`))
++		case strings.Contains(r.URL.Path, "/inc-started/status-page-events"):
++			t.Errorf("events requested for an incident that is not resolved")
++		default:
++			w.WriteHeader(http.StatusOK)
++		}
++	})
++
++	cmd := newTestCmd()
++	cmd.Flags().String("message", "", "")
++	cmd.Flags().Bool("resolve-incidents", false, "")
++	if resolveIncidents {
++		_ = cmd.Flags().Set("resolve-incidents", "true")
++	}
++
++	stderr = captureStderr(t, func() {
++		stdout = captureStdout(t, func() {
++			if err := runResolve(cmd, []string{"ALR-42"}); err != nil {
++				t.Fatalf("runResolve error: %v", err)
++			}
++		})
++	})
++	return stdout, stderr, alertGets
++}
++
++func TestRunResolveWithIncidentsWarnsAboutOpenStatusPageEvents(t *testing.T) {
++	stdout, stderr, _ := resolveWithStatusPageServer(t, true)
++
++	if !strings.Contains(stderr, "inc-resolved") || !strings.Contains(stderr, "rootly status-pages events resolve ev-1") {
++		t.Errorf("expected warning for the resolved incident on stderr, got: %s", stderr)
++	}
++	if stdout != "Resolved alert ALR-42\n" {
++		t.Errorf("stdout should only hold the success message, got: %q", stdout)
++	}
++}
++
++func TestRunResolveWithoutIncidentsDoesNotCheckStatusPages(t *testing.T) {
++	_, stderr, alertGets := resolveWithStatusPageServer(t, false)
++
++	if stderr != "" || alertGets != 0 {
++		t.Errorf("expected no warning and no alert lookup, got %q and %d lookups", stderr, alertGets)
++	}
++}
+diff --git a/internal/cmd/incidents/create.go b/internal/cmd/incidents/create.go
+index 32ccd75..4c3e0ef 100644
+--- a/internal/cmd/incidents/create.go
++++ b/internal/cmd/incidents/create.go
+@@ -8,6 +8,7 @@ import (
+ 	"github.com/spf13/viper"
+ 
+ 	"github.com/rootlyhq/rootly-cli/internal/printer"
++	"github.com/rootlyhq/rootly-cli/internal/statuspagewarn"
+ )
+ 
+ var createCmd = &cobra.Command{
+@@ -148,6 +149,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
+ 
+ 	// Print success message to stderr
+ 	fmt.Fprintf(os.Stderr, "Created incident %s\n", incident.SequentialID)
++	statuspagewarn.Incident(cmd.Context(), apiClient, incident.ID, incident.Status, os.Stderr)
+ 
+ 	// Print incident to stdout using configured format
+ 	format := viper.GetString("format")
+diff --git a/internal/cmd/incidents/statuspagewarn_test.go b/internal/cmd/incidents/statuspagewarn_test.go
+new file mode 100644
+index 0000000..a169cb1
+--- /dev/null
++++ b/internal/cmd/incidents/statuspagewarn_test.go
+@@ -0,0 +1,148 @@
++package incidents
++
++import (
++	"net/http"
++	"os"
++	"strings"
++	"testing"
++
++	"github.com/spf13/cobra"
++	"github.com/spf13/viper"
++)
++
++const resolvedIncidentBody = `{"data": {"id": "inc-1", "attributes": {"sequential_id": 42, "title": "DB outage", "status": "resolved", "kind": "normal", "created_at": "2025-06-15T10:00:00Z"}}}`
++
++const openStatusPageEvents = `{"data": [{"id": "ev-1", "attributes": {"event": "Investigating", "status": "investigating", "status_page_id": "page-1"}}], "meta": {"current_page": 1, "total_pages": 1}}`
++
++// captureStderr redirects os.Stderr for the duration of fn, returning captured output.
++func captureStderr(t *testing.T, fn func()) string {
++	t.Helper()
++	origStderr := os.Stderr
++	r, w, err := os.Pipe()
++	if err != nil {
++		t.Fatalf("failed to create pipe: %v", err)
++	}
++	os.Stderr = w
++
++	fn()
++
++	w.Close()
++	os.Stderr = origStderr
++
++	buf := make([]byte, 65536)
++	n, _ := r.Read(buf)
++	r.Close()
++	return string(buf[:n])
++}
++
++// statusPageWarnServer serves the incident write and the status-page events lookup.
++func statusPageWarnServer(t *testing.T, incidentBody string, eventsStatus int, eventsRequests *int) {
++	t.Helper()
++	setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/vnd.api+json")
++		if strings.HasSuffix(r.URL.Path, "/status-page-events") {
++			*eventsRequests++
++			w.WriteHeader(eventsStatus)
++			_, _ = w.Write([]byte(openStatusPageEvents))
++			return
++		}
++		if r.Method == http.MethodPost {
++			w.WriteHeader(http.StatusCreated)
++		}
++		_, _ = w.Write([]byte(incidentBody))
++	})
++}
++
++func newStatusCmd(title, status string) *cobra.Command {
++	cmd := newTestCmd()
++	for _, name := range []string{"summary", "severity", "status", "kind", "scheduled-for", "scheduled-until"} {
++		cmd.Flags().String(name, "", "")
++	}
++	cmd.Flags().String("title", title, "")
++	cmd.Flags().StringArray("field", nil, "")
++	for _, name := range []string{"services", "types", "functionalities", "environments", "teams", "causes"} {
++		cmd.Flags().StringSlice(name, nil, "")
++	}
++	_ = cmd.Flags().Set("status", status)
++	return cmd
++}
++
++func TestRunUpdateResolvedWarnsAboutOpenStatusPageEvents(t *testing.T) {
++	var eventsRequests int
++	statusPageWarnServer(t, resolvedIncidentBody, http.StatusOK, &eventsRequests)
++	viper.Set("format", "json")
++
++	var stdout string
++	stderr := captureStderr(t, func() {
++		stdout = captureStdout(t, func() {
++			if err := runUpdate(newStatusCmd("", "resolved"), []string{"INC-42"}); err != nil {
++				t.Fatalf("runUpdate returned error: %v", err)
++			}
++		})
++	})
++
++	if !strings.Contains(stderr, "rootly status-pages events resolve ev-1") || !strings.Contains(stderr, "page-1") || !strings.Contains(stderr, "investigating") {
++		t.Errorf("expected status page warning on stderr, got: %s", stderr)
++	}
++	if strings.Contains(stdout, "status-pages") || !strings.Contains(stdout, `"inc-1"`) {
++		t.Errorf("stdout should hold only the incident JSON, got: %s", stdout)
++	}
++}
++
++func TestRunUpdateNotResolvedDoesNotCheckStatusPages(t *testing.T) {
++	var eventsRequests int
++	statusPageWarnServer(t, getResponse(), http.StatusOK, &eventsRequests)
++	viper.Set("format", "json")
++
++	stderr := captureStderr(t, func() {
++		captureStdout(t, func() {
++			if err := runUpdate(newStatusCmd("", "mitigated"), []string{"INC-42"}); err != nil {
++				t.Fatalf("runUpdate returned error: %v", err)
++			}
++		})
++	})
++
++	if strings.Contains(stderr, "status-pages") || eventsRequests != 0 {
++		t.Errorf("expected no warning and no events request, got %q and %d requests", stderr, eventsRequests)
++	}
++}
++
++func TestRunUpdateStatusPageLookupFailureIsIgnored(t *testing.T) {
++	var eventsRequests int
++	statusPageWarnServer(t, resolvedIncidentBody, http.StatusInternalServerError, &eventsRequests)
++	viper.Set("format", "json")
++
++	var stdout string
++	stderr := captureStderr(t, func() {
++		stdout = captureStdout(t, func() {
++			if err := runUpdate(newStatusCmd("", "resolved"), []string{"INC-42"}); err != nil {
++				t.Fatalf("runUpdate must succeed when the events lookup fails: %v", err)
++			}
++		})
++	})
++
++	if eventsRequests != 1 || strings.Contains(stderr, "status-pages") {
++		t.Errorf("expected one failed lookup and no warning, got %d requests and %q", eventsRequests, stderr)
++	}
++	if !strings.Contains(stdout, `"inc-1"`) {
++		t.Errorf("expected incident JSON on stdout, got: %s", stdout)
++	}
++}
++
++func TestRunCreateResolvedWarnsAboutOpenStatusPageEvents(t *testing.T) {
++	var eventsRequests int
++	statusPageWarnServer(t, strings.Replace(createResponse(), `"started"`, `"resolved"`, 1), http.StatusOK, &eventsRequests)
++	viper.Set("format", "json")
++
++	stderr := captureStderr(t, func() {
++		captureStdout(t, func() {
++			if err := runCreate(newStatusCmd("New incident", "resolved"), nil); err != nil {
++				t.Fatalf("runCreate returned error: %v", err)
++			}
++		})
++	})
++
++	if !strings.Contains(stderr, "rootly status-pages events resolve ev-1") {
++		t.Errorf("expected status page warning on stderr, got: %s", stderr)
++	}
++}
+diff --git a/internal/cmd/incidents/update.go b/internal/cmd/incidents/update.go
+index 2ba3f96..c5be45f 100644
+--- a/internal/cmd/incidents/update.go
++++ b/internal/cmd/incidents/update.go
+@@ -9,12 +9,13 @@ import (
+ 
+ 	"github.com/rootlyhq/rootly-cli/internal/api"
+ 	"github.com/rootlyhq/rootly-cli/internal/printer"
++	"github.com/rootlyhq/rootly-cli/internal/statuspagewarn"
+ )
+ 
+ var updateCmd = &cobra.Command{
+ 	Use:   "update <incident-id>",
+ 	Short: "Update an incident",
+-	Long:  "Update an existing Rootly incident's attributes.",
++	Long:  "Update an existing Rootly incident's attributes.\n\nResolving an incident does not resolve its status page events. If any are still open, a warning on stderr lists them with the `rootly status-pages events resolve` command.",
+ 	Example: `  # Update status
+   rootly incidents update INC-123 --status=mitigated
+ 
+@@ -165,6 +166,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
+ 
+ 	// Print success message to stderr
+ 	fmt.Fprintf(os.Stderr, "Updated incident %s\n", displayID)
++	statuspagewarn.Incident(cmd.Context(), apiClient, incident.ID, incident.Status, os.Stderr)
+ 
+ 	// Print incident to stdout using configured format
+ 	format := viper.GetString("format")
+diff --git a/internal/statuspagewarn/statuspagewarn.go b/internal/statuspagewarn/statuspagewarn.go
+new file mode 100644
+index 0000000..db80dd2
+--- /dev/null
++++ b/internal/statuspagewarn/statuspagewarn.go
+@@ -0,0 +1,104 @@
++// Package statuspagewarn warns, best-effort and on stderr only, when an incident
++// is resolved from the CLI while public status-page events are still open.
++// It never resolves anything and never returns an error.
++package statuspagewarn
++
++import (
++	"context"
++	"fmt"
++	"io"
++	"time"
++
++	"github.com/spf13/viper"
++
++	"github.com/rootlyhq/rootly-cli/internal/api"
++)
++
++const eventsPageSize = 100
++
++// checkTimeout bounds the whole check so a stalled endpoint cannot hang the command.
++var checkTimeout = 10 * time.Second
++
++// isMaintenance reports whether an open event status belongs to scheduled maintenance,
++// which is closed with completed rather than resolved.
++func isMaintenance(status string) bool {
++	return status == "scheduled" || status == "in_progress"
++}
++
++// IsResolved reports whether an incident status counts as resolved.
++func IsResolved(status string) bool {
++	return status == "resolved" || status == "closed"
++}
++
++func isOpen(status string) bool {
++	return status != "resolved" && status != "completed"
++}
++
++// Incident writes a warning to w for each open status-page event of the incident.
++// It does nothing unless status is resolved or closed, and ignores lookup errors.
++func Incident(ctx context.Context, client *api.Client, incidentID, status string, w io.Writer) {
++	if !IsResolved(status) {
++		return
++	}
++	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
++	defer cancel()
++	incident(ctx, client, incidentID, w)
++}
++
++func incident(ctx context.Context, client *api.Client, incidentID string, w io.Writer) {
++	var open []api.StatusPageEvent
++	for page := 1; ; page++ {
++		result, err := client.ListStatusPageEventsCLI(ctx, incidentID, page, eventsPageSize)
++		if err != nil {
++			debugf(w, "status page check skipped: %v", err)
++			break
++		}
++		// An API that ignores the page number returns the same events again: drop them and stop.
++		if result.Pagination.CurrentPage != page {
++			break
++		}
++		for _, event := range result.Events {
++			if isOpen(event.Status) {
++				open = append(open, event)
++			}
++		}
++		hasNext := result.Pagination.HasNext || result.Pagination.CurrentPage < result.Pagination.TotalPages
++		if !hasNext || len(result.Events) == 0 {
++			break
++		}
++	}
++	if len(open) == 0 {
++		return
++	}
++	_, _ = fmt.Fprintf(w, "Warning: incident %s is resolved but %d status page event(s) are still open:\n", incidentID, len(open))
++	for _, event := range open {
++		flags := ""
++		if isMaintenance(event.Status) {
++			flags = " --status=completed"
++		}
++		_, _ = fmt.Fprintf(w, "  status page %s, status %s: rootly status-pages events resolve %s%s --message=\"<public resolution message>\"\n", event.StatusPageID, event.Status, event.ID, flags)
++	}
++	_, _ = fmt.Fprintln(w, "  --message is the public text shown on the status page; resolving may notify subscribers.")
++}
++
++// AlertIncidents runs Incident for each resolved or closed incident related to the alert.
++func AlertIncidents(ctx context.Context, client *api.Client, alertID string, w io.Writer) {
++	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
++	defer cancel()
++	alert, err := client.GetAlertByID(ctx, alertID)
++	if err != nil {
++		debugf(w, "status page check skipped: %v", err)
++		return
++	}
++	for _, related := range alert.RelatedIncidents {
++		if IsResolved(related.Status) {
++			incident(ctx, client, related.ID, w)
++		}
++	}
++}
++
++func debugf(w io.Writer, format string, args ...interface{}) {
++	if viper.GetBool("debug") {
++		_, _ = fmt.Fprintf(w, "debug: "+format+"\n", args...)
++	}
++}
+diff --git a/internal/statuspagewarn/statuspagewarn_test.go b/internal/statuspagewarn/statuspagewarn_test.go
+new file mode 100644
+index 0000000..c3d7cc9
+--- /dev/null
++++ b/internal/statuspagewarn/statuspagewarn_test.go
+@@ -0,0 +1,290 @@
++package statuspagewarn
++
++import (
++	"bytes"
++	"context"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"strconv"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/spf13/viper"
++
++	"github.com/rootlyhq/rootly-cli/internal/api"
++	"github.com/rootlyhq/rootly-cli/internal/config"
++)
++
++const mixedEvents = `{"data": [
++	{"id": "ev-open", "attributes": {"event": "Investigating", "status": "investigating", "status_page_id": "page-1"}},
++	{"id": "ev-resolved", "attributes": {"event": "Done", "status": "resolved", "status_page_id": "page-2"}},
++	{"id": "ev-completed", "attributes": {"event": "Done", "status": "completed", "status_page_id": "page-3"}}
++], "meta": {"current_page": 1, "total_pages": 1}}`
++
++func newClient(t *testing.T, handler http.HandlerFunc) (c *api.Client, count *int32) {
++	t.Helper()
++	var requests int32
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		atomic.AddInt32(&requests, 1)
++		handler(w, r)
++	}))
++	t.Cleanup(server.Close)
++	t.Cleanup(viper.Reset)
++	client, err := api.NewClient(&config.Config{APIKey: "test-token", Endpoint: server.URL})
++	if err != nil {
++		t.Fatalf("NewClient: %v", err)
++	}
++	return client, &requests
++}
++
++func eventsHandler(body string, status int) http.HandlerFunc {
++	return func(w http.ResponseWriter, r *http.Request) {
++		w.WriteHeader(status)
++		_, _ = w.Write([]byte(body))
++	}
++}
++
++func TestIsResolved(t *testing.T) {
++	for status, want := range map[string]bool{"resolved": true, "closed": true, "started": false, "mitigated": false, "cancelled": false, "": false} {
++		if got := IsResolved(status); got != want {
++			t.Errorf("IsResolved(%q) = %v, want %v", status, got, want)
++		}
++	}
++}
++
++func TestIncidentListsOpenEvents(t *testing.T) {
++	client, _ := newClient(t, eventsHandler(mixedEvents, http.StatusOK))
++	var buf bytes.Buffer
++	Incident(context.Background(), client, "inc-1", "resolved", &buf)
++
++	out := buf.String()
++	for _, want := range []string{"inc-1", "1 status page event(s)", "status page page-1", "status investigating", "rootly status-pages events resolve ev-open"} {
++		if !strings.Contains(out, want) {
++			t.Errorf("output missing %q:\n%s", want, out)
++		}
++	}
++	for _, unwanted := range []string{"ev-resolved", "ev-completed"} {
++		if strings.Contains(out, unwanted) {
++			t.Errorf("output lists closed event %q:\n%s", unwanted, out)
++		}
++	}
++}
++
++func TestIncidentFollowsPagination(t *testing.T) {
++	client, requests := newClient(t, func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Query().Get("page[number]") == "2" {
++			_, _ = w.Write([]byte(`{"data": [{"id": "ev-page2", "attributes": {"status": "investigating", "status_page_id": "page-9"}}],
++				"meta": {"current_page": 2, "total_pages": 2}}`))
++			return
++		}
++		_, _ = w.Write([]byte(`{"data": [{"id": "ev-old", "attributes": {"status": "resolved", "status_page_id": "page-1"}}],
++			"meta": {"current_page": 1, "next_page": 2, "total_pages": 2}}`))
++	})
++	var buf bytes.Buffer
++	Incident(context.Background(), client, "inc-1", "resolved", &buf)
++
++	if *requests != 2 || !strings.Contains(buf.String(), "events resolve ev-page2") {
++		t.Errorf("expected open event from page 2 after %d requests, got %q", *requests, buf.String())
++	}
++}
++
++func TestIncidentFollowsManyPages(t *testing.T) {
++	const last = 25
++	client, requests := newClient(t, func(w http.ResponseWriter, r *http.Request) {
++		n, _ := strconv.Atoi(r.URL.Query().Get("page[number]"))
++		status, next := "resolved", fmt.Sprintf(`"next_page": %d,`, n+1)
++		if n == last {
++			status, next = "investigating", ""
++		}
++		_, _ = fmt.Fprintf(w, `{"data": [{"id": "ev-%d", "attributes": {"status": %q, "status_page_id": "p"}}],
++			"meta": {"current_page": %d, %s "total_pages": %d}}`, n, status, n, next, last)
++	})
++	var buf bytes.Buffer
++	Incident(context.Background(), client, "inc-1", "resolved", &buf)
++	if int(*requests) != last || !strings.Contains(buf.String(), "events resolve ev-25") {
++		t.Errorf("expected open event from page %d, got %q after %d requests", last, buf.String(), *requests)
++	}
++}
++
++func TestIncidentStopsWhenPageIgnored(t *testing.T) {
++	client, requests := newClient(t, eventsHandler(`{"data": [{"id": "ev-open", "attributes": {"status": "investigating", "status_page_id": "p"}}], "meta": {"current_page": 1, "next_page": 2}}`, http.StatusOK))
++	var buf bytes.Buffer
++	Incident(context.Background(), client, "inc-1", "resolved", &buf)
++	if *requests != 2 || strings.Count(buf.String(), "events resolve ev-open") != 1 {
++		t.Errorf("expected 2 requests and the event listed once, got %d requests: %q", *requests, buf.String())
++	}
++}
++
++func TestIncidentFollowsTotalPagesWithoutNextPage(t *testing.T) {
++	client, _ := newClient(t, func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Query().Get("page[number]") == "2" {
++			_, _ = w.Write([]byte(`{"data": [{"id": "ev-page2", "attributes": {"status": "investigating", "status_page_id": "p"}}], "meta": {"current_page": 2, "total_pages": 2}}`))
++			return
++		}
++		_, _ = w.Write([]byte(`{"data": [{"id": "a", "attributes": {"status": "resolved", "status_page_id": "p"}}], "meta": {"current_page": 1, "total_pages": 2}}`))
++	})
++	var buf bytes.Buffer
++	Incident(context.Background(), client, "inc-1", "resolved", &buf)
++	if !strings.Contains(buf.String(), "events resolve ev-page2") {
++		t.Errorf("expected page 2 event, got %q", buf.String())
++	}
++}
++
++func TestIncidentPrintsRequiredMessageFlag(t *testing.T) {
++	client, _ := newClient(t, eventsHandler(mixedEvents, http.StatusOK))
++	var buf bytes.Buffer
++	Incident(context.Background(), client, "inc-1", "resolved", &buf)
++	if !strings.Contains(buf.String(), `events resolve ev-open --message="<public resolution message>"`) {
++		t.Errorf("command must include --message, got %q", buf.String())
++	}
++}
++
++func TestIncidentMaintenanceCommandUsesCompleted(t *testing.T) {
++	body := `{"data": [
++		{"id": "m-sched", "attributes": {"status": "scheduled", "status_page_id": "p"}},
++		{"id": "m-prog", "attributes": {"status": "in_progress", "status_page_id": "p"}},
++		{"id": "i-open", "attributes": {"status": "monitoring", "status_page_id": "p"}}
++	], "meta": {"current_page": 1, "total_pages": 1}}`
++	client, _ := newClient(t, eventsHandler(body, http.StatusOK))
++	var buf bytes.Buffer
++	Incident(context.Background(), client, "inc-1", "resolved", &buf)
++	out := buf.String()
++	for _, id := range []string{"m-sched", "m-prog"} {
++		if !strings.Contains(out, "events resolve "+id+" --status=completed --message=") {
++			t.Errorf("maintenance event %s must use --status=completed, got %q", id, out)
++		}
++	}
++	if strings.Contains(out, "events resolve i-open --status") {
++		t.Errorf("incident event must not set --status, got %q", out)
++	}
++}
++
++func TestIncidentTimesOutOnStalledEndpoint(t *testing.T) {
++	old := checkTimeout
++	checkTimeout = 50 * time.Millisecond
++	t.Cleanup(func() { checkTimeout = old })
++	release := make(chan struct{})
++	client, _ := newClient(t, func(w http.ResponseWriter, r *http.Request) {
++		select {
++		case <-release:
++		case <-r.Context().Done():
++		}
++	})
++	// Registered after newClient so it runs before server.Close and unblocks the handler.
++	t.Cleanup(func() { close(release) })
++	var buf bytes.Buffer
++	done := make(chan struct{})
++	go func() {
++		Incident(context.Background(), client, "inc-1", "resolved", &buf)
++		close(done)
++	}()
++	select {
++	case <-done:
++	case <-time.After(5 * time.Second):
++		t.Fatal("check did not time out")
++	}
++	if buf.Len() != 0 {
++		t.Errorf("expected no output on timeout, got %q", buf.String())
++	}
++}
++
++func TestIncidentSilentCases(t *testing.T) {
++	cases := map[string]string{
++		"no events": `{"data": [], "meta": {"current_page": 1, "total_pages": 1}}`,
++		"all closed": `{"data": [
++			{"id": "a", "attributes": {"status": "resolved", "status_page_id": "p"}},
++			{"id": "b", "attributes": {"status": "completed", "status_page_id": "p"}}
++		], "meta": {"current_page": 1, "total_pages": 1}}`,
++	}
++	for name, body := range cases {
++		t.Run(name, func(t *testing.T) {
++			client, _ := newClient(t, eventsHandler(body, http.StatusOK))
++			var buf bytes.Buffer
++			Incident(context.Background(), client, "inc-1", "closed", &buf)
++			if buf.Len() != 0 {
++				t.Errorf("expected no output, got %q", buf.String())
++			}
++		})
++	}
++}
++
++func TestIncidentNotResolvedMakesNoRequest(t *testing.T) {
++	client, requests := newClient(t, eventsHandler(mixedEvents, http.StatusOK))
++	var buf bytes.Buffer
++	for _, status := range []string{"started", "mitigated", ""} {
++		Incident(context.Background(), client, "inc-1", status, &buf)
++	}
++	if buf.Len() != 0 || *requests != 0 {
++		t.Errorf("expected no output and no requests, got %q and %d requests", buf.String(), *requests)
++	}
++}
++
++func TestIncidentLookupFailureIsSilent(t *testing.T) {
++	for _, status := range []int{http.StatusInternalServerError, http.StatusForbidden} {
++		client, _ := newClient(t, eventsHandler(`{}`, status))
++		var buf bytes.Buffer
++		Incident(context.Background(), client, "inc-1", "resolved", &buf)
++		if buf.Len() != 0 {
++			t.Errorf("status %d: expected no output, got %q", status, buf.String())
++		}
++	}
++}
++
++func TestIncidentLookupFailureDebugNote(t *testing.T) {
++	client, _ := newClient(t, eventsHandler(`{}`, http.StatusInternalServerError))
++	viper.Set("debug", true)
++	var buf bytes.Buffer
++	Incident(context.Background(), client, "inc-1", "resolved", &buf)
++	if !strings.Contains(buf.String(), "debug: status page check skipped") {
++		t.Errorf("expected debug note, got %q", buf.String())
++	}
++}
++
++func alertHandler(alertStatus int) http.HandlerFunc {
++	return func(w http.ResponseWriter, r *http.Request) {
++		switch {
++		case strings.HasPrefix(r.URL.Path, "/v1/alerts/"):
++			w.WriteHeader(alertStatus)
++			_, _ = w.Write([]byte(`{"data": {"id": "alert-1", "attributes": {"short_id": "ALR-1", "incidents": [
++				{"id": "inc-resolved", "attributes": {"status": "resolved"}},
++				{"id": "inc-started", "attributes": {"status": "started"}}
++			]}}}`))
++		case strings.Contains(r.URL.Path, "/inc-resolved/status-page-events"):
++			_, _ = w.Write([]byte(mixedEvents))
++		default:
++			http.Error(w, "unexpected request "+r.URL.Path, http.StatusTeapot)
++		}
++	}
++}
++
++func TestAlertIncidentsWarnsOnlyForResolved(t *testing.T) {
++	client, _ := newClient(t, alertHandler(http.StatusOK))
++	var buf bytes.Buffer
++	AlertIncidents(context.Background(), client, "alert-1", &buf)
++
++	out := buf.String()
++	if !strings.Contains(out, "incident inc-resolved") || !strings.Contains(out, "events resolve ev-open") {
++		t.Errorf("expected warning for resolved incident, got %q", out)
++	}
++	if strings.Contains(out, "inc-started") {
++		t.Errorf("unexpected warning for started incident: %q", out)
++	}
++}
++
++func TestAlertIncidentsLookupFailure(t *testing.T) {
++	client, _ := newClient(t, alertHandler(http.StatusInternalServerError))
++	var buf bytes.Buffer
++	AlertIncidents(context.Background(), client, "alert-1", &buf)
++	if buf.Len() != 0 {
++		t.Errorf("expected no output, got %q", buf.String())
++	}
++
++	viper.Set("debug", true)
++	AlertIncidents(context.Background(), client, "alert-1", &buf)
++	if !strings.Contains(buf.String(), "debug: status page check skipped") {
++		t.Errorf("expected debug note, got %q", buf.String())
++	}
++}

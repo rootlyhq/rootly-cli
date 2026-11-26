@@ -1,0 +1,407 @@
+{
+  "ranAt": "2026-11-05T01:37:39.509Z",
+  "baseRef": "57534c36cac6a220d788256f8d627b31784c9a68",
+  "reviewedSha": "7ee88cf09c1f0474a4391237adafe5ca9d772a94",
+  "objective": {
+    "intent": "Warn when resolving an incident from the CLI leaves status page events open",
+    "criteria": [
+      "ac-1",
+      "ac-2",
+      "ac-3",
+      "ac-4",
+      "ac-5",
+      "ac-6",
+      "ac-7"
+    ]
+  },
+  "lenses": [
+    "general",
+    "checking",
+    "algorithm",
+    "interface",
+    "idioms",
+    "docs",
+    "queries",
+    "standards",
+    "criteria",
+    "security",
+    "exposure",
+    "security-sinks",
+    "security-cwe"
+  ],
+  "run": {
+    "council": {
+      "id": "default",
+      "name": null
+    },
+    "shape": [
+      "docs",
+      "tests",
+      "code"
+    ],
+    "shapeWhy": {
+      "docs": "`README.md`",
+      "code": "`internal/cmd/alerts/resolve.go`, `internal/cmd/incidents/create.go`, `internal/cmd/incidents/update.go` +1 more",
+      "tests": "`internal/cmd/alerts/statuspagewarn_test.go`, `internal/cmd/incidents/statuspagewarn_test.go`, `internal/statuspagewarn/statuspagewarn_test.go`"
+    },
+    "lenses": [
+      {
+        "lens": "general",
+        "why": "source: `internal/cmd/alerts/resolve.go`, `internal/cmd/incidents/create.go`, `internal/cmd/incidents/update.go` +1 more",
+        "standards": [
+          "code-reviews/README.md",
+          "deployments/risk-assessment.md",
+          "backend-architecture/README.md",
+          "feature-flags/README.md"
+        ]
+      },
+      {
+        "lens": "checking",
+        "why": "source: `internal/cmd/alerts/resolve.go`, `internal/cmd/incidents/create.go`, `internal/cmd/incidents/update.go` +1 more",
+        "standards": []
+      },
+      {
+        "lens": "algorithm",
+        "why": "source: `internal/cmd/alerts/resolve.go`, `internal/cmd/incidents/create.go`, `internal/cmd/incidents/update.go` +1 more",
+        "standards": []
+      },
+      {
+        "lens": "interface",
+        "why": "source: `internal/cmd/alerts/resolve.go`, `internal/cmd/incidents/create.go`, `internal/cmd/incidents/update.go` +1 more",
+        "standards": [
+          "breaking-changes/README.md"
+        ]
+      },
+      {
+        "lens": "idioms",
+        "why": "source: `internal/cmd/alerts/resolve.go`, `internal/cmd/incidents/create.go`, `internal/cmd/incidents/update.go` +1 more",
+        "standards": []
+      },
+      {
+        "lens": "docs",
+        "why": "docs: `README.md`",
+        "standards": [
+          "README.md"
+        ]
+      },
+      {
+        "lens": "queries",
+        "why": "docs query data: `service_ids`, `incident_type_ids`, `functionality_ids`, `environment_ids`, `group_ids`, `cause_ids`",
+        "standards": [
+          "data-stores/postgresql.md"
+        ]
+      },
+      {
+        "lens": "standards",
+        "why": "CodeFlow's standards review, on every lane council",
+        "standards": [
+          "testing/README.md",
+          "feature-flags/README.md",
+          "deployments/risk-assessment.md",
+          "code-reviews/README.md"
+        ]
+      },
+      {
+        "lens": "criteria",
+        "why": "every acceptance criterion checked against the diff",
+        "standards": [],
+        "label": "Criteria delivery"
+      },
+      {
+        "lens": "security",
+        "why": "the lane's security pass",
+        "standards": []
+      },
+      {
+        "lens": "exposure",
+        "why": "the lane's security pass",
+        "standards": []
+      },
+      {
+        "lens": "security-sinks",
+        "why": "the lane's security pass",
+        "standards": []
+      },
+      {
+        "lens": "security-cwe",
+        "why": "the lane's security pass",
+        "standards": []
+      }
+    ],
+    "skipped": [
+      {
+        "lens": "tests",
+        "why": "not run in a Standard review"
+      },
+      {
+        "lens": "hygiene",
+        "why": "not run in a Standard review"
+      },
+      {
+        "lens": "exposure",
+        "why": "reviewed in the lane's security pass"
+      },
+      {
+        "lens": "process",
+        "why": "judges the PR description and its declared risk tier: the lane has no PR yet — ship writes the description and labels the tier the plan classified"
+      },
+      {
+        "lens": "security",
+        "why": "no auth, permission, secret or request-boundary paths or lines"
+      },
+      {
+        "lens": "performance",
+        "why": "no queries, I/O in loops, jobs or migrations"
+      },
+      {
+        "lens": "error-recovery",
+        "why": "no job, request handler, service or client that can fail half-way"
+      },
+      {
+        "lens": "patterns",
+        "why": "under 150 changed source lines"
+      },
+      {
+        "lens": "data",
+        "why": "no schema, migration or model change"
+      },
+      {
+        "lens": "dry",
+        "why": "not a big refactor"
+      },
+      {
+        "lens": "solid",
+        "why": "not a big refactor"
+      },
+      {
+        "lens": "dependencies",
+        "why": "no dependency manifest or version pin changed"
+      },
+      {
+        "lens": "config",
+        "why": "no config, CI or deploy file changed"
+      }
+    ],
+    "lensSessions": 9,
+    "failedLenses": [],
+    "diffBytes": 29916,
+    "costUsd": 0.488638,
+    "durationMs": 63953,
+    "stages": {
+      "lenses": {
+        "ms": 53667,
+        "costUsd": 0.47993900000000006,
+        "sessions": 9
+      },
+      "refute": {
+        "ms": 23718,
+        "costUsd": 0.008699,
+        "sessions": 3
+      }
+    },
+    "verdicts": {
+      "confirmed": 3,
+      "plausible": 0,
+      "refuted": 0
+    }
+  },
+  "rawCount": 7,
+  "adjustments": [
+    {
+      "id": "general-2",
+      "lens": "general",
+      "file": "internal/cmd/alerts/resolve.go",
+      "action": "dropped",
+      "why": "confidence 25 is below the 30 floor"
+    }
+  ],
+  "findings": [
+    {
+      "id": "general-1",
+      "lens": "general",
+      "severity": "suggest",
+      "file": "internal/cmd/incidents/update.go",
+      "line": 169,
+      "title": "Warning fires on any update that ends with a resolved incident, not only when --status is set",
+      "level": "suggestion",
+      "rationale": "ac-1 ties the warning to an `incidents update` that sets --status to resolved or closed. `runUpdate` at `internal/cmd/incidents/update.go:169` instead passes the status from the API response (`incident.Status`) to `statuspagewarn.Incident`. It never checks `cmd.Flags().Changed(\"status\")`. Any update to an incident that is already resolved or closed therefore triggers the events lookup, whatever flag was passed.",
+      "why": "ac-1 scopes the warning to updates that set the status. The extra lookup and the repeated warning are noise on an unrelated edit.",
+      "references": [
+        {
+          "kind": "code",
+          "path": "internal/cmd/incidents/update.go",
+          "line": 169
+        },
+        {
+          "kind": "code",
+          "path": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 39,
+          "endLine": 46
+        }
+      ],
+      "suggestion": "Call the helper only when `cmd.Flags().Changed(\"status\")`. If the broader behaviour is intended, say so in the PR and update ac-1.",
+      "category": "design",
+      "failureScenario": "A user runs `rootly incidents update INC-123 --title=\"Fix typo\"` on an incident that was resolved long ago and whose status-page events are still open on purpose, for example a long-lived maintenance entry. The command makes an extra paginated events request and prints a multi-line \"incident is resolved but N event(s) are still open\" warning. The warning repeats on every later edit even though the user did not resolve anything.",
+      "trigger": "`incidents update` with any flag other than `--status` on an incident whose current status is resolved or closed. The status check at `statuspagewarn.go:40` reads the response status.",
+      "impact": "degraded",
+      "confidence": 60,
+      "introduced": true,
+      "bugClass": "warning trigger broader than stated acceptance criterion",
+      "instances": [
+        {
+          "file": "internal/cmd/incidents/update.go",
+          "line": 169
+        }
+      ],
+      "seat": "deep general",
+      "alsoFlaggedBy": [
+        "checking"
+      ],
+      "verdict": "confirmed",
+      "verdictNote": "Verified the path. `runUpdate` (internal/cmd/incidents/update.go:169) passes `incident.Status` from the UpdateIncident response, with no `cmd.Flags().Changed(\"status\")` check. `statuspagewarn.Incident` (statuspagewarn.go, around line 40) only checks `IsResolved(status)`. So `incidents update INC-1 --title=x` on an already-resolved incident does make the events lookup and prints the warning. Producer: the update command's API response at update.go:161-169. The finding's mechanism is real. Talk-down attempt: plan.md:30 says the response status is used \"so it fires only when the incident really is resolved or closed\", and the test `TestRunUpdateNotResolvedDoesNotCheckStatusPages` (incidents/statuspagewarn_test.go:92) only covers a non-resolved status, so that is a deliberate-looking choice. It does not hold up as a full defence, though. The contract in tmp/soil/contract.json ac-1 scopes the warning to an update that \"sets --status to resolved or closed\", and ac-3 (intent.json:21) says no warning when \"the command does not leave the incident resolved\". The title-only edit violates ac-3 as written, and nothing in the tests pins that case. Impact is degraded, not broken: an extra paginated request and a repeated, misleading warning on unrelated edits. No crash or data loss, so should-fix.",
+      "ruledLevel": "should-fix",
+      "verification": {
+        "seatsWanted": 1,
+        "seatsAnswered": 1,
+        "agreementMet": false
+      },
+      "tag": "nit",
+      "key": "internal/cmd/incidents/update.go:design:ends:fires:that:update:warning:with",
+      "evidence": "ac-1 ties the warning to an `incidents update` that sets --status to resolved or closed. `runUpdate` at `internal/cmd/incidents/update.go:169` instead passes the status from the API response (`incident.Status`) to `statuspagewarn.Incident`. It never checks `cmd.Flags().Changed(\"status\")`. Any update to an incident that is already resolved or closed therefore triggers the events lookup, whatever flag was passed.\n\nFails when: A user runs `rootly incidents update INC-123 --title=\"Fix typo\"` on an incident that was resolved long ago and whose status-page events are still open on purpose, for example a long-lived maintenance entry. The command makes an extra paginated events request and prints a multi-line \"incident is resolved but N event(s) are still open\" warning. The warning repeats on every later edit even though the user did not resolve anything.\n\nChecked: Verified the path. `runUpdate` (internal/cmd/incidents/update.go:169) passes `incident.Status` from the UpdateIncident response, with no `cmd.Flags().Changed(\"status\")` check. `statuspagewarn.Incident` (statuspagewarn.go, around line 40) only checks `IsResolved(status)`. So `incidents update INC-1 --title=x` on an already-resolved incident does make the events lookup and prints the warning. Producer: the update command's API response at update.go:161-169. The finding's mechanism is real. Talk-down attempt: plan.md:30 says the response status is used \"so it fires only when the incident really is resolved or closed\", and the test `TestRunUpdateNotResolvedDoesNotCheckStatusPages` (incidents/statuspagewarn_test.go:92) only covers a non-resolved status, so that is a deliberate-looking choice. It does not hold up as a full defence, though. The contract in tmp/soil/contract.json ac-1 scopes the warning to an update that \"sets --status to resolved or closed\", and ac-3 (intent.json:21) says no warning when \"the command does not leave the incident resolved\". The title-only edit violates ac-3 as written, and nothing in the tests pins that case. Impact is degraded, not broken: an extra paginated request and a repeated, misleading warning on unrelated edits. No crash or data loss, so should-fix."
+    },
+    {
+      "id": "general-3",
+      "lens": "general",
+      "severity": "suggest",
+      "file": "internal/statuspagewarn/statuspagewarn.go",
+      "line": 53,
+      "title": "A mid-pagination lookup failure prints a partial open-event count as if it were complete",
+      "level": "nit",
+      "rationale": "In `incident()`, a `ListStatusPageEventsCLI` error on page N ends the loop with `break` after `debugf`. The code then still reports whatever was collected from earlier pages, and the heading says \"%d status page event(s) are still open\". The timeout (`checkTimeout`) can cut the loop the same way. A bounded read is presented as the full list.",
+      "why": "The best-effort design is intended, but the output claims a definitive count when the data may be partial.",
+      "references": [
+        {
+          "kind": "code",
+          "path": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 48,
+          "endLine": 83
+        }
+      ],
+      "suggestion": "Track that the lookup was incomplete and word the heading as \"at least N\" or note that the check was cut short.",
+      "category": "bug",
+      "failureScenario": "An incident has more than 100 status-page events. Page 1 holds only resolved events, so nothing is reported. Page 2 times out or returns a 5xx. The user sees no warning, or an undercounted one, and takes it as complete.",
+      "trigger": "More than `eventsPageSize` (100) events for the incident and a failure or the 10s timeout on a later page.",
+      "impact": "degraded",
+      "confidence": 35,
+      "introduced": true,
+      "bugClass": "partial read treated as complete",
+      "instances": [
+        {
+          "file": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 53
+        }
+      ],
+      "seat": "deep general",
+      "alsoFlaggedBy": [
+        "checking"
+      ],
+      "verdict": "confirmed",
+      "verdictNote": "The defect is real. In `incident()` a `ListStatusPageEventsCLI` error on any page hits `debugf` and `break`, and the function then prints the heading with `len(open)` from earlier pages (statuspagewarn.go, the `incident` loop). The same silent cut happens when the 10s `checkTimeout` context expires mid-loop. So the count is a lower bound that reads as complete, and nothing says the check was cut short. Reachability: `incidents/update.go:169` and `incidents/create.go:152` call `statuspagewarn.Incident` with a resolved status, and the loop requests `eventsPageSize` (100) per page, so an incident with more than 100 events reaches page 2 in the normal flow. A 5xx or timeout there gives the partial output. Why it is not must-fix: the author chose best-effort, stderr-only, never-error behaviour on purpose. `statuspagewarn_test.go` (lines ~226-242) pins that lookup errors print nothing except a debug note, so the silent break matches the stated design. The wrong thing is only the wording: the heading does not signal a partial read, and the consequence is a confusing or undercounted warning, not wrong data or a downed service. The narrow fix is to say the check was incomplete, or use 'at least N', when a page fetch fails after page 1.",
+      "ruledLevel": "should-fix",
+      "verification": {
+        "seatsWanted": 1,
+        "seatsAnswered": 1,
+        "agreementMet": false
+      },
+      "tag": "nit",
+      "key": "internal/statuspagewarn/statuspagewarn.go:bug:failure:lookup:open:pagination:partial:prints",
+      "evidence": "In `incident()`, a `ListStatusPageEventsCLI` error on page N ends the loop with `break` after `debugf`. The code then still reports whatever was collected from earlier pages, and the heading says \"%d status page event(s) are still open\". The timeout (`checkTimeout`) can cut the loop the same way. A bounded read is presented as the full list.\n\nFails when: An incident has more than 100 status-page events. Page 1 holds only resolved events, so nothing is reported. Page 2 times out or returns a 5xx. The user sees no warning, or an undercounted one, and takes it as complete.\n\nChecked: The defect is real. In `incident()` a `ListStatusPageEventsCLI` error on any page hits `debugf` and `break`, and the function then prints the heading with `len(open)` from earlier pages (statuspagewarn.go, the `incident` loop). The same silent cut happens when the 10s `checkTimeout` context expires mid-loop. So the count is a lower bound that reads as complete, and nothing says the check was cut short. Reachability: `incidents/update.go:169` and `incidents/create.go:152` call `statuspagewarn.Incident` with a resolved status, and the loop requests `eventsPageSize` (100) per page, so an incident with more than 100 events reaches page 2 in the normal flow. A 5xx or timeout there gives the partial output. Why it is not must-fix: the author chose best-effort, stderr-only, never-error behaviour on purpose. `statuspagewarn_test.go` (lines ~226-242) pins that lookup errors print nothing except a debug note, so the silent break matches the stated design. The wrong thing is only the wording: the heading does not signal a partial read, and the consequence is a confusing or undercounted warning, not wrong data or a downed service. The narrow fix is to say the check was incomplete, or use 'at least N', when a page fetch fails after page 1."
+    },
+    {
+      "id": "checking-1",
+      "lens": "checking",
+      "severity": "suggest",
+      "file": "internal/statuspagewarn/statuspagewarn.go",
+      "line": 85,
+      "endLine": 97,
+      "title": "One 10s deadline is shared across the alert lookup and every related incident, so later incidents are silently skipped",
+      "level": "suggestion",
+      "rationale": "`AlertIncidents` creates one `context.WithTimeout(ctx, checkTimeout)` and uses it for `GetAlertByID` and for every `incident()` call, each of which may page through events. Once the deadline passes, each later `ListStatusPageEventsCLI` fails. `incident()` only reports that through `debugf`, which prints nothing unless `--debug` is set. The remaining incidents are therefore dropped without any warning.",
+      "why": "The check is best-effort, but a partial result is presented as a complete one. The warning exists to stop users missing open public status-page entries.",
+      "references": [
+        {
+          "kind": "code",
+          "path": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 85,
+          "endLine": 97
+        },
+        {
+          "kind": "code",
+          "path": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 48,
+          "endLine": 55
+        }
+      ],
+      "suggestion": "Give each related incident its own timeout context. Also print a one-line stderr note, not only a debug line, when the check could not finish.",
+      "category": "bug",
+      "failureScenario": "1. `alerts resolve ALR-1 --resolve-incidents` on an alert with several related incidents. 2. The alert fetch and the first incidents' event pages (slow API, many pages) use up the 10s. 3. The remaining resolved incidents' events requests fail with a deadline error and are swallowed. 4. The user sees a warning for the first incident and nothing for the rest, and reads that as 'the others are clean'.",
+      "trigger": "`internal/statuspagewarn/statuspagewarn.go:85-97` uses a single timeout context for the loop over `alert.RelatedIncidents`. `internal/statuspagewarn/statuspagewarn.go:51-54` swallows the resulting errors.",
+      "impact": "wrong-behaviour",
+      "confidence": 40,
+      "introduced": true,
+      "bugClass": "shared deadline starves later iterations silently",
+      "instances": [
+        {
+          "file": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 85
+        }
+      ],
+      "seat": "deep checking",
+      "verdict": "confirmed",
+      "verdictNote": "Read internal/statuspagewarn/statuspagewarn.go:85-97. AlertIncidents creates one context.WithTimeout(checkTimeout=10s) and passes that same ctx to GetAlertByID and to every incident() call in the loop. Once the deadline passes, each later ListStatusPageEventsCLI fails. incident() at lines 51-54 sends that error only to debugf, which prints only when viper 'debug' is set, so the remaining incidents are skipped with no visible output. The producer is internal/cmd/alerts/resolve.go:58, which calls AlertIncidents(cmd.Context(), ...) on the resolve path. Mitigating facts: the check is documented as best-effort, the shared timeout is deliberate to bound the whole check (comment at line 13), and internal/statuspagewarn/statuspagewarn_test.go:166-190 pins 'no output on timeout'. That test covers a silent timeout, which is the behaviour the finding objects to, so the silence is intended, but it does not show that later incidents are fairly checked. Impact is a warning gap only: no data is written or lost, no security boundary is crossed, and the user gets a partial warning instead of a complete one. That makes it should-fix, not must-fix.",
+      "ruledLevel": "should-fix",
+      "verification": {
+        "seatsWanted": 1,
+        "seatsAnswered": 1,
+        "agreementMet": false
+      },
+      "tag": "nit",
+      "key": "internal/statuspagewarn/statuspagewarn.go:bug:across:alert:deadline:every:lookup:shared",
+      "evidence": "`AlertIncidents` creates one `context.WithTimeout(ctx, checkTimeout)` and uses it for `GetAlertByID` and for every `incident()` call, each of which may page through events. Once the deadline passes, each later `ListStatusPageEventsCLI` fails. `incident()` only reports that through `debugf`, which prints nothing unless `--debug` is set. The remaining incidents are therefore dropped without any warning.\n\nFails when: 1. `alerts resolve ALR-1 --resolve-incidents` on an alert with several related incidents. 2. The alert fetch and the first incidents' event pages (slow API, many pages) use up the 10s. 3. The remaining resolved incidents' events requests fail with a deadline error and are swallowed. 4. The user sees a warning for the first incident and nothing for the rest, and reads that as 'the others are clean'.\n\nChecked: Read internal/statuspagewarn/statuspagewarn.go:85-97. AlertIncidents creates one context.WithTimeout(checkTimeout=10s) and passes that same ctx to GetAlertByID and to every incident() call in the loop. Once the deadline passes, each later ListStatusPageEventsCLI fails. incident() at lines 51-54 sends that error only to debugf, which prints only when viper 'debug' is set, so the remaining incidents are skipped with no visible output. The producer is internal/cmd/alerts/resolve.go:58, which calls AlertIncidents(cmd.Context(), ...) on the resolve path. Mitigating facts: the check is documented as best-effort, the shared timeout is deliberate to bound the whole check (comment at line 13), and internal/statuspagewarn/statuspagewarn_test.go:166-190 pins 'no output on timeout'. That test covers a silent timeout, which is the behaviour the finding objects to, so the silence is intended, but it does not show that later incidents are fairly checked. Impact is a warning gap only: no data is written or lost, no security boundary is crossed, and the user gets a partial warning instead of a complete one. That makes it should-fix, not must-fix."
+    }
+  ],
+  "summary": "7 raised · 1 filtered · 3 kept",
+  "pass": 1,
+  "partial": [
+    "6 seat(s) never ran, the lane's council budget spent: algorithm+interface, idioms, docs, queries, standards, criteria"
+  ],
+  "ledger": "9 findings · no Important open · 1 other open · closed: 6 fixed, 1 intentional, 1 doesnt-matter",
+  "repeats": 0,
+  "decisions": [
+    {
+      "id": "general-1",
+      "decision": "rebutted",
+      "reason": "intentional",
+      "note": "The warning fires whenever an update leaves the incident resolved or closed, using the status the API returns. That is the owner's decision (fire whenever the update leaves the incident resolved), and it also covers updates that do not pass --status. Updating an already resolved incident that still has open events is a case the warning is meant to surface."
+    },
+    {
+      "id": "general-3",
+      "decision": "rebutted",
+      "reason": "doesnt-matter",
+      "note": "On a mid-pagination failure the warning lists only the open events it did see, which is still accurate and useful. The check is best-effort by decision: a failed lookup is reported as a debug note at most, so the command output stays quiet and unchanged. Counting from earlier pages is not worth a new 'incomplete' wording."
+    },
+    {
+      "id": "checking-1",
+      "decision": "rebutted",
+      "reason": "intentional",
+      "note": "One shared deadline across the alert fetch, all pages and all related incidents is a deliberate trade-off, and was requested in review so the optional check can never delay the command by more than 10 seconds in total. Per-incident timeouts would multiply that bound. A late timeout is silent by the same best-effort decision."
+    }
+  ],
+  "acceptedRebuttals": [],
+  "unresolved": [],
+  "unresolvedIds": [],
+  "rounds": 1,
+  "approved": true,
+  "resolvedAt": "2026-11-05T01:37:39.456Z",
+  "approvedSha": "7ee88cf09c1f0474a4391237adafe5ca9d772a94"
+}

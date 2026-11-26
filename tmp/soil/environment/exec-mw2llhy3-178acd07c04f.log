@@ -1,0 +1,45 @@
+--- PASS: TestIsResolved (0.00s)
+--- PASS: TestIncidentListsOpenEvents (0.00s)
+--- PASS: TestIncidentSilentCases (0.00s)
+--- PASS: TestIncidentNotResolvedMakesNoRequest (0.00s)
+--- PASS: TestIncidentLookupFailureIsSilent (0.00s)
+--- PASS: TestIncidentLookupFailureDebugNote (0.00s)
+--- PASS: TestAlertIncidentsWarnsOnlyForResolved (0.00s)
+--- PASS: TestAlertIncidentsLookupFailure (0.00s)
+PASS
+ok  	github.com/rootlyhq/rootly-cli/internal/statuspagewarn	0.017s
+--- PASS: TestRunCreateUnknownFormFieldDoesNotCreateIncident (0.00s)
+--- PASS: TestIncidentKindHelpIsConsistent (0.00s)
+--- PASS: TestIncidentDetailRows (0.00s)
+--- PASS: TestIncidentDetailRowsFallbackID (0.00s)
+--- PASS: TestRunUpdateResolvedWarnsAboutOpenStatusPageEvents (0.00s)
+--- PASS: TestRunUpdateNotResolvedDoesNotCheckStatusPages (0.00s)
+--- PASS: TestRunUpdateStatusPageLookupFailureIsIgnored (0.00s)
+--- PASS: TestRunCreateResolvedWarnsAboutOpenStatusPageEvents (0.00s)
+PASS
+ok  	github.com/rootlyhq/rootly-cli/internal/cmd/incidents	0.019s
+--- PASS: TestAlertDetailRowsWithRelatedIncidents (0.00s)
+--- PASS: TestRunResolveWithMessage (0.00s)
+--- PASS: TestRunResolveWithIncidents (0.00s)
+--- PASS: TestRunResolveWithIncidentsWarnsAboutOpenStatusPageEvents (0.00s)
+--- PASS: TestRunResolveWithoutIncidentsDoesNotCheckStatusPages (0.00s)
+PASS
+ok  	github.com/rootlyhq/rootly-cli/internal/cmd/alerts	0.016s
+ internal/cmd/alerts/resolve.go                |   7 +-
+ internal/cmd/alerts/statuspagewarn_test.go    |  85 +++++++++++++++
+ internal/cmd/incidents/create.go              |   2 +
+ internal/cmd/incidents/statuspagewarn_test.go | 148 ++++++++++++++++++++++++++
+ internal/cmd/incidents/update.go              |   4 +-
+ 5 files changed, 244 insertions(+), 2 deletions(-)
++	"github.com/rootlyhq/rootly-cli/internal/statuspagewarn"
+-	Long:  "Mark an alert as resolved with optional resolution message.\n\nThis calls the dedicated resolve action endpoint. Optionally resolves related incidents.",
++	Long:  "Mark an alert as resolved with optional resolution message.\n\nThis calls the dedicated resolve action endpoint. Optionally resolves related incidents.\n\nResolving incidents does not resolve their status page events. If any are still open, a warning on stderr lists them with the `rootly status-pages events resolve` command.",
++	if resolveIncidents {
++		statuspagewarn.AlertIncidents(cmd.Context(), apiClient, alertID, os.Stderr)
++	}
++	"github.com/rootlyhq/rootly-cli/internal/statuspagewarn"
++	statuspagewarn.Incident(cmd.Context(), apiClient, incident.ID, incident.Status, os.Stderr)
++	"github.com/rootlyhq/rootly-cli/internal/statuspagewarn"
+-	Long:  "Update an existing Rootly incident's attributes.",
++	Long:  "Update an existing Rootly incident's attributes.\n\nResolving an incident does not resolve its status page events. If any are still open, a warning on stderr lists them with the `rootly status-pages events resolve` command.",
++	statuspagewarn.Incident(cmd.Context(), apiClient, incident.ID, incident.Status, os.Stderr)

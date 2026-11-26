@@ -1,0 +1,37 @@
+{
+  "ticket": "IR-6586",
+  "title": "Warn when resolving an incident from the CLI leaves status page events open",
+  "summary": "The status page commands in the ask already shipped in rootly-cli#57 (v0.6.1) as `status-pages list` and `status-pages events list/create/update/resolve`. What remains is the footgun in the title: resolving an incident from the CLI says nothing about public status-page entries still open. Add a best-effort, stderr-only warning, in its own helper package, that lists each open event with its status page and the exact `rootly status-pages events resolve <id>` command. No auto-resolve, no renames.",
+  "change_kind": "feature",
+  "change_kind_reason": "Not a bug fix: the incident update works as designed; the ticket asks for visibility into a separate public action.",
+  "ask_stands": {
+    "verdict": "partly-done",
+    "confidence": 0.85,
+    "summary": "The requested status-page commands already shipped in rootly-cli#57 under `status-pages events`; only the missing signal when an incident is resolved remains.",
+    "remaining": "Resolving an incident from the CLI (incidents update --status=resolved, incidents create --status=resolved, alerts resolve --resolve-incidents) still prints no hint that public status-page events remain open.",
+    "evidence": [
+      {"kind": "pr", "ref": "rootlyhq/rootly-cli#57", "url": "https://github.com/rootlyhq/rootly-cli/pull/57", "quote": "Add status page incident event commands"},
+      {"kind": "code", "ref": "internal/cmd/statuspages/events_mutations.go:31", "quote": "Use:     \"resolve <event-id>\","},
+      {"kind": "code", "ref": "internal/cmd/incidents/update.go:161", "quote": "incident, err := apiClient.UpdateIncident(cmd.Context(), incidentID, opts)"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "ac-1", "kind": "change", "text": "After a successful `incidents update` that sets --status to resolved or closed, stderr lists each status-page event for that incident whose status is not resolved/completed, giving its status page ID, its status and the exact `rootly status-pages events resolve <event-id>` command (unit test with a mock HTTP server).", "cites": "The read check should let a script refuse to report"},
+    {"id": "ac-2", "kind": "change", "text": "The same warning fires after `incidents create --status=resolved` and after `alerts resolve --resolve-incidents` for each related incident that is resolved or closed (tests).", "cites": "The read check should let a script refuse to report"},
+    {"id": "ac-3", "kind": "change", "text": "No warning is printed when the incident has no events, all events are resolved/completed, or the command does not leave the incident resolved (tests).", "cites": "The read check should let a script refuse to report"},
+    {"id": "ac-4", "kind": "change", "text": "The check is best-effort: if the events lookup fails, the command still succeeds with the same exit code, and the warning goes to stderr only, so JSON/YAML stdout is unchanged (tests).", "cites": "Read-only support was called an acceptable fast partial fix"},
+    {"id": "ac-5", "kind": "change", "text": "The check lives in its own new package (internal/statuspagewarn) and each command calls it with one line; it only warns: no event is auto-resolved, no opt-in flag is added and no existing command or flag is renamed (operator answer: warn only, default behaviour unchanged).", "cites": "No: warn only, default behaviour unchanged. Resolving a public status page entry is a customer-visible write that can notify subscribers."},
+    {"id": "ac-6", "kind": "change", "text": "go test, golangci-lint and go vet pass and total coverage stays at or above COVERAGE_MIN (make coverage && make coverage-check).", "cites": "Add status page commands"},
+    {"id": "ac-7", "kind": "ship", "text": "The PR is opened and its body links rootly-cli#57 and issue #52 and mentions an opt-in resolve flag as a possible follow-up.", "cites": "Ref https://github.com/rootlyhq/rootly-cli/issues/52"}
+  ],
+  "out_of_scope": [
+    {"quote": "https://linear.app/rootly/issue/IR-6824/mcp-claude-desktop-and-claude-code-sdk-cannot-connect-the-mcp-server", "reason": "Separate ticket with its own lane; the operator pre-approved leaving it out of IR-6586."},
+    {"quote": "https://linear.app/rootly/issue/IR-6584/cli-add-escalate-verb-for-incidents-and-alerts-to-page-a-team", "reason": "Separate ticket with its own lane; the operator pre-approved leaving it out of IR-6586."},
+    {"quote": "https://linear.app/rootly/issue/IR-5478/rootly-cli-incident-not-found", "reason": "Separate ticket with its own lane; the operator pre-approved leaving it out of IR-6586."},
+    {"quote": "https://linear.app/rootly/issue/IR-6588/cli-add-workflows-list-and-workflows-run-commands", "reason": "Separate ticket with its own lane; the operator pre-approved leaving it out of IR-6586."},
+    {"quote": "https://linear.app/rootly/issue/IR-6585/cli-support-services-and-types-on-incidents-createupdate", "reason": "Separate ticket with its own lane (ir-6585-694b70); the operator pre-approved leaving it out of IR-6586."},
+    {"quote": "https://linear.app/rootly/issue/IR-5846/admin-general-organization-settings-checkboxes-toggle-when-clicking", "reason": "Separate ticket with its own lane; the operator pre-approved leaving it out of IR-6586."},
+    {"quote": "status-pages incidents create/update/resolve", "reason": "Already shipped as `status-pages events create/update/resolve` in rootly-cli#57 (v0.6.1); renaming would break released users."},
+    {"quote": "incidents update --status=resolved leaves the public page open", "reason": "Automatically resolving public entries when an incident is resolved is a product decision (Devin triage comment, 2026-11-04); this PR only warns."}
+  ]
+}

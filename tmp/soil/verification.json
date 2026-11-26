@@ -1,0 +1,92 @@
+{
+ "head_sha": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e",
+ "lint": {
+  "passed": true
+ },
+ "screenshots": [],
+ "regression": {
+  "before": {
+   "description": "statuspagewarn tests fail with the fix reverted to the base",
+   "evidence": "tmp/soil/evidence/prove-fix.json: == internal/cmd/alerts"
+  },
+  "after": {
+   "description": "the same tests pass with the fix in place",
+   "evidence": "tmp/soil/evidence/prove-fix.json: == internal/cmd/alerts"
+  }
+ },
+ "proofs": [
+  {
+   "description": "coverage stays above floor; statuspagewarn at 100%",
+   "content": "Total coverage 80.45% (floor 80%)",
+   "file": "tmp/soil/proofs/coverage.txt"
+  }
+ ],
+ "screenshots_waived": "CLI stderr warning, no UI surface; evidence is test output",
+ "attestations": [
+  {
+   "criterion_id": "ac-1",
+   "evidence": "uncached verbose run: named update/create/package tests PASS; e2e binary run of `incidents update --status=resolved` against a fake API prints the warning with the exact resolve command on stderr, stdout is clean JSON",
+   "proofs": [
+    "tmp/soil/environment/exec-mw2lxknt-66c260e96adc.log",
+    "tmp/soil/evidence/prove-fix.json"
+   ]
+  },
+  {
+   "criterion_id": "ac-2",
+   "evidence": "verbose run shows TestRunCreateResolved... and TestRunResolveWithIncidentsWarns... PASS",
+   "proofs": [
+    "tmp/soil/environment/exec-mw2lxknt-66c260e96adc.log",
+    "tmp/soil/evidence/prove-fix.json"
+   ]
+  },
+  {
+   "criterion_id": "ac-3",
+   "evidence": "verbose run shows TestIncidentSilentCases, NotResolvedMakesNoRequest, TestRunUpdateNotResolved... PASS; e2e with status mitigated made no events request and printed no warning",
+   "proofs": [
+    "tmp/soil/environment/exec-mw2lxknt-66c260e96adc.log",
+    "tmp/soil/evidence/prove-fix.json"
+   ]
+  },
+  {
+   "criterion_id": "ac-4",
+   "evidence": "e2e with events endpoint returning 500: exit=0, stdout identical JSON, stderr only \"Updated incident\"; plus lookup-failure tests PASS",
+   "proofs": [
+    "tmp/soil/environment/exec-mw2lxknt-66c260e96adc.log",
+    "tmp/soil/evidence/prove-fix.json"
+   ]
+  },
+  {
+   "criterion_id": "ac-5",
+   "evidence": "diff stat, one-line call sites, no flag/Use changes outside tests, new package only calls the read-only ListStatusPageEventsCLI and GetAlertByID",
+   "proofs": [
+    "tmp/soil/environment/exec-mw2lxknt-66c260e96adc.log",
+    "tmp/soil/evidence/prove-fix.json"
+   ]
+  },
+  {
+   "criterion_id": "ac-6",
+   "evidence": "go test, vet and coverage above floor",
+   "proofs": [
+    "tmp/soil/proofs/harness-go-test-d2081cefcd.txt",
+    "tmp/soil/proofs/harness-go-vet-d2081cefcd.txt",
+    "tmp/soil/proofs/coverage.txt"
+   ]
+  },
+  {
+   "criterion_id": "ac-7",
+   "evidence": "delivered at ship step; not yet proven",
+   "proofs": [
+    "tmp/soil/proofs/coverage.txt"
+   ]
+  }
+ ],
+ "tests": {
+  "passed": true,
+  "command": "rc=0; printf '== %s\\n' 'internal/cmd/alerts'; (cd 'internal/cmd/alerts' && go vet .) || rc=1; printf '== %s\\n' 'internal/cmd/incidents'; (cd 'internal/cmd/incidents' && go vet .) || rc=1; printf '== %s\\n' 'internal/statuspagewarn'; (cd 'internal/statuspagewarn' && go vet .) || rc=1; [ \"$rc\" = 0 ] && rc=0; printf '== %s\\n' 'internal/cmd/alerts'; (cd 'internal/cmd/alerts' && go test .) || rc=1; printf '== %s\\n' 'internal/cmd/incidents'; (cd 'internal/cmd/incidents' && go test .) || rc=1; printf '== %s\\n' 'internal/statuspagewarn'; (cd 'internal/statuspagewarn' && go test .) || rc=1; [ \"$rc\" = 0 ]",
+  "by": "harness",
+  "proofs": [
+   "tmp/soil/proofs/harness-go-vet-d2081cefcd.txt",
+   "tmp/soil/proofs/harness-go-test-d2081cefcd.txt"
+  ]
+ }
+}

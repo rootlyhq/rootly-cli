@@ -1,0 +1,9 @@
+# Run by the Soil harness on HEAD 4731c2512aa0c3c1153fbfcbb120d7213cb2a6bf
+$ rc=0; printf '== %s\n' 'internal/cmd/alerts'; (cd 'internal/cmd/alerts' && go test .) || rc=1; printf '== %s\n' 'internal/cmd/incidents'; (cd 'internal/cmd/incidents' && go test .) || rc=1; printf '== %s\n' 'internal/statuspagewarn'; (cd 'internal/statuspagewarn' && go test .) || rc=1; [ "$rc" = 0 ]
+== internal/cmd/alerts
+ok  	github.com/rootlyhq/rootly-cli/internal/cmd/alerts	(cached)
+== internal/cmd/incidents
+ok  	github.com/rootlyhq/rootly-cli/internal/cmd/incidents	(cached)
+== internal/statuspagewarn
+ok  	github.com/rootlyhq/rootly-cli/internal/statuspagewarn	(cached)
+exit=0

@@ -1,0 +1,10 @@
+{
+  "level": "low",
+  "rationale": "The change adds read-only, best-effort output to three CLI commands. It does one extra GET to the status-page events endpoint (and, for alerts resolve --resolve-incidents, one extra alert GET) after the existing write has already succeeded. Every error on that path is swallowed and the output goes to stderr only, so the commands' exit codes and machine-readable stdout cannot change. It writes nothing, adds no flags, renames nothing, and the CLI ships through a versioned release that users upgrade on their own schedule and can roll back by pinning the previous version. The main real-world risks are minor: a short extra delay on resolve commands, a misleading warning if the API's event statuses differ from resolved/completed, and a rebase conflict with lane IR-6585 in incidents/update.go and create.go, which the one-line call keeps small.",
+  "factors": [
+    "blast radius: CLI users who resolve incidents. At worst they see a wrong or missing stderr warning, or a slightly slower command. Exit codes and stdout are unchanged.",
+    "reversibility: easy. Revert the PR and cut a patch release, or users pin the previous version. No data or server state is involved.",
+    "security/data surface: read-only GETs with the user's existing API key. No new auth, PII, payments or destructive writes. Permission errors (403) are swallowed.",
+    "prod-critical path: no server-side change. It runs on the client after the incident write has already succeeded, so it cannot block incident resolution."
+  ]
+}

@@ -1,0 +1,126 @@
+# Run by the Soil harness on HEAD 7ee88cf09c1f0474a4391237adafe5ca9d772a94
+$ rc=0; printf '== %s\n' 'internal/cmd/alerts'; (cd 'internal/cmd/alerts' && go test -count=1 -v .) || rc=1; printf '== %s\n' 'internal/cmd/incidents'; (cd 'internal/cmd/incidents' && go test -count=1 -v .) || rc=1; printf '== %s\n' 'internal/statuspagewarn'; (cd 'internal/statuspagewarn' && go test -count=1 -v .) || rc=1; [ "$rc" = 0 ]
+115 tests: 115 passed, 0 failed
+PASS TestTruncateString
+PASS TestTruncateString/short_string
+PASS TestTruncateString/exact_length
+PASS TestTruncateString/needs_truncation
+PASS TestTruncateString/very_short_max
+PASS TestTruncateString/max_3
+PASS TestTruncateString/empty_string
+PASS TestAlertDetailRows
+PASS TestAlertDetailRowsFallbackID
+PASS TestAlertDetailRowsWithNotifiedUsers
+PASS TestAlertDetailRowsWithRelatedIncidents
+PASS TestRunListTable
+PASS TestRunListJSON
+PASS TestRunListNoToken
+PASS TestRunGetTable
+PASS TestRunGetJSON
+PASS TestRunCreateTable
+PASS TestRunCreateJSON
+PASS TestRunUpdateTable
+PASS TestRunUpdateNoFlags
+PASS TestRunAckSuccess
+PASS TestRunAckNoToken
+PASS TestRunAckAPIError
+PASS TestRunEscalateSuccess
+PASS TestRunEscalateRejectsInvalidLevel
+PASS TestRunEscalateSurfacesAPIError
+PASS TestRunResolveSuccess
+PASS TestRunResolveWithMessage
+PASS TestRunResolveWithIncidents
+PASS TestRunResolveNoToken
+PASS TestRunResolveAPIError
+PASS TestRunResolveWithIncidentsWarnsAboutOpenStatusPageEvents
+PASS TestRunResolveWithoutIncidentsDoesNotCheckStatusPages
+PASS TestRunListTable
+PASS TestRunListJSON
+PASS TestRunListWithFilters
+PASS TestRunCreateScheduledMaintenance
+PASS TestRunUpdateScheduledMaintenance
+PASS TestRunCreateWithFormFields
+PASS TestRunUpdateWithFormField
+PASS TestRunCreateUnknownFormFieldDoesNotCreateIncident
+PASS TestParseScheduledTimestamp
+PASS TestParseScheduledTimestamp/fractional_seconds
+PASS TestParseScheduledTimestamp/whole_seconds
+PASS TestParseScheduledTimestamp/offset
+PASS TestParseScheduledTimestamp/invalid_timestamp
+PASS TestIncidentKindHelpIsConsistent
+PASS TestRunListPagination
+PASS TestRunGetTable
+PASS TestRunGetJSON
+PASS TestRunCreateTable
+PASS TestRunCreateJSON
+PASS TestRunUpdateTable
+PASS TestRunUpdateNoFlags
+PASS TestRunUpdateCanClearAssociations
+PASS TestRunListNoToken
+PASS TestRunGetNormalizesSequentialID
+PASS TestRunGetAcceptsUUID
+PASS TestRunGetAPIError
+PASS TestConfirmDeleteSkip
+PASS TestConfirmDeleteNonInteractive
+PASS TestRunDeleteWithYes
+PASS TestRunDeleteNoConfirmNonInteractive
+PASS TestRunDeleteNoToken
+PASS TestRunDeleteAPIError
+PASS TestResolveFormFieldSelections
+PASS TestResolveFormFieldSelections/text_preserves_commas_in_value
+PASS TestResolveFormFieldSelections/select_resolves_option_case_insensitively
+PASS TestResolveFormFieldSelections/multi_select_accumulates_repeated_flags
+PASS TestResolveFormFieldSelections/unknown_slug
+PASS TestResolveFormFieldSelections/unknown_option
+PASS TestResolveFormFieldSelections/unsupported_value_kind
+PASS TestResolveFormFieldSelectionsRejectsMultipleSingleSelectValues
+PASS TestTruncateString
+PASS TestTruncateString/short_string
+PASS TestTruncateString/exact_length
+PASS TestTruncateString/needs_truncation
+PASS TestTruncateString/very_short_max
+PASS TestTruncateString/max_3
+PASS TestTruncateString/max_4
+PASS TestTruncateString/empty_string
+PASS TestIncidentDetailRows
+PASS TestIncidentDetailRowsFallbackID
+PASS TestFormatDuration
+PASS TestFormatDuration/zero
+PASS TestFormatDuration/seconds_only
+PASS TestFormatDuration/one_minute
+PASS TestFormatDuration/minutes_only
+PASS TestFormatDuration/hours_and_minutes
+PASS TestFormatDuration/hours_only
+PASS TestFormatDuration/days_and_hours
+PASS TestFormatDuration/days_only
+PASS TestFormatDuration/multiple_days
+PASS TestFormatDuration/complex_duration
+PASS TestRunUpdateResolvedWarnsAboutOpenStatusPageEvents
+PASS TestRunUpdateNotResolvedDoesNotCheckStatusPages
+PASS TestRunUpdateStatusPageLookupFailureIsIgnored
+PASS TestRunCreateResolvedWarnsAboutOpenStatusPageEvents
+PASS TestIsResolved
+PASS TestIncidentListsOpenEvents
+PASS TestIncidentFollowsPagination
+PASS TestIncidentFollowsManyPages
+PASS TestIncidentStopsWhenPageIgnored
+PASS TestIncidentFollowsTotalPagesWithoutNextPage
+PASS TestIncidentPrintsRequiredMessageFlag
+PASS TestIncidentMaintenanceCommandUsesCompleted
+PASS TestIncidentTimesOutOnStalledEndpoint
+PASS TestIncidentSilentCases
+PASS TestIncidentSilentCases/no_events
+PASS TestIncidentSilentCases/all_closed
+PASS TestIncidentNotResolvedMakesNoRequest
+PASS TestIncidentLookupFailureIsSilent
+PASS TestIncidentLookupFailureDebugNote
+PASS TestAlertIncidentsWarnsOnlyForResolved
+PASS TestAlertIncidentsLookupFailure
+
+PASS
+ok  	github.com/rootlyhq/rootly-cli/internal/cmd/alerts	0.024s
+PASS
+ok  	github.com/rootlyhq/rootly-cli/internal/cmd/incidents	0.030s
+PASS
+ok  	github.com/rootlyhq/rootly-cli/internal/statuspagewarn	0.073s
+exit=0

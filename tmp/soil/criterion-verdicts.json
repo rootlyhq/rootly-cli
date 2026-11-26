@@ -1,0 +1,76 @@
+{
+  "ac-1": {
+    "criterion": "ac-1",
+    "head": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e",
+    "status": "unproven",
+    "reason": "the evidence judge found the harness output does not show it: Artifact 1 shows only package headers ('== internal/cmd/incidents' and others) with no test names, no PASS/ok lines and no captured stderr, so nothing shows a test asserting that a resolved/closed `incidents update` lists unresolved status-page events with their page ID, status and the exact `rootly",
+    "proofs": [
+      "tmp/soil/evidence/prove-fix.json"
+    ],
+    "by": "second-judge",
+    "textHash": "41871d07dde171b6",
+    "at": "2026-11-04T21:07:22.303Z"
+  },
+  "ac-2": {
+    "criterion": "ac-2",
+    "head": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e",
+    "status": "unproven",
+    "reason": "the evidence judge found the harness output does not show it: Artifact 1 shows only bare package headers ('== internal/cmd/alerts', '== internal/cmd/incidents') with no test names or PASS lines, and the only BEFORE failure is the helper's 'undefined: IsResolved' vet error in internal/statuspagewarn, so nothing shows the warning firing after `incidents create -",
+    "proofs": [
+      "tmp/soil/evidence/prove-fix.json"
+    ],
+    "by": "second-judge",
+    "textHash": "dbcf5d2436e0f7dc",
+    "at": "2026-11-04T21:07:22.303Z"
+  },
+  "ac-3": {
+    "criterion": "ac-3",
+    "head": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e",
+    "status": "unproven",
+    "reason": "the evidence judge found the harness output does not show it: Artifact 1's AFTER section prints only the package headers ('== internal/cmd/alerts', '== internal/cmd/incidents', '== internal/statuspagewarn') with no test names or PASS/ok lines, and the BEFORE failure ('undefined: IsResolved') is only a compile error, so nothing in the output shows tests for the",
+    "proofs": [
+      "tmp/soil/evidence/prove-fix.json"
+    ],
+    "by": "second-judge",
+    "textHash": "ad938105c4aa3144",
+    "at": "2026-11-04T21:07:22.303Z"
+  },
+  "ac-4": {
+    "criterion": "ac-4",
+    "head": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e",
+    "status": "unproven",
+    "reason": "the evidence judge found the harness output does not show it: Artifact 1 only lists the package headers ('== internal/cmd/alerts', '== internal/cmd/incidents', '== internal/statuspagewarn'), shows a BEFORE vet failure about an unrelated symbol ('undefined: IsResolved'), and gives no test names, verbose results, or assertions showing that a failed events lookup",
+    "proofs": [
+      "tmp/soil/evidence/prove-fix.json"
+    ],
+    "by": "second-judge",
+    "textHash": "891e55f28054e1c9",
+    "at": "2026-11-04T21:07:22.303Z"
+  },
+  "ac-5": {
+    "criterion": "ac-5",
+    "head": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e",
+    "status": "unproven",
+    "reason": "the evidence judge found the harness output does not show it: Artifact 1 shows only that the internal/statuspagewarn package exists and its tests go from failing before ('vet: ./statuspagewarn_test.go:51:13: undefined: IsResolved') to passing after, but it does not show that each command calls the check in one line, that nothing is auto-resolved, that no opt-i",
+    "proofs": [
+      "tmp/soil/evidence/prove-fix.json"
+    ],
+    "by": "second-judge",
+    "textHash": "d01c896ebb359317",
+    "at": "2026-11-04T21:07:22.303Z"
+  },
+  "ac-6": {
+    "criterion": "ac-6",
+    "head": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e",
+    "status": "proved",
+    "reason": "Output of something that ran shows part of the criterion, or shows it only indirectly.",
+    "proofs": [
+      "tmp/soil/proofs/harness-go-test-d2081cefcd.txt",
+      "tmp/soil/proofs/harness-go-vet-d2081cefcd.txt",
+      "tmp/soil/evidence/prove-fix.json"
+    ],
+    "by": "jev",
+    "textHash": "8e996b459faa52b9",
+    "at": "2026-11-04T21:07:22.303Z"
+  }
+}

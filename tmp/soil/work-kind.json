@@ -1,0 +1,6 @@
+{
+  "key": "feature|Warn when resolving an incident from the CLI leaves status page events open|The status page commands in the ask already shipped in rootly-cli#57 (v0.6.1) as `status-pages list` and `status-pages events list/create/update/resolve`. What remains is the footgun in the title: resolving an incident from the CLI says nothing about public status-page entries still open. Add a best-effort, stderr-only warning, in its own helper package, that lists each open event with its status page and the exact `rootly status-pages events resolve <id>` command. No auto-resolve, no renames.",
+  "perf": false,
+  "source": "classifier",
+  "probability": 0.04
+}

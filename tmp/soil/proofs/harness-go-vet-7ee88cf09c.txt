@@ -1,0 +1,6 @@
+# Run by the Soil harness on HEAD 7ee88cf09c1f0474a4391237adafe5ca9d772a94
+$ rc=0; printf '== %s\n' 'internal/cmd/alerts'; (cd 'internal/cmd/alerts' && go vet .) || rc=1; printf '== %s\n' 'internal/cmd/incidents'; (cd 'internal/cmd/incidents' && go vet .) || rc=1; printf '== %s\n' 'internal/statuspagewarn'; (cd 'internal/statuspagewarn' && go vet .) || rc=1; [ "$rc" = 0 ]
+== internal/cmd/alerts
+== internal/cmd/incidents
+== internal/statuspagewarn
+exit=0

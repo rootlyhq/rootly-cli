@@ -1,0 +1,22 @@
+{
+  "parts": [
+    {
+      "title": "Warn on stderr when resolving an incident leaves status page events open",
+      "criteria": ["ac-1", "ac-2", "ac-3", "ac-4", "ac-5", "ac-6", "ac-7"],
+      "files": [
+        "internal/statuspagewarn/statuspagewarn.go",
+        "internal/statuspagewarn/statuspagewarn_test.go",
+        "internal/cmd/incidents/update.go",
+        "internal/cmd/incidents/create.go",
+        "internal/cmd/incidents/cmd_test.go",
+        "internal/cmd/alerts/resolve.go",
+        "internal/cmd/alerts/cmd_test.go",
+        "README.md",
+        "Makefile"
+      ],
+      "why": "Resolving an incident from the CLI does not touch its public status page events, and the CLI gives no hint that they are still open. The status page commands themselves already shipped in rootly-cli#57.",
+      "plan": "One coherent feature: a new internal/statuspagewarn package (best-effort, stderr-only check for open events), called with one line from incidents update, incidents create and alerts resolve --resolve-incidents, plus tests, a help/README note and the coverage gate. Splitting it would leave a package nobody calls, or callers with no package.",
+      "dependsOn": []
+    }
+  ]
+}

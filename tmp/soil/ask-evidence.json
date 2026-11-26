@@ -1,0 +1,72 @@
+{
+  "ticketKey": "IR-6586",
+  "depth": "full",
+  "ticket": {
+    "key": "IR-6586",
+    "title": "[ CLI ]: Add status page commands — incidents update --status=resolved leaves the public page open",
+    "url": "https://linear.app/rootly/issue/IR-6586/cli-add-status-page-commands-incidents-update-statusresolved-leaves",
+    "state": "Todo",
+    "stateType": "unstarted",
+    "createdAt": "2026-08-12T13:58:13.760Z",
+    "updatedAt": "2026-11-04T14:24:49.415Z",
+    "description": "**Product Surface:** CLI\n\n**Component:** Status Pages\n\n**Summary:** No status page commands exist in the CLI. This is not just a missing feature — `rootly incidents update <id> --status=resolved` reads as if it finished the job but does not resolve the status page entry, silently leaving customers looking at a stale \"Investigating\" banner after the incident is over.\n\n---\n\n## What is the customer attempting to do?\n\nDrive incident response from a terminal or an agent including the customer-facing side: opening a status page entry as `Investigating`, moving it to `Monitoring` when a mitigation lands, and resolving it at the end.\n\n## What pain points are they running into?\n\nNo status page commands exist anywhere in `internal/cmd/`.\n\nThe sharper problem is the divergence. Resolving the incident in Rootly does **not** resolve the status page entry — that is a separate action. The CLI makes it easier to hit that divergence than the UI does, because from a terminal there is no visible status page to remind you. The reporter's runbook now carries an explicit warning at both the mitigate and resolve steps for exactly this reason.\n\n## Desired Behaviour\n\n```\nrootly status-pages list\nrootly status-pages incidents create <status-page-id> --title=... --status=investigating --message=...\nrootly status-pages incidents update <id> --status=monitoring --message=... [--notify-subscribers]\nrootly status-pages incidents resolve <id> --message=...\n```\n\nRead-only support alone would help materially: being able to check whether an open status page entry exists for an incident would let a script refuse to report \"resolved\" while the public page still says otherwise.\n\n## Is there a workaround?\n\nManually open the web UI to update and resolve the status page. No programmatic way to even detect the mismatch, which is what makes this a footgun rather than a gap.\n\n---\n\n**Who does this affect?**\n\n* Any customer running public status pages and driving incident response from a terminal, script, or agent\n* Reported publicly on GitHub by @minkimipt — internal vs. external UNKNOWN, please confirm\n\n**Why this matters:**\n\nThis is the one item of the four with a customer-visible failure mode, not just an internal inconvenience. A currently-shipping command leads a responder to believe the incident is fully closed while the public page still reads \"Investigating.\" Worth treating the read-only check as a fast partial fix even if the full write surface is a later phase.\n\n---\n\n**Links**\n\n* GitHub: [https://github.com/rootlyhq/rootly-cli/issues/52](<https://github.com/rootlyhq/rootly-cli/issues/52>)",
+    "comments": [
+      {
+        "author": "Linear",
+        "at": "2026-08-12T14:00:05.338Z",
+        "body": "### 1) Restated problem\n\n`rootly incidents update <id> --status=resolved` resolves the incident record, but it does not resolve the customer-facing status page entry. Expected behavior from the reporter’s perspective is a CLI path to manage the status page lifecycle or at least detect that the public page is still open.\n\n### 2) Scope\n\n* in-scope\n* likely owner area/team: Incident Response / Status Pages\n* reason: this primarily concerns status page behavior in the incident workflow, which this team owns\n\n### 3) Classification\n\n* feature-request\n* severity guess: medium\n* reason: the strongest evidence is that status page lifecycle management is not implemented in the CLI today; there is not yet evidence that the product is attempting this workflow and failing incorrectly\n\n### 4) Evidence\n\n**Facts**\n\n* The ticket states there are no status page commands in the CLI and that responders can end up with the incident resolved internally while the public page still shows `Investigating`.\n* The requested CLI shape is explicit: list/create/update/resolve commands for status page incidents.\n* The current workaround is to use the web UI.\n\n**Findings**\n\n* `rootly incidents update` accepts `--status=resolved` and dispatches an incident update request only; there is no status page follow-up in that command path (`internal/cmd/incidents/update.go:32`).\n* The API client sends that update to `PUT /v1/incidents/<id>` with incident attributes only (`internal/api/client.go:1152`).\n* The registered top-level CLI surfaces include `incidents`, `alerts`, `oncall`, `pulse`, `services`, and `teams`; no status page command surface is present (`internal/cmd/incidents_register.go:1`).\n\n### 5) Root-cause hypothesis\n\nHypothesis: this is likely a product-gap / UX-footgun rather than a regression. The CLI appears to model incident status updates only, while status page entries are treated as a separate surface with no CLI support, so resolving the incident is consistent with the current implementat"
+      },
+      {
+        "author": "Devin",
+        "at": "2026-11-04T14:24:49.451Z",
+        "body": "### 1) Restated problem\nThe reporter wants terminal-driven status-page discovery and public lifecycle updates, including an explicit resolution step or read-only mismatch check. They reported that resolving the incident alone leaves the public entry Investigating.\n\n### 2) Scope\n- **in-scope** — Incident Response / Status Pages; the requested client commands belong in rootlyhq/rootly-cli, backed by the Rails status-page event API.\n\n### 3) Classification\n- **feature-request**, severity **medium** for the reported customer-visible stale-banner risk.\n- The primary ask is a missing command surface, not demonstrated failure of an implemented public-page resolution operation. Fresh evidence shows the command surface has since been implemented.\n\n### 4) Evidence\n**Facts**\n- The original [CLI issue #52](https://github.com/rootlyhq/rootly-cli/issues/52) is closed. [PR #57](https://github.com/rootlyhq/rootly-cli/pull/57) explicitly closes it and merged August 13, 2026.\n- That merge is an ancestor of [v0.6.1](https://github.com/rootlyhq/rootly-cli/releases/tag/v0.6.1), published October 21. No affected CLI version or tenant was supplied.\n- Existing focused CLI command/API tests passed locally against mock HTTP servers; no customer or production flow was exercised.\n\n**Findings**\n- CLI registers the status-page group: rootly-cli/internal/cmd/statuspages_register.go:6.\n- Read-only discovery exists: rootly-cli/internal/cmd/statuspages/events_list.go:15 (`rootly status-pages events list <incident-id>`).\n- Create/update/resolve exist: rootly-cli/internal/cmd/statuspages/events_mutations.go:15-59. Resolve sends a separate event update with resolved status at lines 115-127.\n- Rails exposes incident-event and page resources: config/routes/api.rb:94,221.\n- Rails lists and updates those events: app/controllers/api/v1/incident_status_page_events_controller.rb:15-18,47-55.\n\n### 5) Root-cause hypothesis\nThe original report likely described the pre-PR-57 CLI capability gap. The blanket claims "
+      }
+    ],
+    "relations": []
+  },
+  "prs": [
+    {
+      "repo": "rootlyhq/rootly-cli",
+      "number": 75,
+      "title": "feat(agent): local MCP servers, `rootly mcp` commands and /mcp connectors page",
+      "url": "https://github.com/rootlyhq/rootly-cli/pull/75",
+      "mergedAt": "2026-11-03T01:56:45Z",
+      "matched": "area"
+    },
+    {
+      "repo": "rootlyhq/rootly-cli",
+      "number": 68,
+      "title": "feat: scheduled maintenance, custom form fields, status-page templates, alert escalation",
+      "url": "https://github.com/rootlyhq/rootly-cli/pull/68",
+      "mergedAt": "2026-10-07T08:06:31Z",
+      "matched": "area"
+    },
+    {
+      "repo": "rootlyhq/rootly-cli",
+      "number": 57,
+      "title": "Add status page incident event commands",
+      "url": "https://github.com/rootlyhq/rootly-cli/pull/57",
+      "mergedAt": "2026-08-13T04:14:47Z",
+      "matched": "area"
+    }
+  ],
+  "kb": [
+    {
+      "path": "domains/ai-tools-must-resolve-incident-statuses-from-incident-statuses-never-hardcode-th.md",
+      "title": "AI tools must resolve incident statuses from Incident::Statuses, never hardcode the enum",
+      "snippet": "tools must resolve incident statuses from Incident::Statuses, never hardcode the enum\n\n`Ai::Tools::UpdateIncident` hardcoded `%w[in_triage started mitigated resolved cancelled]`, which broke two real tenant setups: (1) teams with `config_sub_status … enabled?` — `mitigated` is replaced by custom sub"
+    },
+    {
+      "path": "repos/rootly/wiki/status-pages.md",
+      "title": "Status pages",
+      "snippet": "Status pages\n\n_Generated from rootlyhq/rootly at `0c14facc06a3` on 2026-11-04. A page goes stale when the files it cites change._\n\n## Purpose\n\nStatus pages let a team publish incident and maintenance updates … page can be public, which renders on a Rootly or custom domain, or private and internal. T"
+    },
+    {
+      "path": "repos/rootly/commands.md",
+      "title": "Commands",
+      "snippet": "- lint: `bundle exec rubocop`\n- test: `bundle exec rspec`\n\n_Moved from the rootly"
+    }
+  ],
+  "gaps": [],
+  "gatheredAt": "2026-11-04T20:45:41.984Z"
+}

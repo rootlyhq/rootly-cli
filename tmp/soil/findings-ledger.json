@@ -1,0 +1,321 @@
+{
+  "version": 1,
+  "round": 6,
+  "items": [
+    {
+      "id": "general-1",
+      "tag": "important",
+      "file": "internal/statuspagewarn/statuspagewarn.go",
+      "line": 34,
+      "claim": "`Incident` requests only page 1 and treats its events as the complete result. `ListStatusPageEventsCLI` caps page size at 100 and returns pagination metadata, but the helper never follows it. The resolved-status guard and error handling do not prevent successful, incomplete lookups.",
+      "title": "Open events beyond the first page are silently missed",
+      "checks": [
+        {
+          "at": "2026-11-04T21:01:10.748Z",
+          "head": "f3438089088bf45728ee90ee14a238f2a1729080",
+          "note": "HEAD internal/statuspagewarn/statuspagewarn.go:38 stops after 20 pages even when HasNext remains true; :53 returns silently if those pages contain no open events. Thus 2,000 resolved events followed by an investigating event on page 21 still produce no warning. internal/statuspagewarn/statuspagewarn_test.go:73 covers page 2, while :91 only checks the request cap, not disclosure of incomplete results.",
+          "holds": true
+        },
+        {
+          "at": "2026-11-04T21:01:59.265Z",
+          "head": "05d67b6e10e22ef663c794b5bb328f5136ae5873",
+          "note": "At HEAD, internal/statuspagewarn/statuspagewarn.go:34 iterates pages without a cap, collects open events, and follows HasNext until completion or a defensive guard at line 46. internal/statuspagewarn/statuspagewarn_test.go:93 checks 25 requests and a warning for the open event on page 25; line 111 tests stopping when the API ignores pagination.",
+          "holds": false
+        }
+      ],
+      "source": "council",
+      "status": "closed",
+      "mustFix": true,
+      "repeats": 0,
+      "verdict": "confirmed",
+      "bugClass": "paginated read treated as complete",
+      "raisedAt": "2026-11-04T21:00:36.977Z",
+      "instances": [
+        {
+          "file": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 34
+        }
+      ],
+      "raisedHead": "4731c2512aa0c3c1153fbfcbb120d7213cb2a6bf",
+      "resolution": {
+        "at": "2026-11-04T21:01:59.265Z",
+        "sha": "05d67b6",
+        "note": "Removed the 20-page cap: Incident now follows HasNext until the last page, so an open event on page 25 is found. It only stops early on an empty page or when the API returns a different page than requested (guards against an infinite loop); TestIncidentStopsWhenPageIgnored covers that. Lookup errors stay best-effort.",
+        "test": "internal/statuspagewarn TestIncidentFollowsManyPages",
+        "reason": "fixed",
+        "verifiedAt": "05d67b6e10e22ef663c794b5bb328f5136ae5873"
+      },
+      "suggestion": "Follow the returned pagination metadata and inspect every page, preserving best-effort handling of lookup failures. Add a test with an open event on page 2.",
+      "raisedRound": 1,
+      "failureScenario": "Resolve an incident with 101 status-page events, where the first 100 are resolved and the last is investigating. The lookup succeeds, but the helper prints no warning about the remaining open event."
+    },
+    {
+      "id": "general-2",
+      "tag": "important",
+      "file": "internal/statuspagewarn/statuspagewarn.go",
+      "line": 50,
+      "claim": "The warning prints `rootly status-pages events resolve <id>` as the command to run, but `eventsResolveCmd` marks `--message` as required. Cobra rejects the printed command before `runEventsResolve` executes. The existing validation prevents the public write but makes every printed remediation incomplete.",
+      "title": "The suggested resolve command fails required-flag validation",
+      "checks": [
+        {
+          "at": "2026-11-04T21:01:10.748Z",
+          "head": "f3438089088bf45728ee90ee14a238f2a1729080",
+          "note": "At HEAD, internal/statuspagewarn/statuspagewarn.go:58 includes --message=\"<public resolution message>\" for every printed event command; line 60 explains public visibility and possible notifications. This satisfies the required flag in internal/cmd/statuspages/events_mutations.go:57. TestIncidentPrintsRequiredMessageFlag in internal/statuspagewarn/statuspagewarn_test.go:100-106 asserts the command includes that quoted flag.",
+          "holds": false
+        }
+      ],
+      "source": "council",
+      "status": "closed",
+      "mustFix": true,
+      "repeats": 0,
+      "verdict": "confirmed",
+      "bugClass": "generated command violates required flags",
+      "raisedAt": "2026-11-04T21:00:36.977Z",
+      "instances": [
+        {
+          "file": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 50
+        }
+      ],
+      "raisedHead": "4731c2512aa0c3c1153fbfcbb120d7213cb2a6bf",
+      "resolution": {
+        "at": "2026-11-04T21:01:10.748Z",
+        "sha": "f343808",
+        "note": "Printed command now includes --message=\"<public resolution message>\" plus a line explaining it is public text and may notify subscribers.",
+        "test": "internal/statuspagewarn TestIncidentPrintsRequiredMessageFlag",
+        "reason": "fixed",
+        "verifiedAt": "f3438089088bf45728ee90ee14a238f2a1729080"
+      },
+      "suggestion": "Include a quoted `--message` placeholder in the printed command and explain that the operator should supply the public resolution message.",
+      "raisedRound": 1,
+      "failureScenario": "Resolve an incident with an investigating status-page event, then copy and run the command from stderr. The CLI reports that the required `message` flag is missing and leaves the event open."
+    },
+    {
+      "id": "general-1~2",
+      "tag": "important",
+      "file": "internal/statuspagewarn/statuspagewarn.go",
+      "line": 46,
+      "claim": "`Incident` now relies on `Pagination.HasNext`, but `parseStatusPageEvents` sets that field exclusively from `meta.next_page`, even though it also parses `total_pages`. A response with `current_page: 1, total_pages: 2` and no `next_page` therefore stops this loop after page one. The empty-page and current-page guards prevent other failure modes but do not handle this metadata shape.",
+      "title": "Pagination stops early when only total_pages indicates more results",
+      "checks": [
+        {
+          "at": "2026-11-04T21:04:38.573Z",
+          "head": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e",
+          "note": "At HEAD d2081cefcd77, internal/statuspagewarn/statuspagewarn.go:49 continues when HasNext OR CurrentPage < TotalPages. TestIncidentFollowsTotalPagesWithoutNextPage at internal/statuspagewarn/statuspagewarn_test.go:120 supplies resolved events on page one and an open event on page two without next_page, and asserts the page-two warning at line 130. All incident-warning callers use this helper.",
+          "holds": false
+        }
+      ],
+      "source": "council",
+      "status": "closed",
+      "mustFix": false,
+      "repeats": 0,
+      "verdict": "confirmed",
+      "bugClass": "incomplete pagination",
+      "raisedAt": "2026-11-04T21:04:19.243Z",
+      "instances": [
+        {
+          "file": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 46
+        }
+      ],
+      "raisedHead": "05d67b6e10e22ef663c794b5bb328f5136ae5873",
+      "resolution": {
+        "at": "2026-11-04T21:04:38.573Z",
+        "sha": "d2081ce",
+        "note": "Incident now continues when HasNext or current_page < total_pages, handled in the helper so other commands' use of api.Pagination is untouched.",
+        "test": "internal/statuspagewarn TestIncidentFollowsTotalPagesWithoutNextPage",
+        "reason": "fixed",
+        "verifiedAt": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e"
+      },
+      "suggestion": "Derive HasNext from next_page or current_page < total_pages, as ListStatusPageTemplatesCLI already does, and test intermediate pages without next_page.",
+      "raisedRound": 3,
+      "failureScenario": "An events response contains resolved events on page one, an open event on page two, and pagination metadata containing current_page and total_pages without next_page. Resolving the incident prints no warning because page two is never requested."
+    },
+    {
+      "id": "general-2~2",
+      "tag": "important",
+      "file": "internal/statuspagewarn/statuspagewarn.go",
+      "line": 40,
+      "claim": "The loop appends events before checking whether the returned current page matches the requested page. In the ignored-pagination case explicitly covered by `TestIncidentStopsWhenPageIgnored`, page one's events are appended again on the second request. The existing guard stops further requests, but runs too late to prevent duplicate output.",
+      "title": "Ignored pagination duplicates open events in the warning",
+      "checks": [
+        {
+          "at": "2026-11-04T21:04:38.573Z",
+          "head": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e",
+          "note": "At HEAD d2081cefcd77, internal/statuspagewarn/statuspagewarn.go:41 checks CurrentPage against the requested page and breaks before appending events at line 46, preventing the repeated first page from duplicating output. TestIncidentStopsWhenPageIgnored at internal/statuspagewarn/statuspagewarn_test.go:111 returns the same first page for both requests; line 115 asserts two requests and exactly one resolve command.",
+          "holds": false
+        }
+      ],
+      "source": "council",
+      "status": "closed",
+      "mustFix": false,
+      "repeats": 0,
+      "verdict": "confirmed",
+      "bugClass": "duplicate pagination results",
+      "raisedAt": "2026-11-04T21:04:19.243Z",
+      "instances": [
+        {
+          "file": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 40
+        }
+      ],
+      "raisedHead": "05d67b6e10e22ef663c794b5bb328f5136ae5873",
+      "resolution": {
+        "at": "2026-11-04T21:04:38.573Z",
+        "sha": "d2081ce",
+        "note": "The mismatched current-page check now runs before events are appended, and the test asserts the open event is listed exactly once.",
+        "test": "internal/statuspagewarn TestIncidentStopsWhenPageIgnored",
+        "reason": "fixed",
+        "verifiedAt": "d2081cefcd770fdaa7b9d18354f5e49ec018dd7e"
+      },
+      "suggestion": "Check for a mismatched current page before appending its events, and make the ignored-pagination test assert that an open event appears exactly once.",
+      "raisedRound": 3,
+      "failureScenario": "The server returns the same first page with one investigating event and next_page=2 for both requests. The warning reports two open events and prints the same resolve command twice."
+    },
+    {
+      "id": "review-1",
+      "tag": "important",
+      "file": "",
+      "claim": "Maintenance events get the wrong status in the suggested resolve command (https://github.com/rootlyhq/rootly-cli/pull/83#discussion_r4473389103)",
+      "title": "Maintenance events get the wrong status in the suggested resolve command",
+      "checks": [
+        {
+          "at": "2026-11-05T01:07:59.919Z",
+          "head": "3b03ae9aeac821647e671855e9a2aab11f2c40a7",
+          "note": "At HEAD 3b03ae9, the only place the suggested resolve command is built is internal/statuspagewarn/statuspagewarn.go:79. isMaintenance (statuspagewarn.go:24-26) returns true for \"scheduled\" and \"in_progress\", and the loop at lines 75-78 appends \" --status=completed\" for those events. Incident-type events get no flag, so the default resolved applies. The resolve command also accepts completed (internal/cmd/statuspages/events_mutations.go:117 and 132). statuspagewarn_test.go:147-157 covers m-sched and m-prog and asserts the --status=completed output. No other instance of the suggestion exists in the repo.",
+          "holds": false
+        }
+      ],
+      "source": "codeflow",
+      "status": "closed",
+      "mustFix": false,
+      "repeats": 1,
+      "raisedAt": "2026-11-05T01:07:59.919Z",
+      "reviewer": "greptile-apps[bot]",
+      "raisedHead": "3b03ae9aeac8",
+      "resolution": {
+        "at": "2026-11-05T01:07:59.919Z",
+        "sha": "3b03ae9",
+        "note": "fixed in 3b03ae9",
+        "reason": "fixed",
+        "verifiedAt": "3b03ae9aeac821647e671855e9a2aab11f2c40a7"
+      },
+      "raisedRound": 0
+    },
+    {
+      "id": "review-1~2",
+      "tag": "important",
+      "file": "",
+      "claim": "Timeout test hangs on failure because server.Close runs before the handler is released (https://github.com/rootlyhq/rootly-cli/pull/83#discussion_r4475384953)",
+      "title": "Timeout test hangs on failure because server.Close runs before the handler is released",
+      "checks": [
+        {
+          "at": "2026-11-05T01:09:57.924Z",
+          "head": "414410820badfaf81e0aa1e2ce54155037363d7d",
+          "note": "At HEAD 4144108, internal/statuspagewarn/statuspagewarn_test.go:177 registers `t.Cleanup(func() { close(release) })` after `newClient` (which registers `server.Close` at line 34). t.Cleanup runs LIFO, so `close(release)` runs before `server.Close`, releasing the stalled handler at lines 170-176. The pre-fix order (release registered before newClient) is what caused the hang, and commit 4144108 moved it. This is the only test with a blocking handler; every other test file's handlers return immediately and only register server.Close and viper.Reset.",
+          "holds": false
+        }
+      ],
+      "source": "codeflow",
+      "status": "closed",
+      "mustFix": false,
+      "repeats": 0,
+      "raisedAt": "2026-11-05T01:09:57.924Z",
+      "reviewer": "greptile-apps[bot]",
+      "raisedHead": "3b03ae9aeac8",
+      "resolution": {
+        "at": "2026-11-05T01:09:57.924Z",
+        "sha": "4144108",
+        "note": "fixed in 4144108",
+        "reason": "fixed",
+        "verifiedAt": "414410820badfaf81e0aa1e2ce54155037363d7d"
+      },
+      "raisedRound": 0
+    },
+    {
+      "id": "general-1~3",
+      "source": "council",
+      "tag": "nit",
+      "mustFix": false,
+      "file": "internal/cmd/incidents/update.go",
+      "line": 169,
+      "title": "Warning fires on any update that ends with a resolved incident, not only when --status is set",
+      "claim": "ac-1 ties the warning to an `incidents update` that sets --status to resolved or closed. `runUpdate` at `internal/cmd/incidents/update.go:169` instead passes the status from the API response (`incident.Status`) to `statuspagewarn.Incident`. It never checks `cmd.Flags().Changed(\"status\")`. Any update to an incident that is already resolved or closed therefore triggers the events lookup, whatever flag was passed.",
+      "bugClass": "warning trigger broader than stated acceptance criterion",
+      "instances": [
+        {
+          "file": "internal/cmd/incidents/update.go",
+          "line": 169
+        }
+      ],
+      "failureScenario": "A user runs `rootly incidents update INC-123 --title=\"Fix typo\"` on an incident that was resolved long ago and whose status-page events are still open on purpose, for example a long-lived maintenance entry. The command makes an extra paginated events request and prints a multi-line \"incident is resolved but N event(s) are still open\" warning. The warning repeats on every later edit even though th…",
+      "suggestion": "Call the helper only when `cmd.Flags().Changed(\"status\")`. If the broader behaviour is intended, say so in the PR and update ac-1.",
+      "verdict": "confirmed",
+      "raisedAt": "2026-11-05T01:37:25.104Z",
+      "raisedHead": "7ee88cf09c1f0474a4391237adafe5ca9d772a94",
+      "raisedRound": 6,
+      "repeats": 0,
+      "status": "open"
+    },
+    {
+      "id": "general-3",
+      "source": "council",
+      "tag": "nit",
+      "mustFix": false,
+      "file": "internal/statuspagewarn/statuspagewarn.go",
+      "line": 53,
+      "title": "A mid-pagination lookup failure prints a partial open-event count as if it were complete",
+      "claim": "In `incident()`, a `ListStatusPageEventsCLI` error on page N ends the loop with `break` after `debugf`. The code then still reports whatever was collected from earlier pages, and the heading says \"%d status page event(s) are still open\". The timeout (`checkTimeout`) can cut the loop the same way. A bounded read is presented as the full list.",
+      "bugClass": "partial read treated as complete",
+      "instances": [
+        {
+          "file": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 53
+        }
+      ],
+      "failureScenario": "An incident has more than 100 status-page events. Page 1 holds only resolved events, so nothing is reported. Page 2 times out or returns a 5xx. The user sees no warning, or an undercounted one, and takes it as complete.",
+      "suggestion": "Track that the lookup was incomplete and word the heading as \"at least N\" or note that the check was cut short.",
+      "verdict": "confirmed",
+      "raisedAt": "2026-11-05T01:37:25.104Z",
+      "raisedHead": "7ee88cf09c1f0474a4391237adafe5ca9d772a94",
+      "raisedRound": 6,
+      "repeats": 0,
+      "status": "closed",
+      "resolution": {
+        "reason": "doesnt-matter",
+        "note": "On a mid-pagination failure the warning lists only the open events it did see, which is still accurate and useful. The check is best-effort by decision: a failed lookup is reported as a debug note at most, so the command output stays quiet and unchanged. Counting from earlier pages is not worth a new 'incomplete' wording.",
+        "at": "2026-11-05T01:37:35.186Z"
+      }
+    },
+    {
+      "id": "checking-1",
+      "source": "council",
+      "tag": "nit",
+      "mustFix": false,
+      "file": "internal/statuspagewarn/statuspagewarn.go",
+      "line": 85,
+      "title": "One 10s deadline is shared across the alert lookup and every related incident, so later incidents are silently skipped",
+      "claim": "`AlertIncidents` creates one `context.WithTimeout(ctx, checkTimeout)` and uses it for `GetAlertByID` and for every `incident()` call, each of which may page through events. Once the deadline passes, each later `ListStatusPageEventsCLI` fails. `incident()` only reports that through `debugf`, which prints nothing unless `--debug` is set. The remaining incidents are therefore dropped without any warning.",
+      "bugClass": "shared deadline starves later iterations silently",
+      "instances": [
+        {
+          "file": "internal/statuspagewarn/statuspagewarn.go",
+          "line": 85
+        }
+      ],
+      "failureScenario": "1. `alerts resolve ALR-1 --resolve-incidents` on an alert with several related incidents. 2. The alert fetch and the first incidents' event pages (slow API, many pages) use up the 10s. 3. The remaining resolved incidents' events requests fail with a deadline error and are swallowed. 4. The user sees a warning for the first incident and nothing for the rest, and reads that as 'the others are clean…",
+      "suggestion": "Give each related incident its own timeout context. Also print a one-line stderr note, not only a debug line, when the check could not finish.",
+      "verdict": "confirmed",
+      "raisedAt": "2026-11-05T01:37:25.104Z",
+      "raisedHead": "7ee88cf09c1f0474a4391237adafe5ca9d772a94",
+      "raisedRound": 6,
+      "repeats": 0,
+      "status": "closed",
+      "resolution": {
+        "reason": "intentional",
+        "note": "One shared deadline across the alert fetch, all pages and all related incidents is a deliberate trade-off, and was requested in review so the optional check can never delay the command by more than 10 seconds in total. Per-incident timeouts would multiply that bound. A late timeout is silent by the same best-effort decision.",
+        "at": "2026-11-05T01:37:35.186Z"
+      }
+    }
+  ]
+}

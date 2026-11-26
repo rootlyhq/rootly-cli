@@ -1,0 +1,5 @@
+[
+  {"head": "3b03ae9aeac8", "finding": "Maintenance events get the wrong status in the suggested resolve command", "reviewer": "greptile-apps[bot]", "thread": "https://github.com/rootlyhq/rootly-cli/pull/83#discussion_r4473389103", "status": "fixed", "sha": "3b03ae9"},
+  {"head": "3b03ae9aeac8", "finding": "Optional status page check can hang the command without a deadline", "reviewer": "greptile-apps[bot]", "thread": "https://github.com/rootlyhq/rootly-cli/pull/83#discussion_r4473389117", "status": "fixed", "sha": "3b03ae9"},
+  {"head": "3b03ae9aeac8", "finding": "Timeout test hangs on failure because server.Close runs before the handler is released", "reviewer": "greptile-apps[bot]", "thread": "https://github.com/rootlyhq/rootly-cli/pull/83#discussion_r4475384953", "status": "fixed", "sha": "4144108"}
+]
